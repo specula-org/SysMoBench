@@ -6,16 +6,19 @@ language: "go"
 
 # Source code repository information
 repository:
-  url: "https://github.com/etcd-io/etcd.git"
+  url: "https://github.com/etcd-io/raft.git"
   branch: "main"
   
 # Files to extract from the repository
 source_files:
-  - path: "raft/raft.go" 
-    description: "Raft consensus algorithm implementation"
+  - path: "raft.go" 
+    description: "Main Raft consensus algorithm implementation"
 
 # Default file to use if not specified
-default_source_file: "raft/raft.go"
+default_source_file: "raft.go"
+
+# TLA+ specification module name
+specModule: "etcdraft"
 
 # Metadata
 metadata:

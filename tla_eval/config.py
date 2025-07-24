@@ -7,9 +7,12 @@ allowing users to define their models in config files.
 
 import yaml
 import os
+import logging
 from pathlib import Path
 from typing import Dict, Any
 from .models import get_model_adapter
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
@@ -69,6 +72,8 @@ class ConfigManager:
             api_key = os.getenv(env_var)
             if api_key:
                 model_config['api_key'] = api_key
+            else:
+                logger.warning(f"Environment variable {env_var} not set for model {model_name}")
         
         return get_model_adapter(provider, model_name=model_id, **model_config)
     

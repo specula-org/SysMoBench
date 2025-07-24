@@ -77,6 +77,7 @@ class TaskLoader:
             system_type=metadata['system_type'],
             language=metadata['language'],
             description=metadata['description'],
+            spec_module=metadata.get('specModule', task_name),  # Use specModule from config or task name as fallback
             # Add additional metadata
             extra_info={
                 'file_path': source_file,

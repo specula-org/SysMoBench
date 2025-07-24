@@ -18,6 +18,9 @@ etcd-specific modeling requirements:
 5. Ensure linearizability and consistency guarantees
 6. Include proper invariants for distributed consensus
 
-Generate a TLA+ specification that accurately models etcd's distributed behavior:
+Generate a TLA+ specification that accurately models etcd's distributed behavior.
 
-TLA+ Specification:
+IMPORTANT: 
+1. The MODULE name must be exactly "etcdraft" (MODULE etcdraft)
+2. Return ONLY the pure TLA+ specification content
+3. Do not include any explanations, comments, markdown formatting, or code blocks

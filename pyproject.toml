@@ -51,7 +51,8 @@ Repository = "https://github.com/Qian-Cheng-nju/LLM_Gen_TLA_benchmark_framework"
 Issues = "https://github.com/Qian-Cheng-nju/LLM_Gen_TLA_benchmark_framework/issues"
 
 [project.scripts]
-tla-eval = "scripts.run_benchmark:main"
+tla-benchmark = "scripts.run_benchmark:main"
+tla-setup = "scripts.setup_tools:main"
 
 [tool.setuptools.packages.find]
 include = ["tla_eval*"]

@@ -8,7 +8,6 @@ with source code and asking for a TLA+ translation.
 from typing import Dict, Any
 from ..base import TLAGenerationMethod, GenerationTask, GenerationOutput
 from ...config import get_configured_model
-from ...tasks.loader import get_task_loader
 
 
 class DirectCallMethod(TLAGenerationMethod):
@@ -70,7 +69,8 @@ class DirectCallMethod(TLAGenerationMethod):
     def _create_prompt(self, task: GenerationTask) -> str:
         """Create prompt for direct call method using task-specific prompt."""
         
-        # Get task-specific prompt template
+        # Get task-specific prompt template (lazy import to avoid circular dependency)
+        from ...tasks.loader import get_task_loader
         task_loader = get_task_loader()
         prompt_template = task_loader.get_task_prompt(task.task_name, self.name)
         
