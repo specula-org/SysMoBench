@@ -1,0 +1,23 @@
+You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly etcd and Raft consensus.
+
+Convert the following etcd source code to a comprehensive TLA+ specification.
+
+System: etcd distributed key-value store
+Focus: {focus}
+
+Source Code from {file_path}:
+```go
+{source_code}
+```
+
+etcd-specific modeling requirements:
+1. Model the key-value store state and operations (Put, Get, Delete)
+2. Capture the Raft consensus protocol for leader election and log replication
+3. Handle client request processing and response generation
+4. Model network partitions and node failures
+5. Ensure linearizability and consistency guarantees
+6. Include proper invariants for distributed consensus
+
+Generate a TLA+ specification that accurately models etcd's distributed behavior:
+
+TLA+ Specification:

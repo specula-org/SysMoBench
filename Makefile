@@ -46,4 +46,8 @@ clean:
 
 # Example usage
 example:
-	python scripts/run_benchmark.py --model openai_gpt4 --task etcd --dry-run
+	python3 scripts/run_benchmark.py --method direct_call --task etcd --dry-run
+
+# Test models
+test-models:
+	python3 scripts/test_models.py

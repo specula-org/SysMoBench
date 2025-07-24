@@ -1,0 +1,30 @@
+# Model configuration file
+# Users configure their models here, then methods use these models
+
+models:
+  # User's OpenAI configuration
+  my_gpt4:
+    provider: "openai"
+    model_name: "gpt-4"
+    api_key_env: "OPENAI_API_KEY"  # or set api_key directly
+    temperature: 0.1
+    max_tokens: 4096
+    
+  # User's Anthropic configuration  
+  my_claude:
+    provider: "anthropic"
+    model_name: "claude-sonnet-4-20250514"
+    api_key_env: "ANTHROPIC_API_KEY"
+    temperature: 0.1
+    max_tokens: 4096
+
+  my_yunwu:
+    provider: "yunwu"
+    url: "https://yunwu.ai/v1"
+    model_name: "claude-sonnet-4-20250514"
+    api_key_env: "YUNWU_API_KEY"
+    temperature: 0.1
+    max_tokens: 4096
+
+# Default model to use if not specified
+default_model: "my_yunwu"

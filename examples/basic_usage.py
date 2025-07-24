@@ -17,82 +17,111 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from tla_eval.models import get_model_adapter
-from tla_eval.tasks import load_task
-from tla_eval.evaluation import evaluate_specification
+from tla_eval.models import get_model_adapter, ModelFactory
+from tla_eval.utils import get_default_prompt
 
 
 def main():
     """Demonstrate basic usage of the framework."""
     
-    # Example 1: Using OpenAI GPT-4
-    print("=== Example 1: OpenAI GPT-4 ===")
+    # Example 1: List available models
+    print("=== Example 1: Available Models ===")
+    available = ModelFactory.list_available_models()
+    print(f"Predefined models: {available['predefined_models']}")
+    print(f"Available providers: {available['providers']}")
     
-    # Check if API key is available
+    # Example 2: Using OpenAI GPT-4 (if available)
+    print("\n=== Example 2: OpenAI GPT-4 ===")
+    
     if not os.getenv("OPENAI_API_KEY"):
         print("Warning: OPENAI_API_KEY not found. Skipping OpenAI example.")
     else:
-        # Initialize model adapter
-        model_config = {
-            "type": "api",
-            "provider": "openai", 
-            "model_name": "gpt-4",
-            "max_tokens": 2048,
-            "temperature": 0.1
-        }
-        
-        model = get_model_adapter("openai_gpt4", **model_config)
-        print(f"Initialized model: {model.get_model_info()}")
+        try:
+            # Initialize model adapter using predefined config
+            model = get_model_adapter("openai_gpt4")
+            print(f"Initialized model: {model.get_model_info()}")
+            
+            if model.is_available():
+                print("Model is available and ready to use!")
+            else:
+                print("Model is not available.")
+                
+        except Exception as e:
+            print(f"Could not initialize OpenAI model: {e}")
     
-    # Example 2: Load a benchmark task
-    print("\n=== Example 2: Load benchmark task ===")
+    # Example 3: Using Anthropic Claude (if available)
+    print("\n=== Example 3: Anthropic Claude ===")
     
-    try:
-        task = load_task("etcd")
-        print(f"Loaded task: {task.name}")
-        print(f"Description: {task.description}")
-        print(f"Difficulty: {task.difficulty}")
-    except Exception as e:
-        print(f"Could not load task: {e}")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("Warning: ANTHROPIC_API_KEY not found. Skipping Anthropic example.")
+    else:
+        try:
+            # Initialize model adapter using predefined config
+            model = get_model_adapter("anthropic_claude3_sonnet")
+            print(f"Initialized model: {model.get_model_info()}")
+            
+            if model.is_available():
+                print("Model is available and ready to use!")
+            else:
+                print("Model is not available.")
+                
+        except Exception as e:
+            print(f"Could not initialize Anthropic model: {e}")
     
-    # Example 3: Generate TLA+ specification (mock)
-    print("\n=== Example 3: Generate specification ===")
+    # Example 4: Generate TLA+ specification (demo)
+    print("\n=== Example 4: Generate TLA+ specification ===")
     
     sample_code = """
-    // etcd key-value operations
-    func (s *EtcdServer) Put(key, value string) error {
-        // Acquire lock
-        s.mutex.Lock()
-        defer s.mutex.Unlock()
-        
-        // Store in state machine
-        s.store[key] = value
-        
-        // Replicate to followers
-        return s.replicate(PUT, key, value)
+// Simple mutex implementation
+type Mutex struct {
+    locked bool
+}
+
+func (m *Mutex) Lock() {
+    for m.locked {
+        // spin wait
     }
-    """
+    m.locked = true
+}
+
+func (m *Mutex) Unlock() {
+    m.locked = false
+}
+"""
     
     print(f"Sample source code:\n{sample_code}")
-    print("Generated TLA+ specification: [Implementation pending]")
     
-    # Example 4: Evaluation metrics
-    print("\n=== Example 4: Evaluation metrics ===")
+    # Try to generate with any available model
+    model = None
+    if os.getenv("OPENAI_API_KEY"):
+        try:
+            model = get_model_adapter("openai_gpt4")
+        except:
+            pass
+    elif os.getenv("ANTHROPIC_API_KEY"):
+        try:
+            model = get_model_adapter("anthropic_claude3_sonnet")
+        except:
+            pass
     
-    sample_spec = """
-    VARIABLES store, mutex
+    if model and model.is_available():
+        try:
+            prompt_template = get_default_prompt()
+            print("\nGenerating TLA+ specification...")
+            result = model.generate_tla_specification(sample_code, prompt_template.template)
+            
+            if result.success:
+                print(f"\nGenerated TLA+ specification:\n{result.generated_text}")
+                print(f"\nGeneration metadata: {result.metadata}")
+            else:
+                print(f"Generation failed: {result.error_message}")
+                
+        except Exception as e:
+            print(f"Error during generation: {e}")
+    else:
+        print("No API keys available for demonstration.")
     
-    Put(key, value) ==
-        /\ mutex = "unlocked"
-        /\ mutex' = "locked" 
-        /\ store' = [store EXCEPT ![key] = value]
-        /\ mutex'' = "unlocked"
-    """
-    
-    print(f"Sample TLA+ specification:\n{sample_spec}")
-    print("Evaluation results: [Implementation pending]")
-    
-    print("\n=== Framework ready for implementation! ===")
+    print("\n=== Framework is ready! ===")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,6 @@ __version__ = "0.1.0"
 __author__ = "TLA+ Benchmark Team"
 
 from .models import ModelAdapter
-from .evaluation import Evaluator
+from .config import get_configured_model
 
-__all__ = ["ModelAdapter", "Evaluator"]
+__all__ = ["ModelAdapter", "get_configured_model"]

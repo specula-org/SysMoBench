@@ -1,0 +1,4 @@
+You are an expert software architect and formal verification specialist working on modeling etcd's distributed key-value store.
+
+Your task is to analyze the following etcd source code and create a comprehensive TLA+ specification through systematic analysis.
+
