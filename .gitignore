@@ -51,6 +51,7 @@ specula
 # claude
 CLAUDE.md
 TLA+Parser.md
+.claude/
 
 # Java compiled files
 *.class
@@ -70,3 +71,4 @@ tools/cfa/*Test*.tla
 tools/cfa/input/debug_*.tla
 tools/cfa/input/test_*.tla
 data/repositories/
+data/sys_traces

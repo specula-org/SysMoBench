@@ -160,15 +160,14 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 return {"success": False, "error": f"Specification file not found: {spec_file_path}"}
             
             evaluation_result = evaluator.evaluate_specification(
-                spec_file_path, task_name, method_name, model_name, task.spec_module
+                spec_file_path, task_name, method_name, model_name
             )
-            logger.info(f"Phase 2 evaluation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
+            logger.info(f"Phase 2 evaluation: {'✓ PASS' if evaluation_result.get('success', False) else '✗ FAIL'}")
             
         elif phase == 3:
             # Phase 3: Consistency checking (Future implementation)
             logger.warning("Phase 3 (consistency checking) not yet implemented")
             return {"success": False, "error": "Phase 3 not implemented"}
-            
         else:
             raise ValueError(f"Unknown evaluation phase: {phase}")
         
