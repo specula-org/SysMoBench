@@ -8,9 +8,12 @@ This package contains different phases of evaluation:
 """
 
 from .phase1 import Phase1Evaluator, Phase1EvaluationResult, create_phase1_evaluator
+from .phase2 import Phase2Evaluator, Phase2EvaluationResult
 
 __all__ = [
     "Phase1Evaluator",
     "Phase1EvaluationResult", 
-    "create_phase1_evaluator"
+    "create_phase1_evaluator",
+    "Phase2Evaluator",
+    "Phase2EvaluationResult"
 ]

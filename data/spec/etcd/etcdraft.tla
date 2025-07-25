@@ -1,4 +1,4 @@
-MODULE etcdraft
+---- MODULE etcdraft ----
 
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
@@ -6,7 +6,8 @@ CONSTANTS
     Servers,
     MaxTerm,
     MaxLogLen,
-    MaxCommittedEntries
+    MaxCommittedEntries,
+    Nil
 
 VARIABLES
     currentTerm,
@@ -29,6 +30,9 @@ vars == <<currentTerm, votedFor, log, commitIndex, state, nextIndex, matchIndex,
 
 ServerStates == {"Follower", "Candidate", "Leader", "PreCandidate"}
 MessageTypes == {"RequestVote", "RequestVoteResponse", "AppendEntries", "AppendEntriesResponse", "Heartbeat", "HeartbeatResponse", "ClientRequest", "ClientResponse"}
+
+Min(x, y) == IF x < y THEN x ELSE y
+Max(x, y) == IF x > y THEN x ELSE y
 
 TypeOK ==
     /\ currentTerm \in [Servers -> 0..MaxTerm]
@@ -304,8 +308,12 @@ Linearizability ==
                     log[s][i].operation = "Put" /\ log[s][i].key = req.key => 
                         log[s][i].value = keyValueStore[s][req.key]
 
-Theorem Spec => ElectionSafety
-Theorem Spec => LeaderAppendOnly
-Theorem Spec => LogMatching
-Theorem Spec => LeaderCompleteness
-Theorem Spec => Linearizability
+
+MajorityVote == \A s \in Servers : state[s] = "Candidate" => Cardinality(votes[s]) * 2 > Cardinality(Servers)
+
+LogIntegrity == \A s \in Servers : \A i \in 1..Len(log[s]) : log[s][i].term <= currentTerm[s]
+
+CommitIndexBound == \A s \in Servers : commitIndex[s] <= Len(log[s])
+
+
+====

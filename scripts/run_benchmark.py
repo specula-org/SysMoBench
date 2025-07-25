@@ -44,7 +44,7 @@ from tla_eval.models.base import GenerationConfig
 from tla_eval.utils import validate_tla_tools_setup
 
 # Import evaluators
-from tla_eval.evaluation import Phase1Evaluator
+from tla_eval.evaluation import Phase1Evaluator, Phase2Evaluator
 
 import logging
 
@@ -150,9 +150,19 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             logger.info(f"Phase 1 evaluation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
         elif phase == 2:
-            # Phase 2: Runtime checking (Future implementation)
-            logger.warning("Phase 2 (runtime checking) not yet implemented")
-            return {"success": False, "error": "Phase 2 not implemented"}
+            # Phase 2: Model checking with TLC
+            evaluator = Phase2Evaluator()
+            
+            # Get specification file path from Phase 1 or user input
+            spec_file_path = f"data/spec/{task_name}/{task.spec_module}.tla"
+            if not Path(spec_file_path).exists():
+                logger.error(f"Specification file not found: {spec_file_path}")
+                return {"success": False, "error": f"Specification file not found: {spec_file_path}"}
+            
+            evaluation_result = evaluator.evaluate_specification(
+                spec_file_path, task_name, method_name, model_name, task.spec_module
+            )
+            logger.info(f"Phase 2 evaluation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
         elif phase == 3:
             # Phase 3: Consistency checking (Future implementation)
@@ -227,6 +237,9 @@ def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
     if phase == 1 and results:
         evaluator = Phase1Evaluator()
         evaluator.save_results(results, str(results_file), include_specifications=True)
+    elif phase == 2 and results:
+        evaluator = Phase2Evaluator()
+        evaluator.save_results(results, str(results_file))
     else:
         # Generic JSON save for other phases
         output_data = {
@@ -360,6 +373,30 @@ Examples:
                         print(f"Generation error: {eval_result.generation_error}")
                     if not eval_result.compilation_successful:
                         print(f"Compilation errors: {eval_result.syntax_errors + eval_result.semantic_errors}")
+                        
+            elif args.phase == 2:
+                print(f"\nPhase 2 Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+                print(f"Invariant generation time: {eval_result.invariant_generation_time:.2f}s")
+                print(f"Config generation time: {eval_result.config_generation_time:.2f}s")
+                print(f"Model checking time: {eval_result.model_checking_time:.2f}s")
+                print(f"States explored: {eval_result.states_explored}")
+                print(f"Invariant violations: {len(eval_result.invariant_violations)}")
+                print(f"Deadlock found: {eval_result.deadlock_found}")
+                
+                if not eval_result.overall_success:
+                    if not eval_result.invariant_generation_successful:
+                        print(f"Invariant generation error: {eval_result.invariant_generation_error}")
+                    if not eval_result.config_generation_successful:
+                        print(f"Config generation error: {eval_result.config_generation_error}")
+                    if not eval_result.model_checking_successful:
+                        print(f"Model checking error: {eval_result.model_checking_error}")
+                    if eval_result.invariant_violations:
+                        print(f"Violations: {eval_result.invariant_violations}")
+                        
+                # Show file locations
+                print(f"Specification: {eval_result.specification_file}")
+                if eval_result.config_file_path:
+                    print(f"Config file: {eval_result.config_file_path}")
             
         else:
             print(f"Benchmark failed: {result['error']}")
