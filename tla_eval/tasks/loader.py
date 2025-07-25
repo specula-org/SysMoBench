@@ -108,11 +108,22 @@ class TaskLoader:
         if not repo_cache_dir.exists():
             print(f"Cloning repository: {repo_url}")
             try:
-                subprocess.run([
-                    'git', 'clone', '--depth', '1', 
-                    '--branch', branch, 
-                    repo_url, str(repo_cache_dir)
-                ], check=True, capture_output=True, text=True)
+                # Clone with specific commit if specified
+                if 'commit' in repo_info:
+                    commit = repo_info['commit']
+                    print(f"Using fixed commit: {commit}")
+                    subprocess.run([
+                        'git', 'clone', repo_url, str(repo_cache_dir)
+                    ], check=True, capture_output=True, text=True)
+                    subprocess.run([
+                        'git', 'checkout', commit
+                    ], cwd=repo_cache_dir, check=True, capture_output=True, text=True)
+                else:
+                    subprocess.run([
+                        'git', 'clone', '--depth', '1', 
+                        '--branch', branch, 
+                        repo_url, str(repo_cache_dir)
+                    ], check=True, capture_output=True, text=True)
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Failed to clone repository {repo_url}: {e.stderr}")
         

@@ -64,7 +64,7 @@ Init ==
     /\ messages = {}
     /\ clientRequests = {}
     /\ appliedIndex = [s \in Servers |-> 0]
-    /\ keyValueStore = [s \in Servers |-> [k \in {} |-> ""]]
+    /\ keyValueStore = [s \in Servers |-> <<>>]
 
 LastTerm(xlog) == IF Len(xlog) = 0 THEN 0 ELSE xlog[Len(xlog)].term
 LastIndex(xlog) == Len(xlog)

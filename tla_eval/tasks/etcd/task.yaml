@@ -8,6 +8,9 @@ language: "go"
 repository:
   url: "https://github.com/etcd-io/raft.git"
   branch: "main"
+  # Fixed version for trace generation stability
+  commit: "a70329e"  # Stable commit with TraceLogger support
+  version: "v3.5.12"  # Last tested stable version
   
 # Files to extract from the repository
 source_files:
@@ -23,10 +26,15 @@ specModule: "etcdraft"
 # Metadata
 metadata:
   original_project: "etcd"
-  version: "latest"
+  version: "v3.5.12"  # Fixed for stability
   complexity: "high"
   focus_areas:
     - "distributed consensus"
     - "key-value operations" 
     - "leader election"
     - "log replication"
+  
+# Phase 3 specific configuration
+phase3:
+  trace_generation: true
+  patch_file: "data/patches/etcd-raft-v3.5.12.patch"  # Patch to apply for trace support
