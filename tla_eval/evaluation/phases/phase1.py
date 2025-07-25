@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import logging
 
-from ..validation import TLAValidator, ValidationResult
-from ..models.base import GenerationResult
+from ...core.verification.validators import TLAValidator, ValidationResult
+from ...models.base import GenerationResult
 
 logger = logging.getLogger(__name__)
 

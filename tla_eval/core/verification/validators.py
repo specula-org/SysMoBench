@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import logging
 
-from ..utils.setup_utils import get_tla_tools_path, check_java_available
+from ...utils.setup_utils import get_tla_tools_path, check_java_available
 
 logger = logging.getLogger(__name__)
 

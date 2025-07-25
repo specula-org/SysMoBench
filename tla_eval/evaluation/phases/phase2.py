@@ -17,8 +17,8 @@ from string import Template
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
-from ..models.base import GenerationResult
-from ..config import get_configured_model
+from ...models.base import GenerationResult
+from ...config import get_configured_model
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ class InvariantGenerator:
                     "finish_reason": response.choices[0].finish_reason,
                 }
                 
-                from ..models.base import GenerationResult
+                from ...models.base import GenerationResult
                 result = GenerationResult(
                     generated_text=generated_text,
                     metadata=metadata,
@@ -192,7 +192,7 @@ class InvariantGenerator:
     
     def _load_invariant_prompt(self, task_name: str) -> str:
         """Load task-specific prompt for invariant generation"""
-        from ..tasks.loader import get_task_loader
+        from ...tasks.loader import get_task_loader
         task_loader = get_task_loader()
         
         # Get task directory path
@@ -263,7 +263,7 @@ class ConfigGenerator:
                     "finish_reason": response.choices[0].finish_reason,
                 }
                 
-                from ..models.base import GenerationResult
+                from ...models.base import GenerationResult
                 result = GenerationResult(
                     generated_text=generated_text,
                     metadata=metadata,
@@ -289,7 +289,7 @@ class ConfigGenerator:
     
     def _load_config_prompt(self, task_name: str) -> str:
         """Load task-specific prompt for config generation"""
-        from ..tasks.loader import get_task_loader
+        from ...tasks.loader import get_task_loader
         task_loader = get_task_loader()
         
         # Get task directory path
@@ -318,7 +318,7 @@ class TLCRunner:
     
     def _get_tla_tools_path(self) -> Path:
         """Get path to TLA+ tools"""
-        from ..utils.setup_utils import get_tla_tools_path
+        from ...utils.setup_utils import get_tla_tools_path
         return get_tla_tools_path()
     
     def run_model_checking(self, spec_file: str, config_file: str) -> Tuple[bool, str, int]:
