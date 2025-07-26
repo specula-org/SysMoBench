@@ -14,8 +14,18 @@ class TLCRunner:
     Handles TLC model checker execution for trace validation.
     """
     
-    def __init__(self, tla_tools_jar: str = "/opt/TLA+/tla2tools.jar"):
+    def __init__(self, tla_tools_jar: str = None):
+        if tla_tools_jar is None:
+            # Use absolute path to jar file in project root
+            from pathlib import Path
+            project_root = Path(__file__).parent.parent.parent.parent
+            tla_tools_jar = str(project_root / "lib" / "tla2tools.jar")
         self.tla_tools_jar = tla_tools_jar
+        self.tlc_available = self._check_tlc_availability()
+    
+    def _check_tlc_availability(self) -> bool:
+        """Check if TLC tools are available."""
+        return os.path.exists(self.tla_tools_jar)
     
     def run_verification(self, trace_path: Path, spec_dir: str) -> Dict[str, Any]:
         """
@@ -29,6 +39,15 @@ class TLCRunner:
             Dictionary with verification results
         """
         try:
+            # Check if TLC is available
+            if not self.tlc_available:
+                return {
+                    "success": False,
+                    "error": f"TLC tools not found at {self.tla_tools_jar}. TLC verification skipped.",
+                    "result": "SKIPPED",
+                    "details": "TLC tools are not installed. Please install TLA+ tools to enable verification."
+                }
+            
             spec_dir_path = Path(spec_dir)
             tla_file = spec_dir_path / "specTrace.tla"
             cfg_file = spec_dir_path / "specTrace.cfg"
@@ -45,7 +64,9 @@ class TLCRunner:
             
             # Prepare environment variables for TLC
             env = os.environ.copy()
-            env["TRACE_PATH"] = str(trace_path)
+            # Set TRACE_PATH to the absolute path of the converted trace file
+            env["TRACE_PATH"] = str(trace_path.resolve())
+            print(f"Set TRACE_PATH environment variable to: {trace_path.resolve()}")
             
             # Run TLC with the generated specification
             cmd = [

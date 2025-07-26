@@ -12,6 +12,7 @@ import os
 import subprocess
 import tempfile
 import yaml
+import shutil
 from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
@@ -19,6 +20,7 @@ from datetime import datetime
 from ...core.trace_generation.etcd.cluster import RaftCluster, FileTraceLogger
 from ...core.trace_generation.etcd.event_driver import RandomEventDriver
 from ...core.spec_processing import SpecTraceGenerator, generate_config_from_tla
+from ...core.spec_processing.trace_converter import TraceConverter
 from ...core.verification import TLCRunner
 
 
@@ -108,12 +110,25 @@ class Phase3Evaluator:
             
             # Step 3: Convert sys_trace to spec-compatible format
             print("Step 3: Converting sys_trace to spec-compatible format...")
-            # TODO: Implement trace conversion from sys_trace to spec format
-            trace_conversion_result = {"success": True, "converted_trace": str(trace_path)}
+            # Use the actual trace file from Step 1 result
+            actual_trace_path = Path(trace_result["trace_file"])
+            trace_conversion_result = self._convert_trace_to_spec_format(actual_trace_path, timestamp)
+            
+            if not trace_conversion_result["success"]:
+                return {
+                    "task_name": task_name,
+                    "method_name": "phase3_complete_pipeline",
+                    "success": False,
+                    "error": trace_conversion_result["error"],
+                    "step_failed": "trace_conversion",
+                    "duration": (datetime.now() - start_time).total_seconds()
+                }
+            
+            print(f"Step 3 completed: Converted {trace_conversion_result['input_events']} events to {trace_conversion_result['output_transitions']} transitions")
             
             # Step 4: Run TLC verification
             print("Step 4: Running TLC verification...")
-            verification_result = self._run_tlc_verification(trace_path, spectrace_result["output_dir"])
+            verification_result = self._run_tlc_verification(Path(trace_conversion_result["converted_trace"]), spectrace_result["output_dir"])
             
             # Compile final result
             result = {
@@ -137,7 +152,8 @@ class Phase3Evaluator:
             if "config_data" in spectrace_result:
                 result["step2_details"] = f"Generated config with {len(spectrace_result['config_data'])} sections"
             
-            result["step3_details"] = f"Trace conversion placeholder - TODO: implement trace converter"
+            result["step3_details"] = f"Converted {trace_conversion_result['input_events']} events to {trace_conversion_result['output_transitions']} transitions"
+            result["converted_trace_file"] = trace_conversion_result["converted_trace"]
             
             if verification_result["success"]:
                 result["step4_details"] = verification_result.get("details", "")
@@ -279,8 +295,19 @@ class Phase3Evaluator:
             
             # Step 2b: Convert to specTrace.tla using static analysis
             print("  2b: Converting to specTrace.tla with static analysis...")
-            output_dir = self.traces_dir / f"spec_trace_{timestamp}"
+            # Output to the correct spec directory, not traces directory
+            output_dir = self.spec_dir / task_name
             output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy common TLA+ files first
+            common_dir = Path("data/spec/common")
+            if common_dir.exists():
+                print(f"  Copying common TLA+ files to {output_dir}")
+                for common_file in common_dir.iterdir():
+                    if common_file.is_file():
+                        dest_file = output_dir / common_file.name
+                        shutil.copy2(common_file, dest_file)
+                        print(f"    Copied: {common_file.name}")
             
             # Generate trace validation files
             generator = SpecTraceGenerator(config_data)
@@ -302,6 +329,58 @@ class Phase3Evaluator:
                 "error": f"specTrace generation failed: {str(e)}"
             }
     
+    def _convert_trace_to_spec_format(self, sys_trace_path: Path, timestamp: str) -> Dict[str, Any]:
+        """
+        Convert system trace to TLA+ specification-compatible format.
+        
+        This converts the raw system trace (NDJSON) to the format expected
+        by TLA+ specifications for trace validation.
+        
+        Args:
+            sys_trace_path: Path to system-generated trace file
+            timestamp: Timestamp for output file naming
+            
+        Returns:
+            Dictionary with conversion results
+        """
+        try:
+            # Create output directory for converted traces
+            converted_traces_dir = Path("data/traces/etcd")
+            converted_traces_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate output path for converted trace
+            converted_trace_path = converted_traces_dir / f"etcd_converted_{timestamp}.ndjson"
+            
+            print(f"Converting trace from {sys_trace_path} to {converted_trace_path}")
+            
+            # Initialize trace converter
+            converter = TraceConverter()
+            
+            # Perform conversion
+            result = converter.convert_trace(
+                input_trace_path=str(sys_trace_path),
+                output_trace_path=str(converted_trace_path)
+            )
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "input_events": result["input_events"],
+                    "output_transitions": result["output_transitions"],
+                    "converted_trace": result["output_file"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": result["error"]
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Trace conversion failed: {str(e)}"
+            }
+    
     def _run_tlc_verification(self, trace_path: Path, spec_dir: str) -> Dict[str, Any]:
         """
         Run TLC verification of trace against converted specification.
@@ -313,8 +392,33 @@ class Phase3Evaluator:
         Returns:
             Dictionary with verification results
         """
-        tlc_runner = TLCRunner()
-        return tlc_runner.run_verification(trace_path, spec_dir)
+        try:
+            spec_dir_path = Path(spec_dir)
+            
+            # Create a symbolic link for the trace file in the spec directory
+            # This ensures TLC can find the trace file relative to the spec
+            trace_link = spec_dir_path / "trace.ndjson" 
+            if trace_link.exists():
+                trace_link.unlink()  # Remove existing link
+            
+            # Create relative path to trace file
+            try:
+                trace_link.symlink_to(trace_path.resolve())
+                print(f"Created trace symlink: {trace_link} -> {trace_path}")
+            except OSError:
+                # If symlink fails, copy the file instead
+                shutil.copy2(trace_path, trace_link)
+                print(f"Copied trace file to: {trace_link}")
+            
+            # Run TLC verification
+            tlc_runner = TLCRunner()
+            return tlc_runner.run_verification(trace_path, spec_dir)
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"TLC setup failed: {str(e)}"
+            }
     
     def get_evaluation_name(self) -> str:
         """Get the name of this evaluation method."""

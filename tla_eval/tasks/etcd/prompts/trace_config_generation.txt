@@ -94,4 +94,4 @@ interactions:
 
 Generate the YAML configuration based on the provided TLA+ files:
 
-{input}
+{source_code}

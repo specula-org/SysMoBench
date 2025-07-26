@@ -165,6 +165,9 @@ class RaftCluster:
             
             print("Building Go trace generator...")
             
+            # Update go.mod with correct relative path to raft repository
+            self._update_go_mod_paths()
+            
             # Run go mod tidy first
             subprocess.run(
                 ["go", "mod", "tidy"],
@@ -214,6 +217,33 @@ class RaftCluster:
             return count
         except Exception:
             return 0
+    
+    def _update_go_mod_paths(self):
+        """Update go.mod file with correct relative paths that work for any user."""
+        go_mod_path = self.generator_dir / "go.mod"
+        
+        # Calculate relative path from generator directory to raft repository
+        # From: tla_eval/core/trace_generation/etcd/
+        # To: data/repositories/raft
+        relative_raft_path = "../../../../data/repositories/raft"
+        
+        # Read current go.mod content
+        with open(go_mod_path, 'r') as f:
+            content = f.read()
+        
+        # Replace the raft repository path with correct relative path
+        import re
+        # Match the replace line and update it
+        pattern = r'replace go\.etcd\.io/raft/v3 => .*'
+        replacement = f'replace go.etcd.io/raft/v3 => {relative_raft_path}'
+        
+        updated_content = re.sub(pattern, replacement, content)
+        
+        # Write updated content back
+        with open(go_mod_path, 'w') as f:
+            f.write(updated_content)
+        
+        print(f"Updated go.mod with raft path: {relative_raft_path}")
 
 
 class FileTraceLogger:

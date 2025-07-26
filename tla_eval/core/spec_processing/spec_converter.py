@@ -14,7 +14,7 @@ from pathlib import Path
 
 # Import from benchmark framework
 try:
-    from ...models.factory import get_configured_model
+    from ...config import get_configured_model
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
@@ -372,7 +372,7 @@ BaseSpec == Init /\\ [][Next \\/ ComposedNext]_vars
         }
 
 
-def generate_config_from_tla(tla_file: str, cfg_file: str, model_name: str = "my_claude") -> Dict[str, Any]:
+def generate_config_from_tla(tla_file: str, cfg_file: str, model_name: str = None) -> Dict[str, Any]:
     """
     Automatically generate configuration from TLA+ and CFG files using LLM
     
@@ -423,12 +423,22 @@ TLC Configuration (.cfg file):
     
     # Get LLM client and generate configuration
     try:
-        model = get_configured_model(model_name)
-        response = model.generate(prompt_template, {"input": input_content})
+        from ...config import get_config_manager
+        config_manager = get_config_manager()
+        model = config_manager.get_model(model_name)
+        
+        # Create a simple prompt without using format()
+        full_prompt = prompt_template.replace("{source_code}", input_content)
+        
+        # Generate response using direct API call
+        response = model.generate_tla_specification(
+            source_code="",  # Empty since we already embedded content in prompt
+            prompt_template=full_prompt
+        )
         
         # Parse YAML response
         # Extract YAML content from markdown code blocks
-        yaml_content = _extract_yaml_from_response(response.content)
+        yaml_content = _extract_yaml_from_response(response.generated_text)
         
         # Validate YAML content before parsing
         if not yaml_content.strip():
