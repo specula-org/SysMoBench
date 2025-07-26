@@ -42,9 +42,10 @@ from tla_eval.tasks.loader import get_task_loader
 from tla_eval.methods import get_method
 from tla_eval.models.base import GenerationConfig
 from tla_eval.utils import validate_tla_tools_setup
+from tla_eval.utils.repository_manager import setup_task_repository
 
 # Import evaluators
-from tla_eval.evaluation import Phase1Evaluator, Phase2Evaluator
+from tla_eval.evaluation import Phase1Evaluator, Phase2Evaluator, Phase3Evaluator
 
 import logging
 
@@ -101,6 +102,17 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         task_loader = get_task_loader()
         task = task_loader.load_task(task_name, source_file)
         logger.info(f"Loaded task: {task.task_name} ({task.system_type})")
+        
+        # Setup repository if needed for Phase 3
+        if phase == 3:
+            logger.info("Setting up repository for Phase 3 trace generation...")
+            try:
+                # Get task configuration to check for patch requirements
+                task_config = task_loader.get_task_info(task_name)
+                repo_path = setup_task_repository(task_config)
+                logger.info(f"Repository setup completed: {repo_path}")
+            except Exception as e:
+                logger.warning(f"Repository setup failed (continuing anyway): {e}")
         
         # Get prompt for this method
         prompt_template = task_loader.get_task_prompt(task_name, method_name)
@@ -165,9 +177,14 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             logger.info(f"Phase 2 evaluation: {'✓ PASS' if evaluation_result.get('success', False) else '✗ FAIL'}")
             
         elif phase == 3:
-            # Phase 3: Consistency checking (Future implementation)
-            logger.warning("Phase 3 (consistency checking) not yet implemented")
-            return {"success": False, "error": "Phase 3 not implemented"}
+            # Phase 3: Trace generation and validation
+            evaluator = Phase3Evaluator()
+            
+            # Use default configuration for Phase 3
+            phase3_config = evaluator.get_default_config()
+            
+            evaluation_result = evaluator.evaluate(task_name, phase3_config)
+            logger.info(f"Phase 3 evaluation: {'✓ PASS' if evaluation_result.get('success', False) else '✗ FAIL'}")
         else:
             raise ValueError(f"Unknown evaluation phase: {phase}")
         
