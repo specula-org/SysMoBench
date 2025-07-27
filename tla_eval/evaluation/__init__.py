@@ -9,6 +9,7 @@ This package contains different dimensions of evaluation:
 
 # New structured evaluators
 from .syntax.compilation_check import CompilationCheckEvaluator
+from .syntax.action_decomposition import ActionDecompositionEvaluator
 from .semantics.invariant_verification import InvariantVerificationEvaluator
 from .consistency.trace_validation import TraceValidationEvaluator
 
@@ -27,6 +28,7 @@ from .base.result_types import (
 __all__ = [
     # New structured evaluators
     "CompilationCheckEvaluator",
+    "ActionDecompositionEvaluator",
     "InvariantVerificationEvaluator", 
     "TraceValidationEvaluator",
     

@@ -42,11 +42,20 @@ class SyntaxEvaluationResult(EvaluationResult):
         self.semantic_errors = []
         self.compilation_output = ""
         
+        # Action decomposition results (for action_decomposition metric)
+        self.total_actions = 0
+        self.successful_actions = 0
+        self.action_success_rate = 0.0
+        self.action_results = []  # List of ActionValidationResult objects
+        self.total_variables_added = 0
+        self.total_functions_added = 0
+        self.total_recovery_attempts = 0
+        
         # Legacy compatibility
         self.compilation_errors = []
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "task_name": self.task_name,
             "method_name": self.method_name,
             "model_name": self.model_name,
@@ -72,6 +81,30 @@ class SyntaxEvaluationResult(EvaluationResult):
                 "total_time_seconds": self.generation_time + self.compilation_time
             }
         }
+        
+        # Add action decomposition metrics if available
+        if self.total_actions > 0:
+            result["action_decomposition"] = {
+                "total_actions": self.total_actions,
+                "successful_actions": self.successful_actions,
+                "action_success_rate": self.action_success_rate,
+                "variables_added": self.total_variables_added,
+                "functions_added": self.total_functions_added,
+                "recovery_attempts": self.total_recovery_attempts,
+                "individual_results": [
+                    {
+                        "action_name": ar.action_name,
+                        "successful": ar.validation_result.success,
+                        "syntax_errors": len(ar.validation_result.syntax_errors),
+                        "semantic_errors": len(ar.validation_result.semantic_errors),
+                        "variables_added": ar.variables_added,
+                        "functions_added": ar.functions_added,
+                        "recovery_attempts": ar.recovery_attempts
+                    } for ar in self.action_results
+                ]
+            }
+        
+        return result
 
 
 class SemanticEvaluationResult(EvaluationResult):

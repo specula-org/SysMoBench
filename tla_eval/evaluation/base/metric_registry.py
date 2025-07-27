@@ -66,6 +66,7 @@ class MetricRegistry:
         """Register all default metrics"""
         # Import evaluator classes (avoiding circular imports)
         from ..syntax.compilation_check import CompilationCheckEvaluator
+        from ..syntax.action_decomposition import ActionDecompositionEvaluator
         from ..semantics.invariant_verification import InvariantVerificationEvaluator
         from ..consistency.trace_validation import TraceValidationEvaluator
         
@@ -77,13 +78,12 @@ class MetricRegistry:
             evaluator_class=CompilationCheckEvaluator
         ))
         
-        # Future syntax metrics (placeholders for now)
-        # self.register_metric(MetricInfo(
-        #     name="action_decomposition", 
-        #     dimension="syntax",
-        #     description="Evaluate individual actions separately for better granularity",
-        #     evaluator_class=ActionDecompositionEvaluator
-        # ))
+        self.register_metric(MetricInfo(
+            name="action_decomposition", 
+            dimension="syntax",
+            description="Evaluate individual actions separately for better granularity",
+            evaluator_class=ActionDecompositionEvaluator
+        ))
         
         # self.register_metric(MetricInfo(
         #     name="pass_at_k",

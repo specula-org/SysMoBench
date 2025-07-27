@@ -1,319 +1,327 @@
 ---- MODULE etcdraft ----
+EXTENDS Integers, Sequences, FiniteSets, TLC
 
-EXTENDS Naturals, Sequences, FiniteSets, TLC
+CONSTANTS Servers,        \* The set of servers
+          Values,         \* The set of possible values
+          Keys,           \* The set of possible keys
+          MaxTerm,        \* Maximum term number
+          MaxIndex,       \* Maximum log index
+          NoServer,       \* Null value for server ID
+          NoValue,        \* Null value for values
+          NoKey           \* Null value for keys
 
-CONSTANTS
-    Servers,
-    MaxTerm,
-    MaxLogLen,
-    MaxCommittedEntries,
-    Nil
+VARIABLES \* Server state
+          currentTerm,    \* Current term of each server
+          state,          \* State of each server (Follower, Candidate, Leader)
+          votedFor,       \* Server that received vote in current term (or NoServer)
+          log,            \* Log of each server: sequence of records
+          commitIndex,    \* Index of highest log entry known to be committed
+          lastApplied,    \* Index of highest log entry applied to state machine
+          
+          \* Leader state
+          nextIndex,      \* For each server, index of next log entry to send
+          matchIndex,     \* For each server, index of highest log entry known to be replicated
+          leaderId,       \* Current leader or NoServer if unknown
+          
+          \* Candidate state
+          votesGranted,   \* Set of servers that granted vote to candidate
+          
+          \* Network state
+          messages,       \* Set of in-flight messages
+          
+          \* Application state
+          kvStore,        \* Key-value store state for each server
+          clientRequests, \* Set of pending client requests
+          clientResponses \* Set of responses sent to clients
 
-VARIABLES
-    currentTerm,
-    votedFor,
-    log,
-    commitIndex,
-    state,
-    nextIndex,
-    matchIndex,
-    votes,
-    leader,
-    electionTimeout,
-    heartbeatTimeout,
-    messages,
-    clientRequests,
-    appliedIndex,
-    keyValueStore
+serverVars == <<currentTerm, state, votedFor>>
+leaderVars == <<nextIndex, matchIndex, leaderId>>
+candidateVars == <<votesGranted>>
+logVars == <<log, commitIndex, lastApplied>>
+networkVars == <<messages>>
+appVars == <<kvStore, clientRequests, clientResponses>>
 
-vars == <<currentTerm, votedFor, log, commitIndex, state, nextIndex, matchIndex, votes, leader, electionTimeout, heartbeatTimeout, messages, clientRequests, appliedIndex, keyValueStore>>
+vars == <<serverVars, leaderVars, candidateVars, logVars, networkVars, appVars>>
 
-ServerStates == {"Follower", "Candidate", "Leader", "PreCandidate"}
-MessageTypes == {"RequestVote", "RequestVoteResponse", "AppendEntries", "AppendEntriesResponse", "Heartbeat", "HeartbeatResponse", "ClientRequest", "ClientResponse"}
+\* Message types
+TypeAppendEntries == "AppendEntries"
+TypeAppendEntriesResponse == "AppendEntriesResponse"
+TypeRequestVote == "RequestVote"
+TypeRequestVoteResponse == "RequestVoteResponse"
+TypeClientRequest == "ClientRequest"
+TypeClientResponse == "ClientResponse"
+TypePreVote == "PreVote"
+TypePreVoteResponse == "PreVoteResponse"
+TypeTimeoutNow == "TimeoutNow"
+TypeReadIndex == "ReadIndex"
+TypeReadIndexResponse == "ReadIndexResponse"
 
-Min(x, y) == IF x < y THEN x ELSE y
-Max(x, y) == IF x > y THEN x ELSE y
+\* Server states
+Follower == "Follower"
+Candidate == "Candidate"
+Leader == "Leader"
+PreCandidate == "PreCandidate"
 
-TypeOK ==
-    /\ currentTerm \in [Servers -> 0..MaxTerm]
-    /\ votedFor \in [Servers -> Servers \cup {Nil}]
-    /\ log \in [Servers -> Seq(SUBSET (Nat \X Nat \X STRING))]
-    /\ commitIndex \in [Servers -> Nat]
-    /\ state \in [Servers -> ServerStates]
-    /\ nextIndex \in [Servers -> [Servers -> Nat]]
-    /\ matchIndex \in [Servers -> [Servers -> Nat]]
-    /\ votes \in [Servers -> SUBSET Servers]
-    /\ leader \in [Servers -> Servers \cup {Nil}]
-    /\ electionTimeout \in [Servers -> Nat]
-    /\ heartbeatTimeout \in [Servers -> Nat]
-    /\ appliedIndex \in [Servers -> Nat]
-    /\ keyValueStore \in [Servers -> [STRING -> STRING]]
+\* Client operation types
+OpGet == "Get"
+OpPut == "Put"
+OpDelete == "Delete"
 
-Init ==
+\* Entry types
+EntryNormal == "EntryNormal"
+EntryConfChange == "EntryConfChange"
+
+--------------------------------------------------------------------
+\* Helper functions
+
+\* Return the minimum value from a set
+Min(s) == CHOOSE x \in s : \A y \in s : x <= y
+
+\* Return the maximum value from a set
+Max(s) == CHOOSE x \in s : \A y \in s : x >= y
+
+\* Return the maximum of two values
+max(a, b) == IF a > b THEN a ELSE b
+
+\* Return the minimum of two values
+min(a, b) == IF a < b THEN a ELSE b
+
+\* Is the log entry at the given index the same term in both logs?
+LogTermMatches(i, term, xLog) ==
+    /\ i > 0
+    /\ i <= Len(xLog)
+    /\ xLog[i].term = term
+
+\* Is the log entry at the given index present in the log?
+EntryExists(i, xLog) ==
+    /\ i > 0
+    /\ i <= Len(xLog)
+
+\* Is the candidate's log at least as up-to-date as the voter's?
+IsUpToDate(candidateLastIndex, candidateLastTerm, voterLastIndex, voterLastTerm) ==
+    \/ candidateLastTerm > voterLastTerm
+    \/ /\ candidateLastTerm = voterLastTerm
+       /\ candidateLastIndex >= voterLastIndex
+
+\* Return the term of the last entry in the log, or 0 if the log is empty
+LastTerm(xLog) ==
+    IF Len(xLog) = 0 THEN 0 ELSE xLog[Len(xLog)].term
+
+\* Return the index of the last entry in the log, or 0 if the log is empty
+LastIndex(xLog) ==
+    Len(xLog)
+
+\* Find the index of the conflicting entry in the log
+FindConflictByTerm(index, term, xLog) ==
+    LET possibleIndices == {i \in 1..min(index, Len(xLog)) : xLog[i].term <= term}
+    IN IF possibleIndices = {} THEN 0
+       ELSE Max(possibleIndices)
+
+--------------------------------------------------------------------
+\* Initial state
+
+InitServerVars ==
     /\ currentTerm = [s \in Servers |-> 0]
-    /\ votedFor = [s \in Servers |-> Nil]
-    /\ log = [s \in Servers |-> <<>>]
-    /\ commitIndex = [s \in Servers |-> 0]
-    /\ state = [s \in Servers |-> "Follower"]
+    /\ state = [s \in Servers |-> Follower]
+    /\ votedFor = [s \in Servers |-> NoServer]
+
+InitLeaderVars ==
     /\ nextIndex = [s \in Servers |-> [t \in Servers |-> 1]]
     /\ matchIndex = [s \in Servers |-> [t \in Servers |-> 0]]
-    /\ votes = [s \in Servers |-> {}]
-    /\ leader = [s \in Servers |-> Nil]
-    /\ electionTimeout = [s \in Servers |-> 5]
-    /\ heartbeatTimeout = [s \in Servers |-> 1]
+    /\ leaderId = NoServer
+
+InitCandidateVars ==
+    /\ votesGranted = [s \in Servers |-> {}]
+
+InitLogVars ==
+    /\ log = [s \in Servers |-> <<>>]
+    /\ commitIndex = [s \in Servers |-> 0]
+    /\ lastApplied = [s \in Servers |-> 0]
+
+InitNetworkVars ==
     /\ messages = {}
+
+InitAppVars ==
+    /\ kvStore = [s \in Servers |-> [k \in Keys |-> NoValue]]
     /\ clientRequests = {}
-    /\ appliedIndex = [s \in Servers |-> 0]
-    /\ keyValueStore = [s \in Servers |-> <<>>]
+    /\ clientResponses = {}
 
-LastTerm(xlog) == IF Len(xlog) = 0 THEN 0 ELSE xlog[Len(xlog)].term
-LastIndex(xlog) == Len(xlog)
+Init ==
+    /\ InitServerVars
+    /\ InitLeaderVars
+    /\ InitCandidateVars
+    /\ InitLogVars
+    /\ InitNetworkVars
+    /\ InitAppVars
 
-IsUpToDate(i, j, xlog) ==
-    \/ LastTerm(xlog) < i
-    \/ /\ LastTerm(xlog) = i
-       /\ LastIndex(xlog) <= j
+--------------------------------------------------------------------
+\* Message sending and receiving
 
-Quorum == {S \in SUBSET Servers : Cardinality(S) * 2 > Cardinality(Servers)}
+\* Add a message to the network
+Send(m) ==
+    messages' = messages \union {m}
 
-BecomeFollower(s, term) ==
-    /\ currentTerm' = [currentTerm EXCEPT ![s] = term]
-    /\ state' = [state EXCEPT ![s] = "Follower"]
-    /\ votedFor' = [votedFor EXCEPT ![s] = Nil]
-    /\ leader' = [leader EXCEPT ![s] = Nil]
-    /\ votes' = [votes EXCEPT ![s] = {}]
+\* Remove a message from the network
+Discard(m) ==
+    messages' = messages \ {m}
 
-BecomeCandidate(s) ==
-    /\ state[s] \in {"Follower", "PreCandidate"}
-    /\ currentTerm' = [currentTerm EXCEPT ![s] = currentTerm[s] + 1]
-    /\ state' = [state EXCEPT ![s] = "Candidate"]
-    /\ votedFor' = [votedFor EXCEPT ![s] = s]
-    /\ votes' = [votes EXCEPT ![s] = {s}]
-    /\ leader' = [leader EXCEPT ![s] = Nil]
+\* Combination of Send and Discard
+SendAndDiscard(send, discard) ==
+    messages' = (messages \union {send}) \ {discard}
 
-BecomeLeader(s) ==
-    /\ state[s] = "Candidate"
-    /\ {s} \cup votes[s] \in Quorum
-    /\ state' = [state EXCEPT ![s] = "Leader"]
-    /\ leader' = [leader EXCEPT ![s] = s]
-    /\ nextIndex' = [nextIndex EXCEPT ![s] = [t \in Servers |-> Len(log[s]) + 1]]
-    /\ matchIndex' = [matchIndex EXCEPT ![s] = [t \in Servers |-> 0]]
+--------------------------------------------------------------------
+\* Server actions
 
-RequestVote(s, t) ==
-    /\ state[s] = "Candidate"
-    /\ t \in Servers
-    /\ t # s
-    /\ messages' = messages \cup {[type |-> "RequestVote", 
-                                   from |-> s, 
-                                   to |-> t, 
-                                   term |-> currentTerm[s],
-                                   lastLogIndex |-> LastIndex(log[s]),
-                                   lastLogTerm |-> LastTerm(log[s])]}
+\* Server i times out and becomes a pre-candidate if pre-vote is enabled
+BecomePreCandidate(i) ==
+    /\ state[i] \in {Follower, Candidate}
+    /\ state' = [state EXCEPT ![i] = PreCandidate]
+    /\ votesGranted' = [votesGranted EXCEPT ![i] = {i}]
+    /\ leaderId' = [leaderId EXCEPT ![i] = NoServer]
+    /\ LET lastIdx == LastIndex(log[i])
+           lastTrm == LastTerm(log[i])
+           newTerm == currentTerm[i] + 1
+       IN /\ Send([mtype         |-> TypePreVote,
+                   mterm         |-> newTerm,
+                   msource       |-> i,
+                   mdest         |-> i,
+                   mlastLogTerm  |-> lastTrm,
+                   mlastLogIndex |-> lastIdx])
+          /\ \/ /\ i = leaderId[i]
+                /\ leaderId' = [leaderId EXCEPT ![i] = NoServer]
+             \/ /\ i # leaderId[i]
+                /\ UNCHANGED leaderId
+    /\ UNCHANGED <<currentTerm, votedFor, logVars, nextIndex, matchIndex, appVars>>
 
-HandleRequestVote(s, m) ==
-    /\ m.type = "RequestVote"
-    /\ m.to = s
-    /\ LET grant == /\ m.term >= currentTerm[s]
-                    /\ \/ votedFor[s] = Nil
-                       \/ votedFor[s] = m.from
-                    /\ IsUpToDate(m.lastLogTerm, m.lastLogIndex, log[s])
-       IN /\ IF m.term > currentTerm[s]
-             THEN BecomeFollower(s, m.term)
-             ELSE UNCHANGED <<currentTerm, state, votedFor, leader, votes>>
-          /\ IF grant
-             THEN /\ votedFor' = [votedFor EXCEPT ![s] = m.from]
-                  /\ messages' = messages \cup {[type |-> "RequestVoteResponse",
-                                                 from |-> s,
-                                                 to |-> m.from,
-                                                 term |-> currentTerm'[s],
-                                                 voteGranted |-> TRUE]}
-             ELSE /\ messages' = messages \cup {[type |-> "RequestVoteResponse",
-                                                 from |-> s,
-                                                 to |-> m.from,
-                                                 term |-> currentTerm'[s],
-                                                 voteGranted |-> FALSE]}
-                  /\ UNCHANGED votedFor
+\* Server i times out and starts a new election
+BecomeCandidate(i) ==
+    /\ state[i] \in {Follower, Candidate, PreCandidate}
+    /\ state' = [state EXCEPT ![i] = Candidate]
+    /\ currentTerm' = [currentTerm EXCEPT ![i] = currentTerm[i] + 1]
+    /\ votedFor' = [votedFor EXCEPT ![i] = i]
+    /\ votesGranted' = [votesGranted EXCEPT ![i] = {i}]
+    /\ leaderId' = [leaderId EXCEPT ![i] = NoServer]
+    /\ LET lastIdx == LastIndex(log[i])
+           lastTrm == LastTerm(log[i])
+       IN \/ /\ state[i] = PreCandidate
+             /\ \A j \in Servers \ {i} :
+                  Send([mtype         |-> TypeRequestVote,
+                        mterm         |-> currentTerm'[i],
+                        msource       |-> i,
+                        mdest         |-> j,
+                        mlastLogTerm  |-> lastTrm,
+                        mlastLogIndex |-> lastIdx])
+          \/ /\ state[i] # PreCandidate
+             /\ \A j \in Servers \ {i} :
+                  Send([mtype         |-> TypeRequestVote,
+                        mterm         |-> currentTerm'[i],
+                        msource       |-> i,
+                        mdest         |-> j,
+                        mlastLogTerm  |-> lastTrm,
+                        mlastLogIndex |-> lastIdx])
+    /\ UNCHANGED <<logVars, nextIndex, matchIndex, appVars>>
 
-HandleRequestVoteResponse(s, m) ==
-    /\ m.type = "RequestVoteResponse"
-    /\ m.to = s
-    /\ state[s] = "Candidate"
-    /\ IF m.term > currentTerm[s]
-       THEN BecomeFollower(s, m.term)
-       ELSE /\ IF m.voteGranted
-               THEN votes' = [votes EXCEPT ![s] = votes[s] \cup {m.from}]
-               ELSE UNCHANGED votes
-            /\ UNCHANGED <<currentTerm, state, votedFor, leader>>
+\* Server i sends a PreVote request to server j
+SendPreVoteRequest(i, j) ==
+    /\ state[i] = PreCandidate
+    /\ LET lastIdx == LastIndex(log[i])
+           lastTrm == LastTerm(log[i])
+           newTerm == currentTerm[i] + 1
+       IN Send([mtype         |-> TypePreVote,
+                mterm         |-> newTerm,
+                msource       |-> i,
+                mdest         |-> j,
+                mlastLogTerm  |-> lastTrm,
+                mlastLogIndex |-> lastIdx])
+    /\ UNCHANGED <<serverVars, leaderVars, candidateVars, logVars, appVars>>
 
-AppendEntries(s, t) ==
-    /\ state[s] = "Leader"
-    /\ t \in Servers
-    /\ t # s
-    /\ LET prevLogIndex == nextIndex[s][t] - 1
-           prevLogTerm == IF prevLogIndex > 0 THEN log[s][prevLogIndex].term ELSE 0
-           entries == SubSeq(log[s], nextIndex[s][t], Len(log[s]))
-       IN messages' = messages \cup {[type |-> "AppendEntries",
-                                       from |-> s,
-                                       to |-> t,
-                                       term |-> currentTerm[s],
-                                       prevLogIndex |-> prevLogIndex,
-                                       prevLogTerm |-> prevLogTerm,
-                                       entries |-> entries,
-                                       leaderCommit |-> commitIndex[s]]}
+\* Server i receives a PreVote request from server j
+HandlePreVoteRequest(i, j, m) ==
+    LET logOk == \/ m.mlastLogTerm > LastTerm(log[i])
+                 \/ /\ m.mlastLogTerm = LastTerm(log[i])
+                    /\ m.mlastLogIndex >= LastIndex(log[i])
+        grant == /\ m.mterm > currentTerm[i]
+                 /\ logOk
+                 /\ votedFor[i] = NoServer \/ votedFor[i] = j
+    IN /\ m.mtype = TypePreVote
+       /\ \/ /\ grant
+             /\ Send([mtype        |-> TypePreVoteResponse,
+                      mterm        |-> m.mterm,
+                      msource      |-> i,
+                      mdest        |-> j,
+                      mvoteGranted |-> TRUE])
+          \/ /\ ~grant
+             /\ Send([mtype        |-> TypePreVoteResponse,
+                      mterm        |-> currentTerm[i],
+                      msource      |-> i,
+                      mdest        |-> j,
+                      mvoteGranted |-> FALSE])
+       /\ Discard(m)
+       /\ UNCHANGED <<serverVars, leaderVars, candidateVars, logVars, appVars>>
 
-HandleAppendEntries(s, m) ==
-    /\ m.type = "AppendEntries"
-    /\ m.to = s
-    /\ IF m.term > currentTerm[s]
-       THEN BecomeFollower(s, m.term)
-       ELSE UNCHANGED <<currentTerm, state, votedFor, leader, votes>>
-    /\ LET logOk == \/ m.prevLogIndex = 0
-                    \/ /\ m.prevLogIndex > 0
-                       /\ m.prevLogIndex <= Len(log[s])
-                       /\ log[s][m.prevLogIndex].term = m.prevLogTerm
-       IN /\ IF logOk
-             THEN /\ log' = [log EXCEPT ![s] = SubSeq(log[s], 1, m.prevLogIndex) \o m.entries]
-                  /\ commitIndex' = [commitIndex EXCEPT ![s] = 
-                                     IF m.leaderCommit > commitIndex[s]
-                                     THEN Min(m.leaderCommit, Len(log'[s]))
-                                     ELSE commitIndex[s]]
-                  /\ messages' = messages \cup {[type |-> "AppendEntriesResponse",
-                                                 from |-> s,
-                                                 to |-> m.from,
-                                                 term |-> currentTerm'[s],
-                                                 success |-> TRUE,
-                                                 matchIndex |-> Len(log'[s])]}
-             ELSE /\ messages' = messages \cup {[type |-> "AppendEntriesResponse",
-                                                 from |-> s,
-                                                 to |-> m.from,
-                                                 term |-> currentTerm'[s],
-                                                 success |-> FALSE,
-                                                 matchIndex |-> 0]}
-                  /\ UNCHANGED <<log, commitIndex>>
+\* Server i receives a PreVote response from server j
+HandlePreVoteResponse(i, j, m) ==
+    /\ m.mtype = TypePreVoteResponse
+    /\ state[i] = PreCandidate
+    /\ \/ /\ m.mvoteGranted
+          /\ votesGranted' = [votesGranted EXCEPT ![i] = votesGranted[i] \union {j}]
+          /\ LET quorum == (Cardinality(Servers) \div 2) + 1
+             IN \/ /\ Cardinality(votesGranted'[i]) >= quorum
+                   /\ BecomeCandidate(i)
+                \/ /\ Cardinality(votesGranted'[i]) < quorum
+                   /\ UNCHANGED <<serverVars, leaderVars, logVars, appVars>>
+       \/ /\ ~m.mvoteGranted
+          /\ \/ /\ m.mterm > currentTerm[i]
+                /\ currentTerm' = [currentTerm EXCEPT ![i] = m.mterm]
+                /\ state' = [state EXCEPT ![i] = Follower]
+                /\ votedFor' = [votedFor EXCEPT ![i] = NoServer]
+                /\ UNCHANGED <<leaderVars, candidateVars, logVars, appVars>>
+             \/ /\ m.mterm <= currentTerm[i]
+                /\ UNCHANGED <<serverVars, leaderVars, candidateVars, logVars, appVars>>
+    /\ Discard(m)
 
-HandleAppendEntriesResponse(s, m) ==
-    /\ m.type = "AppendEntriesResponse"
-    /\ m.to = s
-    /\ state[s] = "Leader"
-    /\ IF m.term > currentTerm[s]
-       THEN BecomeFollower(s, m.term)
-       ELSE /\ IF m.success
-               THEN /\ nextIndex' = [nextIndex EXCEPT ![s][m.from] = m.matchIndex + 1]
-                    /\ matchIndex' = [matchIndex EXCEPT ![s][m.from] = m.matchIndex]
-               ELSE /\ nextIndex' = [nextIndex EXCEPT ![s][m.from] = Max(nextIndex[s][m.from] - 1, 1)]
-                    /\ UNCHANGED matchIndex
-            /\ UNCHANGED <<currentTerm, state, votedFor, leader, votes>>
-
-ClientRequest(s, req) ==
-    /\ state[s] = "Leader"
-    /\ Len(log[s]) < MaxLogLen
-    /\ LET entry == [term |-> currentTerm[s], 
-                     index |-> Len(log[s]) + 1,
-                     operation |-> req.operation,
-                     key |-> req.key,
-                     value |-> req.value]
-       IN /\ log' = [log EXCEPT ![s] = Append(log[s], entry)]
-          /\ clientRequests' = clientRequests \cup {req}
-
-ApplyEntry(s) ==
-    /\ appliedIndex[s] < commitIndex[s]
-    /\ LET entry == log[s][appliedIndex[s] + 1]
-       IN /\ appliedIndex' = [appliedIndex EXCEPT ![s] = appliedIndex[s] + 1]
-          /\ IF entry.operation = "Put"
-             THEN keyValueStore' = [keyValueStore EXCEPT ![s][entry.key] = entry.value]
-             ELSE IF entry.operation = "Delete"
-                  THEN keyValueStore' = [keyValueStore EXCEPT ![s] = 
-                                         [k \in DOMAIN keyValueStore[s] \ {entry.key} |-> keyValueStore[s][k]]]
-                  ELSE UNCHANGED keyValueStore
-
-UpdateCommitIndex(s) ==
-    /\ state[s] = "Leader"
-    /\ LET newCommitIndex == CHOOSE i \in (commitIndex[s] + 1)..Len(log[s]) :
-                                /\ log[s][i].term = currentTerm[s]
-                                /\ Cardinality({t \in Servers : matchIndex[s][t] >= i}) * 2 > Cardinality(Servers)
-       IN commitIndex' = [commitIndex EXCEPT ![s] = newCommitIndex]
-
-Timeout(s) ==
-    /\ state[s] \in {"Follower", "Candidate"}
-    /\ electionTimeout[s] = 0
-    /\ BecomeCandidate(s)
-    /\ electionTimeout' = [electionTimeout EXCEPT ![s] = 5]
-
-Heartbeat(s) ==
-    /\ state[s] = "Leader"
-    /\ heartbeatTimeout[s] = 0
-    /\ \A t \in Servers \ {s} : AppendEntries(s, t)
-    /\ heartbeatTimeout' = [heartbeatTimeout EXCEPT ![s] = 1]
-
-TickElectionTimeout(s) ==
-    /\ electionTimeout[s] > 0
-    /\ electionTimeout' = [electionTimeout EXCEPT ![s] = electionTimeout[s] - 1]
-
-TickHeartbeatTimeout(s) ==
-    /\ heartbeatTimeout[s] > 0
-    /\ heartbeatTimeout' = [heartbeatTimeout EXCEPT ![s] = heartbeatTimeout[s] - 1]
-
-ReceiveMessage(m) ==
-    /\ m \in messages
-    /\ \/ HandleRequestVote(m.to, m)
-       \/ HandleRequestVoteResponse(m.to, m)
-       \/ HandleAppendEntries(m.to, m)
-       \/ HandleAppendEntriesResponse(m.to, m)
-    /\ messages' = messages \ {m}
-
-Next ==
-    \/ \E s \in Servers : 
-        \/ Timeout(s)
-        \/ TickElectionTimeout(s)
-        \/ TickHeartbeatTimeout(s)
-        \/ Heartbeat(s)
-        \/ UpdateCommitIndex(s)
-        \/ ApplyEntry(s)
-        \/ \E t \in Servers \ {s} : RequestVote(s, t)
-        \/ \E t \in Servers \ {s} : AppendEntries(s, t)
-        \/ \E req \in clientRequests : ClientRequest(s, req)
-    \/ \E m \in messages : ReceiveMessage(m)
-
-Spec == Init /\ [][Next]_vars
-
-ElectionSafety == 
-    \A s, t \in Servers : 
-        /\ state[s] = "Leader" 
-        /\ state[t] = "Leader" 
-        /\ currentTerm[s] = currentTerm[t]
-        => s = t
-
-LeaderAppendOnly ==
-    \A s \in Servers :
-        state[s] = "Leader" =>
-            \A i \in 1..Len(log[s]) :
-                log[s][i].term <= currentTerm[s]
-
-LogMatching ==
-    \A s, t \in Servers :
-        \A i \in 1..Min(Len(log[s]), Len(log[t])) :
-            log[s][i].term = log[t][i].term =>
-                \A j \in 1..i : log[s][j] = log[t][j]
-
-LeaderCompleteness ==
-    \A s \in Servers :
-        state[s]= "Leader" => 
-            commitIndex[s] = Len(log[s]) 
-
-Linearizability ==
-    \A req \in clientRequests :
-        \A s \in Servers :
-            req.operation = "Get" => 
-                \A i \in 1..Len(log[s]) :
-                    log[s][i].operation = "Put" /\ log[s][i].key = req.key => 
-                        log[s][i].value = keyValueStore[s][req.key]
-
-
-MajorityVote == \A s \in Servers : state[s] = "Candidate" => Cardinality(votes[s]) * 2 > Cardinality(Servers)
-
-LogIntegrity == \A s \in Servers : \A i \in 1..Len(log[s]) : log[s][i].term <= currentTerm[s]
-
-CommitIndexBound == \A s \in Servers : commitIndex[s] <= Len(log[s])
-
-
-====
+\* Server i receives a RequestVote request from server j
+HandleRequestVoteRequest(i, j, m) ==
+    LET logOk == \/ m.mlastLogTerm > LastTerm(log[i])
+                 \/ /\ m.mlastLogTerm = LastTerm(log[i])
+                    /\ m.mlastLogIndex >= LastIndex(log[i])
+        grant == /\ m.mterm = currentTerm[i]
+                 /\ logOk
+                 /\ votedFor[i] \in {NoServer, j}
+    IN /\ m.mtype = TypeRequestVote
+       /\ \/ /\ m.mterm > currentTerm[i]
+             /\ currentTerm' = [currentTerm EXCEPT ![i] = m.mterm]
+             /\ state' = [state EXCEPT ![i] = Follower]
+             /\ votedFor' = [votedFor EXCEPT ![i] = NoServer]
+             /\ LET logOkUpdated == \/ m.mlastLogTerm > LastTerm(log[i])
+                                    \/ /\ m.mlastLogTerm = LastTerm(log[i])
+                                       /\ m.mlastLogIndex >= LastIndex(log[i])
+                    grantUpdated == /\ logOkUpdated
+                                    /\ votedFor'[i] \in {NoServer, j}
+                IN \/ /\ grantUpdated
+                      /\ votedFor' = [votedFor EXCEPT ![i] = j]
+                      /\ Send([mtype        |-> TypeRequestVoteResponse,
+                               mterm        |-> m.mterm,
+                               msource      |-> i,
+                               mdest        |-> j,
+                               mvoteGranted |-> TRUE])
+                   \/ /\ ~grantUpdated
+                      /\ Send([mtype        |-> TypeRequestVoteResponse,
+                               mterm        |-> m.mterm,
+                               msource      |-> i,
+                               mdest        |-> j,
+                               mvoteGranted |-> FALSE])
+          \/ /\ m.mterm = currentTerm[i]
+             /\ \/ /\ grant
+                   /\ votedFor' = [votedFor EXCEPT ![i] = j]
+                   /\ Send([mtype        |-> TypeRequestVoteResponse,
+                            mterm        |-> currentTerm[i],
+                            msource      |-> i,
+                            mdest        |-> j,
+                            mvoteGranted |-> TRUE])
+                \/ /\ ~grant
+                   /\ Send([mtype        |-> TypeRequestVoteResponse,
+                            mterm        |-> currentTerm[i],
+                            msource      |-> i,
+                            mdest        |-> j,
+                            mvoteGranted |-> FALSE])
