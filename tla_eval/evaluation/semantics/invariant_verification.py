@@ -1,7 +1,7 @@
 """
-Phase 2 Evaluation: Model Checking with TLC
+Invariant Verification Evaluator: Semantic-level evaluation for TLA+ specifications.
 
-This module implements Phase 2 evaluation which includes:
+This evaluator implements semantic evaluation which includes:
 1. Invariant generation from TLA+ specifications
 2. TLC configuration file (.cfg) generation  
 3. TLC model checking execution and result analysis
@@ -19,104 +19,10 @@ from dataclasses import dataclass
 
 from ...models.base import GenerationResult
 from ...config import get_configured_model
+from ..base.evaluator import BaseEvaluator
+from ..base.result_types import SemanticEvaluationResult
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Phase2EvaluationResult:
-    """Result of Phase 2 evaluation (model checking)"""
-    task_name: str
-    method_name: str
-    model_name: str
-    timestamp: float
-    
-    # Input specification info
-    specification_file: str = None
-    specification_valid: bool = False
-    
-    # Invariant generation results
-    invariant_generation_successful: bool = False
-    invariant_generation_time: float = 0.0
-    generated_invariants: str = ""
-    invariant_generation_error: str = None
-    
-    # Config generation results
-    config_generation_successful: bool = False
-    config_generation_time: float = 0.0
-    generated_config: str = ""
-    config_file_path: str = None
-    config_generation_error: str = None
-    
-    # TLC model checking results
-    model_checking_successful: bool = False
-    model_checking_time: float = 0.0
-    tlc_output: str = ""
-    tlc_exit_code: int = None
-    model_checking_error: str = None
-    
-    # Analysis results
-    invariant_violations: List[str] = None
-    deadlock_found: bool = False
-    states_explored: int = 0
-    
-    # Overall success
-    overall_success: bool = False
-    
-    def __post_init__(self):
-        if self.invariant_violations is None:
-            self.invariant_violations = []
-        if self.timestamp == 0:
-            self.timestamp = time.time()
-            
-        # Overall success requires all steps to succeed and no violations
-        self.overall_success = (
-            self.specification_valid and
-            self.invariant_generation_successful and
-            self.config_generation_successful and
-            self.model_checking_successful and
-            len(self.invariant_violations) == 0 and
-            not self.deadlock_found
-        )
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert result to dictionary for serialization"""
-        return {
-            "task_name": self.task_name,
-            "method_name": self.method_name,
-            "model_name": self.model_name,
-            "timestamp": self.timestamp,
-            "specification": {
-                "file": self.specification_file,
-                "valid": self.specification_valid
-            },
-            "invariant_generation": {
-                "successful": self.invariant_generation_successful,
-                "time": self.invariant_generation_time,
-                "invariants": self.generated_invariants,
-                "error": self.invariant_generation_error
-            },
-            "config_generation": {
-                "successful": self.config_generation_successful,
-                "time": self.config_generation_time,
-                "config": self.generated_config,
-                "config_file": self.config_file_path,
-                "error": self.config_generation_error
-            },
-            "model_checking": {
-                "successful": self.model_checking_successful,
-                "time": self.model_checking_time,
-                "output": self.tlc_output,
-                "exit_code": self.tlc_exit_code,
-                "error": self.model_checking_error
-            },
-            "analysis": {
-                "invariant_violations": self.invariant_violations,
-                "deadlock_found": self.deadlock_found,
-                "states_explored": self.states_explored
-            },
-            "overall_success": self.overall_success
-        }
 
 
 class InvariantGenerator:
@@ -411,11 +317,11 @@ class TLCRunner:
         return violations, deadlock_found, states_explored
 
 
-class Phase2Evaluator:
+class InvariantVerificationEvaluator(BaseEvaluator):
     """
-    Phase 2 Evaluator: Model Checking with TLC
+    Invariant Verification Evaluator: Semantic evaluation for TLA+ specifications.
     
-    This evaluator takes TLA+ specifications (from Phase 1) and performs:
+    This evaluator takes TLA+ specifications and performs:
     1. Invariant generation
     2. TLC configuration generation  
     3. Model checking with TLC
@@ -423,23 +329,22 @@ class Phase2Evaluator:
     
     def __init__(self, tlc_timeout: int = 300):
         """
-        Initialize Phase 2 evaluator.
+        Initialize invariant verification evaluator.
         
         Args:
             tlc_timeout: Timeout for TLC execution in seconds
         """
+        super().__init__(timeout=tlc_timeout)
         self.invariant_generator = InvariantGenerator()
         self.config_generator = ConfigGenerator()
         self.tlc_runner = TLCRunner(timeout=tlc_timeout)
-        
-        logger.info(f"Phase 2 Evaluator initialized with {tlc_timeout}s TLC timeout")
     
-    def evaluate_specification(self, 
-                             spec_file_path: str,
-                             task_name: str,
-                             method_name: str,
-                             model_name: str,
-                             spec_module: str = None) -> Phase2EvaluationResult:
+    def evaluate(self, 
+                spec_file_path: str,
+                task_name: str,
+                method_name: str,
+                model_name: str,
+                spec_module: str = None) -> SemanticEvaluationResult:
         """
         Evaluate a TLA+ specification using model checking.
         
@@ -451,25 +356,23 @@ class Phase2Evaluator:
             spec_module: Optional TLA+ module name
             
         Returns:
-            Phase2EvaluationResult with model checking results
+            SemanticEvaluationResult with model checking results
         """
-        logger.info(f"Phase 2 evaluation: {task_name}/{method_name}/{model_name}")
+        logger.info(f"Semantic evaluation: {task_name}/{method_name}/{model_name}")
         
         # Create evaluation result
-        result = Phase2EvaluationResult(task_name, method_name, model_name, time.time())
+        result = SemanticEvaluationResult(task_name, method_name, model_name)
         result.specification_file = spec_file_path
         
         try:
             # Step 1: Read and validate specification
             if not Path(spec_file_path).exists():
-                result.specification_valid = False
                 logger.error(f"Specification file not found: {spec_file_path}")
                 return result
             
             with open(spec_file_path, 'r', encoding='utf-8') as f:
                 tla_content = f.read()
             
-            result.specification_valid = True
             logger.info("✓ Specification file loaded")
             
             # Step 2: Generate invariants
@@ -482,7 +385,7 @@ class Phase2Evaluator:
             
             result.invariant_generation_time = time.time() - start_time
             result.invariant_generation_successful = inv_success
-            result.generated_invariants = invariants
+            result.generated_invariants = [invariants] if invariants else []
             result.invariant_generation_error = inv_error
             
             if not inv_success:
@@ -510,7 +413,6 @@ class Phase2Evaluator:
             
             result.config_generation_time = time.time() - start_time
             result.config_generation_successful = cfg_success
-            result.generated_config = config
             result.config_generation_error = cfg_error
             
             if not cfg_success:
@@ -540,11 +442,9 @@ class Phase2Evaluator:
             
             result.model_checking_time = time.time() - start_time
             result.model_checking_successful = tlc_success
-            result.tlc_output = tlc_output
-            result.tlc_exit_code = tlc_exit_code
+            result.model_checking_error = f"TLC failed with exit code {tlc_exit_code}" if not tlc_success else None
             
             if not tlc_success:
-                result.model_checking_error = f"TLC failed with exit code {tlc_exit_code}"
                 logger.error(f"✗ TLC model checking failed: {result.model_checking_error}")
             else:
                 logger.info(f"✓ TLC completed in {result.model_checking_time:.2f}s")
@@ -557,7 +457,6 @@ class Phase2Evaluator:
             
             # Update overall success
             result.overall_success = (
-                result.specification_valid and
                 result.invariant_generation_successful and
                 result.config_generation_successful and
                 result.model_checking_successful and
@@ -566,34 +465,18 @@ class Phase2Evaluator:
             )
             
             if result.overall_success:
-                logger.info("✓ Phase 2 evaluation: PASS")
+                logger.info("✓ Semantic evaluation: PASS")
             else:
                 violations_msg = f"{len(violations)} violations" if violations else "no violations"
                 deadlock_msg = "deadlock found" if deadlock else "no deadlock"
-                logger.info(f"✗ Phase 2 evaluation: FAIL ({violations_msg}, {deadlock_msg})")
+                logger.info(f"✗ Semantic evaluation: FAIL ({violations_msg}, {deadlock_msg})")
             
             return result
             
         except Exception as e:
-            logger.error(f"Phase 2 evaluation failed: {e}")
+            logger.error(f"Semantic evaluation failed: {e}")
             result.model_checking_error = str(e)
             return result
-    
-    def save_results(self, results: List[Phase2EvaluationResult], output_file: str):
-        """Save Phase 2 evaluation results to file"""
-        import json
-        
-        output_data = {
-            "evaluation_type": "phase2_model_checking",
-            "total_evaluations": len(results),
-            "timestamp": time.time(),
-            "results": [result.to_dict() for result in results]
-        }
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Phase 2 results saved to: {output_file}")
     
     def _insert_invariants_into_spec(self, tla_content: str, invariants: str) -> str:
         """
@@ -629,3 +512,21 @@ class Phase2Evaluator:
         result_lines.extend(lines[ending_line_index:])  # Add ==== and any content after
         
         return '\n'.join(result_lines)
+    
+    def _get_evaluation_type(self) -> str:
+        """Return the evaluation type identifier"""
+        return "semantic_invariant_verification"
+
+
+# Convenience function for backward compatibility
+def create_invariant_verification_evaluator(tlc_timeout: int = 300) -> InvariantVerificationEvaluator:
+    """
+    Factory function to create an invariant verification evaluator.
+    
+    Args:
+        tlc_timeout: Timeout for TLC execution in seconds
+        
+    Returns:
+        InvariantVerificationEvaluator instance
+    """
+    return InvariantVerificationEvaluator(tlc_timeout=tlc_timeout)

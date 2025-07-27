@@ -1,0 +1,207 @@
+"""
+Common result types for evaluation framework.
+"""
+
+import time
+from typing import Dict, Any, List, Optional
+from abc import ABC, abstractmethod
+
+
+class EvaluationResult(ABC):
+    """Base class for all evaluation results"""
+    
+    def __init__(self, task_name: str, method_name: str, model_name: str):
+        self.task_name = task_name
+        self.method_name = method_name
+        self.model_name = model_name
+        self.timestamp = time.time()
+        self.overall_success = False
+    
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert result to dictionary for serialization"""
+        pass
+
+
+class SyntaxEvaluationResult(EvaluationResult):
+    """Result of syntax-level evaluation"""
+    
+    def __init__(self, task_name: str, method_name: str, model_name: str):
+        super().__init__(task_name, method_name, model_name)
+        
+        # Generation results
+        self.generation_successful = False
+        self.generation_time = 0.0
+        self.generation_error = None
+        self.generated_specification = None
+        
+        # Compilation results
+        self.compilation_successful = False
+        self.compilation_time = 0.0
+        self.syntax_errors = []
+        self.semantic_errors = []
+        self.compilation_output = ""
+        
+        # Legacy compatibility
+        self.compilation_errors = []
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "task_name": self.task_name,
+            "method_name": self.method_name,
+            "model_name": self.model_name,
+            "timestamp": self.timestamp,
+            "generation": {
+                "successful": self.generation_successful,
+                "time_seconds": self.generation_time,
+                "error": self.generation_error,
+                "specification_length": len(self.generated_specification) if self.generated_specification else 0
+            },
+            "compilation": {
+                "successful": self.compilation_successful,
+                "time_seconds": self.compilation_time,
+                "syntax_errors": self.syntax_errors,
+                "semantic_errors": self.semantic_errors,
+                "syntax_error_count": len(self.syntax_errors),
+                "semantic_error_count": len(self.semantic_errors),
+                "total_error_count": len(self.compilation_errors),
+                "output_length": len(self.compilation_output)
+            },
+            "overall": {
+                "successful": self.overall_success,
+                "total_time_seconds": self.generation_time + self.compilation_time
+            }
+        }
+
+
+class SemanticEvaluationResult(EvaluationResult):
+    """Result of semantic-level evaluation"""
+    
+    def __init__(self, task_name: str, method_name: str, model_name: str):
+        super().__init__(task_name, method_name, model_name)
+        
+        # Invariant generation
+        self.invariant_generation_successful = False
+        self.invariant_generation_time = 0.0
+        self.invariant_generation_error = None
+        self.generated_invariants = []
+        
+        # Config generation
+        self.config_generation_successful = False
+        self.config_generation_time = 0.0
+        self.config_generation_error = None
+        self.config_file_path = None
+        
+        # Model checking
+        self.model_checking_successful = False
+        self.model_checking_time = 0.0
+        self.model_checking_error = None
+        self.states_explored = 0
+        self.invariant_violations = []
+        self.deadlock_found = False
+        
+        # File paths
+        self.specification_file = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "task_name": self.task_name,
+            "method_name": self.method_name,
+            "model_name": self.model_name,
+            "timestamp": self.timestamp,
+            "invariant_generation": {
+                "successful": self.invariant_generation_successful,
+                "time_seconds": self.invariant_generation_time,
+                "error": self.invariant_generation_error,
+                "invariants_count": len(self.generated_invariants)
+            },
+            "config_generation": {
+                "successful": self.config_generation_successful,
+                "time_seconds": self.config_generation_time,
+                "error": self.config_generation_error,
+                "config_file": self.config_file_path
+            },
+            "model_checking": {
+                "successful": self.model_checking_successful,
+                "time_seconds": self.model_checking_time,
+                "error": self.model_checking_error,
+                "states_explored": self.states_explored,
+                "invariant_violations": self.invariant_violations,
+                "deadlock_found": self.deadlock_found
+            },
+            "overall": {
+                "successful": self.overall_success,
+                "total_time_seconds": (self.invariant_generation_time + 
+                                     self.config_generation_time + 
+                                     self.model_checking_time)
+            },
+            "files": {
+                "specification": self.specification_file,
+                "config": self.config_file_path
+            }
+        }
+
+
+class ConsistencyEvaluationResult(EvaluationResult):
+    """Result of system consistency evaluation"""
+    
+    def __init__(self, task_name: str, method_name: str, model_name: str):
+        super().__init__(task_name, method_name, model_name)
+        
+        # Trace generation
+        self.trace_generation_successful = False
+        self.trace_generation_time = 0.0
+        self.trace_generation_error = None
+        self.generated_trace_count = 0
+        
+        # Trace conversion
+        self.trace_conversion_successful = False
+        self.trace_conversion_time = 0.0
+        self.trace_conversion_error = None
+        
+        # Trace validation
+        self.trace_validation_successful = False
+        self.trace_validation_time = 0.0
+        self.trace_validation_error = None
+        self.validated_events = 0
+        
+        # File paths
+        self.raw_trace_files = []
+        self.converted_trace_files = []
+        self.specification_files = []
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "task_name": self.task_name,
+            "method_name": self.method_name,
+            "model_name": self.model_name,
+            "timestamp": self.timestamp,
+            "trace_generation": {
+                "successful": self.trace_generation_successful,
+                "time_seconds": self.trace_generation_time,
+                "error": self.trace_generation_error,
+                "trace_count": self.generated_trace_count
+            },
+            "trace_conversion": {
+                "successful": self.trace_conversion_successful,
+                "time_seconds": self.trace_conversion_time,
+                "error": self.trace_conversion_error
+            },
+            "trace_validation": {
+                "successful": self.trace_validation_successful,
+                "time_seconds": self.trace_validation_time,
+                "error": self.trace_validation_error,
+                "validated_events": self.validated_events
+            },
+            "overall": {
+                "successful": self.overall_success,
+                "total_time_seconds": (self.trace_generation_time + 
+                                     self.trace_conversion_time + 
+                                     self.trace_validation_time)
+            },
+            "files": {
+                "raw_traces": self.raw_trace_files,
+                "converted_traces": self.converted_trace_files,
+                "specifications": self.specification_files
+            }
+        }

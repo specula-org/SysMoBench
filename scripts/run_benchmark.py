@@ -44,8 +44,18 @@ from tla_eval.models.base import GenerationConfig
 from tla_eval.utils import validate_tla_tools_setup
 from tla_eval.utils.repository_manager import setup_task_repository
 
-# Import evaluators
-from tla_eval.evaluation import Phase1Evaluator, Phase2Evaluator, Phase3Evaluator
+# Import evaluators and metric registry
+from tla_eval.evaluation import (
+    CompilationCheckEvaluator, 
+    InvariantVerificationEvaluator, 
+    TraceValidationEvaluator
+)
+from tla_eval.evaluation.base import (
+    get_available_metrics,
+    get_available_dimensions, 
+    create_evaluator,
+    get_metric_registry
+)
 
 import logging
 
@@ -78,9 +88,12 @@ def validate_prerequisites(phase: int = 1):
 
 
 def run_single_benchmark(task_name: str, method_name: str, model_name: str, 
-                        phase: int = 1,
+                        evaluation_type: str = "syntax",
+                        metric: Optional[str] = None,
+                        phase: Optional[int] = None,  # Legacy support
                         source_file: Optional[str] = None,
-                        generation_config: Optional[GenerationConfig] = None) -> dict:
+                        generation_config: Optional[GenerationConfig] = None,
+                        **metric_params) -> dict:
     """
     Run benchmark for a single task/method/model combination.
     
@@ -88,14 +101,46 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         task_name: Name of the task
         method_name: Name of the generation method  
         model_name: Name of the model
-        phase: Evaluation phase (1=compilation, 2=runtime, 3=consistency)
+        evaluation_type: Evaluation type ("syntax", "semantics", "consistency")
+        metric: Specific metric to run (if None, uses default for evaluation_type)
+        phase: Legacy evaluation phase (1=syntax, 2=semantics, 3=consistency)
         source_file: Optional specific source file
         generation_config: Optional generation configuration
+        metric_params: Additional parameters for specific metrics
         
     Returns:
         Dictionary with benchmark results
     """
-    logger.info(f"Running Phase {phase} benchmark: {task_name}/{method_name}/{model_name}")
+    # Handle legacy phase parameter
+    if phase is not None:
+        phase_to_type = {1: "syntax", 2: "semantics", 3: "consistency"}
+        evaluation_type = phase_to_type.get(phase, evaluation_type)
+        logger.warning(f"Using legacy --phase {phase} parameter, consider using --evaluation-type {evaluation_type}")
+    
+    # Determine metric to use
+    if metric is None:
+        # Use default metric for each dimension
+        default_metrics = {
+            "syntax": "compilation_check",
+            "semantics": "invariant_verification", 
+            "consistency": "trace_validation"
+        }
+        metric = default_metrics.get(evaluation_type)
+        if metric is None:
+            raise ValueError(f"No default metric for evaluation type: {evaluation_type}")
+    
+    # Validate metric exists and matches dimension
+    registry = get_metric_registry()
+    try:
+        metric_info = registry.get_metric(metric)
+        if metric_info.dimension != evaluation_type:
+            logger.warning(f"Metric '{metric}' belongs to dimension '{metric_info.dimension}', but evaluation-type is '{evaluation_type}'. Using metric's dimension.")
+            evaluation_type = metric_info.dimension
+    except ValueError as e:
+        available_metrics = get_available_metrics(evaluation_type)
+        raise ValueError(f"Unknown metric '{metric}' for dimension '{evaluation_type}'. Available metrics: {available_metrics}") from e
+    
+    logger.info(f"Running {evaluation_type} evaluation with metric '{metric}': {task_name}/{method_name}/{model_name}")
     
     try:
         # Load task
@@ -103,9 +148,9 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         task = task_loader.load_task(task_name, source_file)
         logger.info(f"Loaded task: {task.task_name} ({task.system_type})")
         
-        # Setup repository if needed for Phase 3
-        if phase == 3:
-            logger.info("Setting up repository for Phase 3 trace generation...")
+        # Setup repository if needed for consistency evaluation
+        if evaluation_type == "consistency":
+            logger.info("Setting up repository for consistency evaluation...")
             try:
                 # Get task configuration to check for patch requirements
                 task_config = task_loader.get_task_info(task_name)
@@ -150,47 +195,73 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             error_message=generation_output.error_message
         )
         
-        # Evaluate based on phase
+        # Create evaluator using metric registry
+        evaluator = create_evaluator(metric, **metric_params)
+        
+        # Evaluate based on metric type
         evaluation_result = None
         
-        if phase == 1:
-            # Phase 1: Compilation checking
-            evaluator = Phase1Evaluator()
-            evaluation_result = evaluator.evaluate_generation(
+        if metric == "compilation_check":
+            # Syntax evaluation: Compilation checking
+            evaluation_result = evaluator.evaluate(
                 generation_result, task_name, method_name, model_name, task.spec_module
             )
-            logger.info(f"Phase 1 evaluation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
+            logger.info(f"Compilation check: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
-        elif phase == 2:
-            # Phase 2: Model checking with TLC
-            evaluator = Phase2Evaluator()
-            
-            # Get specification file path from Phase 1 or user input
+        elif metric == "invariant_verification":
+            # Semantics evaluation: Model checking with TLC
+            # Get specification file path from syntax evaluation or user input
             spec_file_path = f"data/spec/{task_name}/{task.spec_module}.tla"
             if not Path(spec_file_path).exists():
                 logger.error(f"Specification file not found: {spec_file_path}")
                 return {"success": False, "error": f"Specification file not found: {spec_file_path}"}
             
-            evaluation_result = evaluator.evaluate_specification(
+            evaluation_result = evaluator.evaluate(
                 spec_file_path, task_name, method_name, model_name
             )
-            logger.info(f"Phase 2 evaluation: {'✓ PASS' if evaluation_result.get('success', False) else '✗ FAIL'}")
+            logger.info(f"Invariant verification: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
-        elif phase == 3:
-            # Phase 3: Trace generation and validation
-            evaluator = Phase3Evaluator()
+        elif metric == "trace_validation":
+            # Consistency evaluation: Trace generation and validation
+            # Use default configuration for consistency evaluation
+            consistency_config = evaluator.get_default_config()
             
-            # Use default configuration for Phase 3
-            phase3_config = evaluator.get_default_config()
-            
-            evaluation_result = evaluator.evaluate(task_name, phase3_config)
-            logger.info(f"Phase 3 evaluation: {'✓ PASS' if evaluation_result.get('success', False) else '✗ FAIL'}")
+            evaluation_result = evaluator.evaluate(task_name, consistency_config)
+            logger.info(f"Trace validation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
         else:
-            raise ValueError(f"Unknown evaluation phase: {phase}")
+            # For future metrics, use generic interface
+            try:
+                # Try to call with standard parameters first
+                if hasattr(evaluator, 'evaluate'):
+                    if metric_info.dimension == "syntax":
+                        evaluation_result = evaluator.evaluate(
+                            generation_result, task_name, method_name, model_name, task.spec_module
+                        )
+                    elif metric_info.dimension == "semantics":
+                        spec_file_path = f"data/spec/{task_name}/{task.spec_module}.tla"
+                        if not Path(spec_file_path).exists():
+                            return {"success": False, "error": f"Specification file not found: {spec_file_path}"}
+                        evaluation_result = evaluator.evaluate(
+                            spec_file_path, task_name, method_name, model_name
+                        )
+                    elif metric_info.dimension == "consistency":
+                        consistency_config = evaluator.get_default_config() if hasattr(evaluator, 'get_default_config') else {}
+                        evaluation_result = evaluator.evaluate(task_name, consistency_config)
+                    else:
+                        raise ValueError(f"Unknown dimension: {metric_info.dimension}")
+                else:
+                    raise ValueError(f"Evaluator for metric '{metric}' does not have an evaluate method")
+                    
+                logger.info(f"Metric '{metric}': {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
+                
+            except Exception as e:
+                logger.error(f"Error running metric '{metric}': {e}")
+                return {"success": False, "error": f"Error running metric '{metric}': {e}"}
         
         return {
             "success": True,
-            "phase": phase,
+            "evaluation_type": evaluation_type,
+            "metric": metric,
             "evaluation_result": evaluation_result,
             "error": None
         }
@@ -199,15 +270,18 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         logger.error(f"Benchmark failed: {e}")
         return {
             "success": False,
-            "phase": phase,
+            "evaluation_type": evaluation_type,
+            "metric": metric,
             "evaluation_result": None,
             "error": str(e)
         }
 
 
 def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
-                       phase: int = 1, output_dir: str = "results", 
-                       generation_config: Optional[GenerationConfig] = None):
+                       evaluation_type: str = "syntax", metric: Optional[str] = None,
+                       phase: Optional[int] = None, output_dir: str = "results", 
+                       generation_config: Optional[GenerationConfig] = None,
+                       **metric_params):
     """
     Run benchmark for multiple task/method/model combinations.
     
@@ -215,11 +289,18 @@ def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
         tasks: List of task names
         methods: List of method names
         models: List of model names
-        phase: Evaluation phase
+        evaluation_type: Evaluation type ("syntax", "semantics", "consistency")
+        phase: Legacy evaluation phase (deprecated)
         output_dir: Output directory for results
         generation_config: Optional generation configuration
     """
-    logger.info(f"Starting Phase {phase} batch benchmark: {len(tasks)} tasks × {len(methods)} methods × {len(models)} models")
+    # Handle legacy phase parameter
+    if phase is not None:
+        phase_to_type = {1: "syntax", 2: "semantics", 3: "consistency"}
+        evaluation_type = phase_to_type.get(phase, evaluation_type)
+        logger.warning(f"Using legacy --phase {phase} parameter, consider using --evaluation-type {evaluation_type}")
+    
+    logger.info(f"Starting {evaluation_type} batch benchmark: {len(tasks)} tasks × {len(methods)} methods × {len(models)} models")
     
     total_combinations = len(tasks) * len(methods) * len(models)
     current = 0
@@ -233,8 +314,8 @@ def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
                 logger.info(f"Progress: {current}/{total_combinations}")
                 
                 result = run_single_benchmark(
-                    task_name, method_name, model_name, phase,
-                    generation_config=generation_config
+                    task_name, method_name, model_name, evaluation_type, metric,
+                    generation_config=generation_config, **metric_params
                 )
                 
                 if result["success"]:
@@ -247,19 +328,22 @@ def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
     output_path.mkdir(parents=True, exist_ok=True)
     
     timestamp = int(time.time())
-    results_file = output_path / f"phase{phase}_results_{timestamp}.json"
+    results_file = output_path / f"{evaluation_type}_results_{timestamp}.json"
     
-    # Save results based on phase
-    if phase == 1 and results:
-        evaluator = Phase1Evaluator()
+    # Save results based on evaluation type
+    if evaluation_type == "syntax" and results:
+        evaluator = CompilationCheckEvaluator()
         evaluator.save_results(results, str(results_file), include_specifications=True)
-    elif phase == 2 and results:
-        evaluator = Phase2Evaluator()
+    elif evaluation_type == "semantics" and results:
+        evaluator = InvariantVerificationEvaluator()
+        evaluator.save_results(results, str(results_file))
+    elif evaluation_type == "consistency" and results:
+        evaluator = TraceValidationEvaluator()
         evaluator.save_results(results, str(results_file))
     else:
-        # Generic JSON save for other phases
+        # Generic JSON save for other evaluation types
         output_data = {
-            "evaluation_type": f"phase{phase}",
+            "evaluation_type": evaluation_type,
             "total_evaluations": len(results),
             "timestamp": time.time(),
             "results": [r.to_dict() if hasattr(r, 'to_dict') else r for r in results]
@@ -284,25 +368,44 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Single benchmark (Phase 1 compilation checking)
+  # Single benchmark (default syntax evaluation with compilation_check metric)
   python3 scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu
   
-  # Batch benchmark with multiple combinations
-  python3 scripts/run_benchmark.py --tasks etcd raft --methods direct_call agent_based --models gpt-4 claude-3 --output results/
+  # Specify specific metric
+  python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric invariant_verification
   
-  # Specify evaluation phase explicitly  
-  python3 scripts/run_benchmark.py --phase 1 --task etcd --method direct_call --model my_yunwu
+  # Use metric-specific parameters
+  python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric pass_at_k --k 5
+  
+  # Run consistency evaluation with progressive granularity
+  python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric progressive_granularity --level 2
+  
+  # Batch benchmark with specific metric
+  python3 scripts/run_benchmark.py --tasks etcd --methods direct_call --models gpt-4 claude-3 --metric compilation_check --output results/
   
   # List available options
   python3 scripts/run_benchmark.py --list-tasks
-  python3 scripts/run_benchmark.py --list-methods
+  python3 scripts/run_benchmark.py --list-methods  
   python3 scripts/run_benchmark.py --list-models
+  python3 scripts/run_benchmark.py --list-metrics
+  python3 scripts/run_benchmark.py --list-metrics-for syntax
         """
     )
     
-    # Evaluation phase selection
-    parser.add_argument("--phase", type=int, default=1, choices=[1, 2, 3],
-                       help="Evaluation phase: 1=compilation, 2=runtime, 3=consistency (default: 1)")
+    # Evaluation type and metric selection
+    parser.add_argument("--evaluation-type", default="syntax", 
+                       choices=get_available_dimensions(),
+                       help="Evaluation type: syntax=compilation, semantics=model-checking, consistency=trace-validation (default: syntax)")
+    parser.add_argument("--metric", 
+                       help="Specific metric to run (if not specified, uses default for evaluation-type)")
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3],
+                       help="Legacy evaluation phase: 1=syntax, 2=semantics, 3=consistency (deprecated, use --evaluation-type)")
+    
+    # Metric-specific parameters
+    parser.add_argument("--k", type=int, 
+                       help="Number of attempts for pass@k metrics")
+    parser.add_argument("--level", type=int,
+                       help="Granularity level for progressive metrics")
     
     # Input selection
     parser.add_argument("--task", help="Single task name")
@@ -324,6 +427,8 @@ Examples:
     parser.add_argument("--list-tasks", action="store_true", help="List available tasks")
     parser.add_argument("--list-methods", action="store_true", help="List available methods")
     parser.add_argument("--list-models", action="store_true", help="List available models")
+    parser.add_argument("--list-metrics", action="store_true", help="List available metrics")
+    parser.add_argument("--list-metrics-for", help="List metrics for specific evaluation type")
     
     args = parser.parse_args()
     
@@ -352,8 +457,40 @@ Examples:
             print(f"  - {model}")
         return
     
+    if args.list_metrics:
+        registry = get_metric_registry()
+        metrics = registry.list_metrics()
+        print("Available metrics:")
+        current_dimension = None
+        for metric in metrics:
+            if metric.dimension != current_dimension:
+                current_dimension = metric.dimension
+                print(f"\n{current_dimension.title()} dimension:")
+            print(f"  - {metric.name}: {metric.description}")
+        return
+    
+    if args.list_metrics_for:
+        registry = get_metric_registry()
+        try:
+            metrics = registry.list_metrics(args.list_metrics_for)
+            print(f"Available metrics for {args.list_metrics_for}:")
+            for metric in metrics:
+                print(f"  - {metric.name}: {metric.description}")
+        except ValueError:
+            print(f"Unknown evaluation type: {args.list_metrics_for}")
+            print(f"Available evaluation types: {get_available_dimensions()}")
+        return
+    
+    # Handle legacy phase parameter
+    evaluation_type = args.evaluation_type
+    if args.phase is not None:
+        phase_to_type = {1: "syntax", 2: "semantics", 3: "consistency"}
+        evaluation_type = phase_to_type.get(args.phase, evaluation_type)
+        logger.warning(f"Using legacy --phase {args.phase} parameter, consider using --evaluation-type {evaluation_type}")
+    
     # Validate prerequisites
-    if not validate_prerequisites(args.phase):
+    legacy_phase = {"syntax": 1, "semantics": 2, "consistency": 3}.get(evaluation_type, 1)
+    if not validate_prerequisites(legacy_phase):
         sys.exit(1)
     
     # Create generation config
@@ -366,19 +503,27 @@ Examples:
     single_mode = args.task and args.method and args.model
     batch_mode = args.tasks and args.methods and args.models
     
+    # Collect metric-specific parameters
+    metric_params = {}
+    if args.k is not None:
+        metric_params['k'] = args.k
+    if args.level is not None:
+        metric_params['level'] = args.level
+    
     if single_mode:
         # Single benchmark
         result = run_single_benchmark(
-            args.task, args.method, args.model, args.phase,
+            args.task, args.method, args.model, evaluation_type, args.metric,
             source_file=args.source_file,
-            generation_config=generation_config
+            generation_config=generation_config,
+            **metric_params
         )
         
         if result["success"]:
             eval_result = result["evaluation_result"]
             
-            if args.phase == 1:
-                print(f"\nPhase 1 Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+            if evaluation_type == "syntax":
+                print(f"\nSyntax Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
                 print(f"Generation time: {eval_result.generation_time:.2f}s")
                 print(f"Compilation time: {eval_result.compilation_time:.2f}s")
                 print(f"Syntax errors: {len(eval_result.syntax_errors)}")
@@ -390,8 +535,8 @@ Examples:
                     if not eval_result.compilation_successful:
                         print(f"Compilation errors: {eval_result.syntax_errors + eval_result.semantic_errors}")
                         
-            elif args.phase == 2:
-                print(f"\nPhase 2 Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+            elif evaluation_type == "semantics":
+                print(f"\nSemantics Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
                 print(f"Invariant generation time: {eval_result.invariant_generation_time:.2f}s")
                 print(f"Config generation time: {eval_result.config_generation_time:.2f}s")
                 print(f"Model checking time: {eval_result.model_checking_time:.2f}s")
@@ -413,6 +558,30 @@ Examples:
                 print(f"Specification: {eval_result.specification_file}")
                 if eval_result.config_file_path:
                     print(f"Config file: {eval_result.config_file_path}")
+                    
+            elif evaluation_type == "consistency":
+                print(f"\nConsistency Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+                print(f"Trace generation time: {eval_result.trace_generation_time:.2f}s")
+                print(f"Trace conversion time: {eval_result.trace_conversion_time:.2f}s")
+                print(f"Trace validation time: {eval_result.trace_validation_time:.2f}s")
+                print(f"Generated trace count: {eval_result.generated_trace_count}")
+                print(f"Validated events: {eval_result.validated_events}")
+                
+                if not eval_result.overall_success:
+                    if not eval_result.trace_generation_successful:
+                        print(f"Trace generation error: {eval_result.trace_generation_error}")
+                    if not eval_result.trace_conversion_successful:
+                        print(f"Trace conversion error: {eval_result.trace_conversion_error}")
+                    if not eval_result.trace_validation_successful:
+                        print(f"Trace validation error: {eval_result.trace_validation_error}")
+                        
+                # Show file locations
+                if eval_result.raw_trace_files:
+                    print(f"Raw traces: {', '.join(eval_result.raw_trace_files)}")
+                if eval_result.converted_trace_files:
+                    print(f"Converted traces: {', '.join(eval_result.converted_trace_files)}")
+                if eval_result.specification_files:
+                    print(f"Specifications: {', '.join(eval_result.specification_files)}")
             
         else:
             print(f"Benchmark failed: {result['error']}")
@@ -421,8 +590,9 @@ Examples:
     elif batch_mode:
         # Batch benchmark
         run_batch_benchmark(
-            args.tasks, args.methods, args.models, args.phase, args.output,
-            generation_config=generation_config
+            args.tasks, args.methods, args.models, evaluation_type, args.metric,
+            output_dir=args.output, generation_config=generation_config,
+            **metric_params
         )
     
     else:

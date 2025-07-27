@@ -12,13 +12,16 @@ __author__ = "TLA+ Benchmark Team"
 from .models import ModelAdapter
 from .config import get_configured_model
 from .core.verification.validators import *
-from .evaluation import Phase1Evaluator, Phase1EvaluationResult, Phase2Evaluator, Phase3Evaluator
+from .evaluation import (
+    CompilationCheckEvaluator, 
+    InvariantVerificationEvaluator, 
+    TraceValidationEvaluator
+)
 
 __all__ = [
     "ModelAdapter", 
     "get_configured_model",
-    "Phase1Evaluator",
-    "Phase1EvaluationResult",
-    "Phase2Evaluator", 
-    "Phase3Evaluator"
+    "CompilationCheckEvaluator",
+    "InvariantVerificationEvaluator", 
+    "TraceValidationEvaluator"
 ]

@@ -9,17 +9,23 @@ The main entry point for running benchmarks is the `run_benchmark.py` script loc
 ### Basic Command Structure
 
 ```bash
-python3 scripts/run_benchmark.py --task <task> --method <method> --model <model> --phase <phase> [options]
+python3 scripts/run_benchmark.py --task <task> --method <method> --model <model> [--metric <metric>] [options]
 ```
 
 ### Required Parameters
 
-All four parameters are required for single benchmark runs:
+Three parameters are required for single benchmark runs:
 
 - `--task`: Target system to evaluate (e.g., `etcd`)
 - `--method`: Generation method (e.g., `direct_call`)
 - `--model`: LLM model to use (e.g., `gpt-4`, `my_yunwu`)
-- `--phase`: Evaluation phase (1, 2, or 3)
+
+### Optional Evaluation Parameters
+
+- `--metric`: Specific metric to run (e.g., `compilation_check`, `trace_validation`)
+- `--evaluation-type`: Evaluation dimension (`syntax`, `semantics`, or `consistency`) - uses default metric for the dimension
+- `--k`: Number of attempts for pass@k metrics
+- `--level`: Granularity level for progressive metrics
 
 ### Environment Setup
 
@@ -42,29 +48,40 @@ export ANTHROPIC_API_KEY="your-anthropic-api-key"
 
 ## Single Benchmark Examples
 
-### Phase 1: Compilation Check
+### Syntax Evaluation: Compilation Check
 Test whether the generated TLA+ specification compiles successfully.
 
 ```bash
-# Using OpenAI GPT-4
+# Using default metric for syntax dimension
 export OPENAI_API_KEY="your-key"
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --phase 1
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --evaluation-type syntax
+
+# Or specify the metric explicitly
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric compilation_check
 ```
 
-### Phase 2: Invariant Verification
-Test whether TLC can validate the specification's invariants (requires Phase 1 to pass first).
+### Semantics Evaluation: Invariant Verification
+Test whether TLC can validate the specification's invariants (requires syntax evaluation to pass first).
 
 ```bash
+# Using default metric for semantics dimension
 export OPENAI_API_KEY="your-key"
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --phase 2
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --evaluation-type semantics
+
+# Or specify the metric explicitly
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric invariant_verification
 ```
 
-### Phase 3: Trace Validation
+### Consistency Evaluation: Trace Validation
 Test whether TLC can validate real system traces against the specification (most comprehensive).
 
 ```bash
+# Using default metric for consistency dimension
 export OPENAI_API_KEY="your-key"
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu --phase 3
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu --evaluation-type consistency
+
+# Or specify the metric explicitly
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu --metric trace_validation
 ```
 
 ## Batch Benchmark Examples
@@ -80,20 +97,20 @@ python3 scripts/run_benchmark.py \
   --tasks etcd \
   --methods direct_call \
   --models gpt-4 my_claude \
-  --phase 1 \
+  --evaluation-type syntax \
   --output results/comparison
 ```
 
-### Multiple Phases
+### Multiple Evaluation Types
 ```bash
-# Run all phases for a single configuration
-for phase in 1 2 3; do
+# Run all evaluation types for a single configuration
+for eval_type in syntax semantics consistency; do
   python3 scripts/run_benchmark.py \
     --task etcd \
     --method direct_call \
     --model gpt-4 \
-    --phase $phase \
-    --output results/phase_progression
+    --evaluation-type $eval_type \
+    --output results/evaluation_progression
 done
 ```
 
@@ -112,6 +129,14 @@ python3 scripts/run_benchmark.py --list-methods
 
 # List all configured models
 python3 scripts/run_benchmark.py --list-models
+
+# List all available metrics
+python3 scripts/run_benchmark.py --list-metrics
+
+# List metrics for specific evaluation type
+python3 scripts/run_benchmark.py --list-metrics-for syntax
+python3 scripts/run_benchmark.py --list-metrics-for semantics
+python3 scripts/run_benchmark.py --list-metrics-for consistency
 ```
 
 ## Configuration Files
@@ -136,12 +161,12 @@ config = GenerationConfig(
 )
 ```
 
-### Direct Phase 3 Evaluation
+### Direct Consistency Evaluation
 ```python
-# For direct Phase 3 usage
-from tla_eval.evaluation.phases.phase3 import Phase3Evaluator
+# For direct consistency evaluation usage
+from tla_eval.evaluation.consistency.trace_validation import TraceValidationEvaluator
 
-evaluator = Phase3Evaluator()
+evaluator = TraceValidationEvaluator()
 result = evaluator.evaluate('etcd', {
     'node_count': 3,
     'duration_seconds': 60,

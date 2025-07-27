@@ -1,21 +1,41 @@
 """
 Evaluation modules for TLA+ benchmark framework.
 
-This package contains different phases of evaluation:
-- Phase 1: Compilation checking (can the generated TLA+ be compiled?)
-- Phase 2: Runtime checking (can the specification be model-checked?)
-- Phase 3: Consistency checking (does the specification match the source code behavior?)
+This package contains different dimensions of evaluation:
+- Syntax: Compilation checking (can the generated TLA+ be compiled?)
+- Semantics: Model checking (can the specification be model-checked?)
+- Consistency: Trace validation (does the specification match the system behavior?)
 """
 
-from .phases.phase1 import Phase1Evaluator, Phase1EvaluationResult, create_phase1_evaluator
-from .phases.phase2 import Phase2Evaluator, Phase2EvaluationResult
-from .phases.phase3 import Phase3Evaluator
+# New structured evaluators
+from .syntax.compilation_check import CompilationCheckEvaluator
+from .semantics.invariant_verification import InvariantVerificationEvaluator
+from .consistency.trace_validation import TraceValidationEvaluator
+
+# Base classes and result types
+from .base.evaluator import BaseEvaluator
+from .base.result_types import (
+    EvaluationResult, 
+    SyntaxEvaluationResult, 
+    SemanticEvaluationResult, 
+    ConsistencyEvaluationResult
+)
+
+# Backward compatibility aliases (deprecated)
+# Note: Legacy Phase classes are deprecated, use new structured evaluators instead
 
 __all__ = [
-    "Phase1Evaluator",
-    "Phase1EvaluationResult", 
-    "create_phase1_evaluator",
-    "Phase2Evaluator",
-    "Phase2EvaluationResult",
-    "Phase3Evaluator"
+    # New structured evaluators
+    "CompilationCheckEvaluator",
+    "InvariantVerificationEvaluator", 
+    "TraceValidationEvaluator",
+    
+    # Base classes and result types
+    "BaseEvaluator",
+    "EvaluationResult",
+    "SyntaxEvaluationResult",
+    "SemanticEvaluationResult", 
+    "ConsistencyEvaluationResult",
+    
+    # Legacy compatibility removed - use new structured evaluators
 ]

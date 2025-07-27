@@ -23,21 +23,21 @@ The benchmark operates across three key dimensions:
 - **Direct API calls**: Immediate LLM responses to prompts
 - **Agent-based interaction**: Multi-step reasoning agents (TODO)
 
-### Evaluation Metrics
+### Evaluation Dimensions
 
-The framework employs three evaluation metrics:
+The framework employs three evaluation dimensions:
 
-1. **Compilation Check**: Whether the generated TLA+ specification compiles successfully
-2. **Invariant Verification**: Whether TLC model checker validates the specification's invariants
-3. **Trace Validation**: Whether TLC successfully validates real system execution traces against the specification
+1. **Syntax Evaluation**: Whether the generated TLA+ specification compiles successfully
+2. **Semantics Evaluation**: Whether TLC model checker validates the specification's invariants  
+3. **Consistency Evaluation**: Whether TLC successfully validates real system execution traces against the specification
 
 ## Architecture
 
-The framework implements a three-phase evaluation pipeline:
+The framework implements a three-dimensional evaluation approach:
 
-- **Phase 1**: Basic TLA+ specification generation and compilation validation
-- **Phase 2**: Invariant generation and Invariant-based model checking with TLC
-- **Phase 3**: Real system trace generation and validation against TLA+ specifications
+- **Syntax**: Basic TLA+ specification generation and compilation validation
+- **Semantics**: Invariant generation and model checking with TLC
+- **Consistency**: Real system trace generation and validation against TLA+ specifications
 
 ## Quick Start
 
@@ -69,8 +69,11 @@ python -m tla_eval.setup
 ### Running Your First Benchmark
 
 ```bash
-# Basic usage: python scripts/run_benchmark.py --task <task> --method <method> --model <model> --phase <phase>
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --phase 3
+# Basic usage: python scripts/run_benchmark.py --task <task> --method <method> --model <model> [--metric <metric>]
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric trace_validation
+
+# Or use evaluation-type for default metric
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --evaluation-type consistency
 ```
 
 For detailed usage instructions and advanced configuration options, see [Usage.md](./docs/Usage.md).

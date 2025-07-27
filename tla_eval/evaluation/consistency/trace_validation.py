@@ -1,7 +1,7 @@
 """
-Phase 3 Evaluator: Complete Trace Generation and Validation Pipeline
+Trace Validation Evaluator: System consistency evaluation for TLA+ specifications.
 
-This module implements the complete Phase 3 evaluation pipeline:
+This evaluator implements the complete trace validation pipeline:
 1. Real trace generation from etcd raft clusters
 2. LLM-based configuration generation for trace validation
 3. Static analysis conversion of TLA+ specs to trace format  
@@ -22,13 +22,15 @@ from ...core.trace_generation.etcd.event_driver import RandomEventDriver
 from ...core.spec_processing import SpecTraceGenerator, generate_config_from_tla
 from ...core.spec_processing.trace_converter import TraceConverter
 from ...core.verification import TLCRunner
+from ..base.evaluator import BaseEvaluator
+from ..base.result_types import ConsistencyEvaluationResult
 
 
-class Phase3Evaluator:
+class TraceValidationEvaluator(BaseEvaluator):
     """
-    Complete Phase 3 evaluator with 4-step pipeline.
+    Trace Validation Evaluator: System consistency evaluation.
     
-    This evaluator implements the complete Phase 3 workflow:
+    This evaluator implements the complete trace validation workflow:
     1. **Trace Generation**: Real etcd raft cluster trace generation
     2. **Config Generation**: LLM-based YAML configuration from TLA+ specs
     3. **Spec Conversion**: Static analysis conversion to trace-validation format
@@ -38,15 +40,18 @@ class Phase3Evaluator:
     def __init__(self, 
                  spec_dir: str = "data/spec",
                  traces_dir: str = "data/sys_traces/etcd",
-                 raft_repo_dir: str = "data/repositories/raft"):
+                 raft_repo_dir: str = "data/repositories/raft",
+                 timeout: int = 600):
         """
-        Initialize Phase 3 evaluator.
+        Initialize trace validation evaluator.
         
         Args:
             spec_dir: Directory containing TLA+ specifications
             traces_dir: Directory to store generated traces
             raft_repo_dir: Directory containing etcd raft repository
+            timeout: Timeout for evaluation operations in seconds
         """
+        super().__init__(timeout=timeout)
         self.spec_dir = Path(spec_dir)
         self.traces_dir = Path(traces_dir)
         self.raft_repo_dir = Path(raft_repo_dir)
@@ -54,21 +59,24 @@ class Phase3Evaluator:
         # Ensure directories exist
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         
-    def evaluate(self, task_name: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    def evaluate(self, task_name: str, config: Dict[str, Any]) -> ConsistencyEvaluationResult:
         """
-        Run Phase 3 evaluation for a given task.
+        Run trace validation evaluation for a given task.
         
         Args:
             task_name: Name of the task (e.g., "etcd")
             config: Configuration parameters for trace generation
             
         Returns:
-            Dictionary containing evaluation results
+            ConsistencyEvaluationResult with evaluation results
         """
         start_time = datetime.now()
         
-        print(f"Starting Phase 3 evaluation for task: {task_name}")
+        print(f"Starting trace validation evaluation for task: {task_name}")
         print(f"Configuration: {config}")
+        
+        # Create evaluation result
+        result = ConsistencyEvaluationResult(task_name, "trace_validation", "system")
         
         try:
             # Generate trace file name
@@ -80,97 +88,75 @@ class Phase3Evaluator:
             print("Step 1: Generating runtime trace...")
             trace_result = self._generate_real_trace(task_name, config, trace_path)
             
-            if not trace_result["success"]:
-                return {
-                    "task_name": task_name,
-                    "method_name": "phase3_complete_pipeline",
-                    "success": False,
-                    "error": trace_result["error"],
-                    "step_failed": "trace_generation",
-                    "duration": (datetime.now() - start_time).total_seconds()
-                }
+            result.trace_generation_time = (datetime.now() - start_time).total_seconds()
+            result.trace_generation_successful = trace_result["success"]
             
+            if not trace_result["success"]:
+                result.trace_generation_error = trace_result["error"]
+                return result
+            
+            result.generated_trace_count = trace_result["event_count"]
+            result.raw_trace_files = [str(trace_path)]
             print(f"Step 1 completed: {trace_result['event_count']} events generated")
             
             # Step 2: Generate specTrace.tla from TLA+ spec (LLM + static analysis)
             print("Step 2: Generating specTrace.tla from TLA+ spec...")
+            step2_start = datetime.now()
             spectrace_result = self._generate_spectrace_from_tla(task_name, timestamp)
             
             if not spectrace_result["success"]:
-                return {
-                    "task_name": task_name,
-                    "method_name": "phase3_complete_pipeline",
-                    "success": False,
-                    "error": spectrace_result["error"],
-                    "step_failed": "spectrace_generation",
-                    "duration": (datetime.now() - start_time).total_seconds()
-                }
+                result.trace_generation_error = spectrace_result["error"]
+                return result
             
+            result.specification_files = [spectrace_result.get("config_file", "")]
             print("Step 2 completed: specTrace.tla and specTrace.cfg generated")
             
             # Step 3: Convert sys_trace to spec-compatible format
             print("Step 3: Converting sys_trace to spec-compatible format...")
+            step3_start = datetime.now()
             # Use the actual trace file from Step 1 result
             actual_trace_path = Path(trace_result["trace_file"])
             trace_conversion_result = self._convert_trace_to_spec_format(actual_trace_path, timestamp)
             
-            if not trace_conversion_result["success"]:
-                return {
-                    "task_name": task_name,
-                    "method_name": "phase3_complete_pipeline",
-                    "success": False,
-                    "error": trace_conversion_result["error"],
-                    "step_failed": "trace_conversion",
-                    "duration": (datetime.now() - start_time).total_seconds()
-                }
+            result.trace_conversion_time = (datetime.now() - step3_start).total_seconds()
+            result.trace_conversion_successful = trace_conversion_result["success"]
             
+            if not trace_conversion_result["success"]:
+                result.trace_conversion_error = trace_conversion_result["error"]
+                return result
+            
+            result.converted_trace_files = [trace_conversion_result["converted_trace"]]
             print(f"Step 3 completed: Converted {trace_conversion_result['input_events']} events to {trace_conversion_result['output_transitions']} transitions")
             
             # Step 4: Run TLC verification
             print("Step 4: Running TLC verification...")
+            step4_start = datetime.now()
             verification_result = self._run_tlc_verification(Path(trace_conversion_result["converted_trace"]), spectrace_result["output_dir"])
             
-            # Compile final result
-            result = {
-                "task_name": task_name,
-                "method_name": "phase3_complete_pipeline",
-                "success": verification_result["success"],
-                "trace_file": str(trace_path),
-                "trace_events": trace_result["event_count"],
-                "cluster_nodes": config.get("node_count", 3),
-                "generation_duration": trace_result["duration"],
-                "total_duration": (datetime.now() - start_time).total_seconds(),
-                "config_file": spectrace_result.get("config_file", ""),
-                "spec_trace_files": spectrace_result.get("files", {}),
-                "verification_result": verification_result["result"] if verification_result["success"] else "FAILED"
-            }
+            result.trace_validation_time = (datetime.now() - step4_start).total_seconds()
+            result.trace_validation_successful = verification_result["success"]
+            result.validated_events = trace_conversion_result['output_transitions']
             
-            # Add detailed information for each step
-            if "generator_output" in trace_result:
-                result["step1_details"] = trace_result["generator_output"]
+            if not verification_result["success"]:
+                result.trace_validation_error = verification_result.get("error", "TLC verification failed")
             
-            if "config_data" in spectrace_result:
-                result["step2_details"] = f"Generated config with {len(spectrace_result['config_data'])} sections"
+            # Update overall success
+            result.overall_success = (
+                result.trace_generation_successful and
+                result.trace_conversion_successful and
+                result.trace_validation_successful
+            )
             
-            result["step3_details"] = f"Converted {trace_conversion_result['input_events']} events to {trace_conversion_result['output_transitions']} transitions"
-            result["converted_trace_file"] = trace_conversion_result["converted_trace"]
-            
-            if verification_result["success"]:
-                result["step4_details"] = verification_result.get("details", "")
+            if result.overall_success:
+                print("✓ Trace validation evaluation: PASS")
             else:
-                result["error"] = verification_result.get("error", "TLC verification failed")
-                result["verification_error"] = verification_result.get("details", "")
-                
+                print("✗ Trace validation evaluation: FAIL")
+            
             return result
             
         except Exception as e:
-            return {
-                "task_name": task_name,
-                "method_name": "phase3_complete_pipeline", 
-                "success": False,
-                "error": f"Phase 3 evaluation failed: {str(e)}",
-                "duration": (datetime.now() - start_time).total_seconds()
-            }
+            result.trace_validation_error = f"Trace validation evaluation failed: {str(e)}"
+            return result
     
     def _generate_real_trace(self, task_name: str, config: Dict[str, Any], trace_path: Path) -> Dict[str, Any]:
         """
@@ -198,103 +184,75 @@ class Phase3Evaluator:
             trace_logger = FileTraceLogger(str(trace_path))
             cluster = RaftCluster(node_count, trace_logger)
             
-            # Create event driver with scenario configuration
+            # Initialize event driver with scenario
             driver = RandomEventDriver(cluster, config)
-            if scenario != "custom":
-                # Use predefined scenario configuration
-                scenario_config = driver.get_scenario_config(scenario)
-                driver = RandomEventDriver(cluster, scenario_config)
+            driver.set_scenario(scenario)
             
-            # Start the cluster
-            if not cluster.start_cluster():
-                return {
-                    "success": False,
-                    "error": "Failed to start real etcd raft cluster"
-                }
+            # Start cluster
+            cluster.start()
             
-            try:
-                # Run the event driver to generate realistic trace
-                driver_result = driver.run_for_duration(duration)
-                
-                if driver_result["success"]:
-                    return {
-                        "success": True,
-                        "event_count": driver_result["event_count"],
-                        "duration": driver_result["duration"],
-                        "trace_file": driver_result["trace_file"],
-                        "generator_output": driver_result.get("generator_output", "")
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": f"Event driver failed: {driver_result.get('error', 'Unknown error')}"
-                    }
-                
-            finally:
-                # Always cleanup cluster
-                cluster.stop_cluster()
-                trace_logger.close()
-                
+            # Run trace generation
+            start_time = datetime.now()
+            driver.run_scenario(duration)
+            generation_duration = (datetime.now() - start_time).total_seconds()
+            
+            # Stop cluster and finalize trace
+            cluster.stop()
+            event_count = trace_logger.get_event_count()
+            
+            print(f"Generated {event_count} events in {generation_duration:.2f}s")
+            
+            return {
+                "success": True,
+                "trace_file": str(trace_path),
+                "event_count": event_count,
+                "duration": generation_duration,
+                "cluster_size": node_count
+            }
+            
         except Exception as e:
             return {
                 "success": False,
-                "error": f"Real trace generation failed: {str(e)}"
+                "error": f"Trace generation failed: {str(e)}"
             }
     
     def _generate_spectrace_from_tla(self, task_name: str, timestamp: str) -> Dict[str, Any]:
         """
-        Generate specTrace.tla and specTrace.cfg from TLA+ spec using LLM + static analysis.
-        
-        This combines:
-        1. LLM-based YAML configuration generation from TLA+ spec
-        2. Static analysis conversion to specTrace.tla format
+        Generate specTrace.tla and specTrace.cfg from existing TLA+ specification.
         
         Args:
             task_name: Name of the task
-            timestamp: Timestamp for output directory
+            timestamp: Timestamp for file naming
             
         Returns:
             Dictionary with generation results
         """
         try:
-            # Locate TLA+ and CFG files for the task
-            task_dir = self.spec_dir / task_name
-            tla_files = list(task_dir.glob("*.tla"))
-            cfg_files = list(task_dir.glob("*.cfg"))
-            
-            if not tla_files:
+            # Find TLA+ specification file
+            spec_files = list(self.spec_dir.glob(f"{task_name}/*.tla"))
+            if not spec_files:
                 return {
                     "success": False,
-                    "error": f"No TLA+ files found in {task_dir}"
+                    "error": f"No TLA+ specification found for task: {task_name}"
                 }
             
-            if not cfg_files:
-                return {
-                    "success": False,
-                    "error": f"No CFG files found in {task_dir}"
-                }
+            spec_file = spec_files[0]  # Use first found spec file
+            print(f"Using TLA+ specification: {spec_file}")
             
-            tla_file = str(tla_files[0])  # Use first TLA file found
-            cfg_file = str(cfg_files[0])  # Use first CFG file found
+            # Read TLA+ specification
+            with open(spec_file, 'r', encoding='utf-8') as f:
+                tla_content = f.read()
             
-            print(f"Using TLA+ file: {tla_file}")
-            print(f"Using CFG file: {cfg_file}")
+            # Generate configuration using LLM
+            config_data = generate_config_from_tla(tla_content, task_name, "gpt-4")
             
-            # Step 2a: Generate configuration using LLM
-            print("  2a: Generating YAML configuration with LLM...")
-            config_data = generate_config_from_tla(tla_file, cfg_file)
-            
-            # Save YAML configuration for reference
-            config_filename = f"trace_config_{task_name}.yaml"
-            config_path = self.traces_dir / config_filename
-            
-            with open(config_path, 'w') as f:
+            # Save configuration for debugging
+            config_path = self.spec_dir / task_name / f"trace_config_{timestamp}.yaml"
+            with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config_data, f, default_flow_style=False)
             
-            print(f"  Generated YAML config: {config_path}")
+            print(f"Generated trace configuration: {config_path}")
             
-            # Step 2b: Convert to specTrace.tla using static analysis
-            print("  2b: Converting to specTrace.tla with static analysis...")
             # Output to the correct spec directory, not traces directory
             output_dir = self.spec_dir / task_name
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -422,14 +380,14 @@ class Phase3Evaluator:
     
     def get_evaluation_name(self) -> str:
         """Get the name of this evaluation method."""
-        return "phase3_complete_pipeline"
+        return "trace_validation"
     
     def get_supported_tasks(self):
         """Get list of tasks supported by this evaluator."""
         return ["etcd"]  # Currently only supports etcd raft
     
     def get_default_config(self) -> Dict[str, Any]:
-        """Get default configuration for Phase 3 evaluation."""
+        """Get default configuration for trace validation evaluation."""
         return {
             "node_count": 3,
             "duration_seconds": 60,
@@ -454,3 +412,29 @@ class Phase3Evaluator:
             scenarios[name] = driver.get_scenario_config(name)
             
         return scenarios
+    
+    def _get_evaluation_type(self) -> str:
+        """Return the evaluation type identifier"""
+        return "consistency_trace_validation"
+
+
+# Convenience function for backward compatibility
+def create_trace_validation_evaluator(
+    spec_dir: str = "data/spec",
+    traces_dir: str = "data/sys_traces/etcd",
+    raft_repo_dir: str = "data/repositories/raft",
+    timeout: int = 600
+) -> TraceValidationEvaluator:
+    """
+    Factory function to create a trace validation evaluator.
+    
+    Args:
+        spec_dir: Directory containing TLA+ specifications
+        traces_dir: Directory to store generated traces
+        raft_repo_dir: Directory containing etcd raft repository
+        timeout: Timeout for evaluation operations in seconds
+        
+    Returns:
+        TraceValidationEvaluator instance
+    """
+    return TraceValidationEvaluator(spec_dir, traces_dir, raft_repo_dir, timeout)
