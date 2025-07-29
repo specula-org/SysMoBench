@@ -1,0 +1,439 @@
+"""
+Agent-based method implementation with automatic error correction.
+
+This method generates TLA+ specifications and automatically detects and corrects
+syntax and semantic errors using iterative LLM feedback.
+"""
+
+import logging
+import time
+from typing import Dict, Any, Optional, List, Tuple
+
+from ..base import TLAGenerationMethod, GenerationTask, GenerationOutput
+from ...config import get_configured_model
+from ...core.verification.validators import TLAValidator, ValidationResult
+from ...models.base import GenerationConfig
+
+logger = logging.getLogger(__name__)
+
+
+class AgentBasedMethod(TLAGenerationMethod):
+    """
+    Agent-based method for TLA+ generation with automatic error correction.
+    
+    This method implements a feedback loop:
+    1. Generate initial TLA+ specification
+    2. Validate syntax and semantics
+    3. If errors found, provide error feedback to LLM for correction
+    4. Repeat until specification is valid or max attempts reached
+    """
+    
+    def __init__(self, max_correction_attempts: int = 3, validation_timeout: int = 30):
+        """
+        Initialize agent-based method.
+        
+        Args:
+            max_correction_attempts: Maximum number of correction attempts
+            validation_timeout: Timeout for TLA+ validation operations
+        """
+        super().__init__("agent_based")
+        self.max_correction_attempts = max_correction_attempts
+        self.validation_timeout = validation_timeout
+        self.validator = TLAValidator(timeout=validation_timeout)
+        
+    def generate(self, task: GenerationTask, model_name: str = None) -> GenerationOutput:
+        """
+        Generate TLA+ specification with automatic error correction.
+        
+        Args:
+            task: Generation task with source code
+            model_name: Model to use from config
+            
+        Returns:
+            GenerationOutput with corrected TLA+ specification
+        """
+        logger.info(f"Starting agent-based generation for task: {task.task_name}")
+        
+        try:
+            # Get configured model
+            model = get_configured_model(model_name)
+            logger.info(f"Using model: {model.model_name}")
+            
+            # Step 1: Initial generation
+            logger.info("Step 1: Initial TLA+ generation")
+            initial_result = self._initial_generation(task, model)
+            
+            if not initial_result.success:
+                logger.error(f"Initial generation failed: {initial_result.error_message}")
+                return GenerationOutput(
+                    tla_specification="",
+                    method_name=self.name,
+                    task_name=task.task_name,
+                    metadata={"initial_generation_failed": True},
+                    success=False,
+                    error_message=initial_result.error_message
+                )
+            
+            # Step 2: Validation and correction loop
+            logger.info("Step 2: Starting validation and correction loop")
+            final_result = self._correction_loop(
+                task, initial_result.generated_text, model
+            )
+            
+            # Compile metadata
+            total_generation_time = initial_result.metadata.get('latency_seconds', 0) + \
+                                  final_result.get('total_correction_time', 0)
+            
+            metadata = {
+                "model_info": model.get_model_info(),
+                "initial_generation_metadata": initial_result.metadata,
+                "correction_metadata": final_result,
+                "total_generation_time": total_generation_time,
+                "method_type": "agent_based_with_correction"
+            }
+            
+            return GenerationOutput(
+                tla_specification=final_result['final_specification'],
+                method_name=self.name,
+                task_name=task.task_name,
+                metadata=metadata,
+                success=final_result['success'],
+                error_message=final_result.get('error_message')
+            )
+            
+        except Exception as e:
+            logger.error(f"Agent-based generation failed with exception: {e}")
+            return GenerationOutput(
+                tla_specification="",
+                method_name=self.name,
+                task_name=task.task_name,
+                metadata={},
+                success=False,
+                error_message=str(e)
+            )
+    
+    def _initial_generation(self, task: GenerationTask, model) -> Any:
+        """Generate initial TLA+ specification using standard prompt."""
+        prompt = self._create_initial_prompt(task)
+        
+        logger.debug(f"Using initial prompt ({len(prompt)} chars)")
+        return model.generate_tla_specification(task.source_code, prompt)
+    
+    def _correction_loop(self, task: GenerationTask, initial_spec: str, model) -> Dict[str, Any]:
+        """
+        Perform validation and correction loop.
+        
+        Args:
+            task: Generation task
+            initial_spec: Initial TLA+ specification
+            model: LLM model for correction
+            
+        Returns:
+            Dictionary with final specification and correction metadata
+        """
+        current_spec = initial_spec
+        correction_attempts = 0
+        correction_history = []
+        total_correction_time = 0.0
+        
+        while correction_attempts < self.max_correction_attempts:
+            logger.info(f"Validation attempt {correction_attempts + 1}/{self.max_correction_attempts}")
+            
+            # Validate current specification
+            validation_start = time.time()
+            validation_result = self._validate_specification(current_spec, task.spec_module)
+            validation_time = time.time() - validation_start
+            
+            logger.info(f"Validation completed in {validation_time:.2f}s: {'✓ PASS' if validation_result.success else '✗ FAIL'}")
+            
+            if validation_result.success:
+                # Specification is valid, we're done
+                logger.info("✓ Specification validation successful, no correction needed")
+                return {
+                    'success': True,
+                    'final_specification': current_spec,
+                    'correction_attempts': correction_attempts,
+                    'correction_history': correction_history,
+                    'total_correction_time': total_correction_time,
+                    'final_validation_result': validation_result
+                }
+            
+            # Specification has errors, attempt correction
+            logger.info(f"✗ Specification has errors, attempting correction (attempt {correction_attempts + 1})")
+            
+            correction_start = time.time()
+            correction_result = self._attempt_correction(
+                task, current_spec, validation_result, model, correction_attempts + 1
+            )
+            correction_time = time.time() - correction_start
+            total_correction_time += correction_time
+            
+            if not correction_result['success']:
+                logger.error(f"Correction attempt {correction_attempts + 1} failed: {correction_result['error']}")
+                break
+            
+            # Update specification with corrected version
+            current_spec = correction_result['corrected_specification']
+            correction_attempts += 1
+            
+            # Record correction history
+            correction_history.append({
+                'attempt': correction_attempts,
+                'original_errors': self._extract_error_summary(validation_result),
+                'correction_time': correction_time,
+                'correction_success': True
+            })
+            
+            logger.info(f"Correction attempt {correction_attempts} completed in {correction_time:.2f}s")
+        
+        # Max attempts reached without success
+        logger.warning(f"Maximum correction attempts ({self.max_correction_attempts}) reached")
+        
+        # Final validation to get current error state
+        final_validation = self._validate_specification(current_spec, task.spec_module)
+        
+        return {
+            'success': False,
+            'final_specification': current_spec,
+            'correction_attempts': correction_attempts,
+            'correction_history': correction_history,
+            'total_correction_time': total_correction_time,
+            'final_validation_result': final_validation,
+            'error_message': f"Failed to correct specification after {correction_attempts} attempts"
+        }
+    
+    def _validate_specification(self, specification: str, module_name: Optional[str] = None) -> ValidationResult:
+        """
+        Validate TLA+ specification for syntax and basic semantic errors.
+        
+        Args:
+            specification: TLA+ specification content
+            module_name: Optional module name
+            
+        Returns:
+            ValidationResult with validation outcome
+        """
+        try:
+            # Use the existing TLA validator for syntax/semantic checking
+            result = self.validator.validate_specification(
+                specification, 
+                module_name=module_name,
+                task_name="agent_validation"
+            )
+            
+            logger.debug(f"Validation result: success={result.success}, "
+                        f"syntax_errors={len(result.syntax_errors)}, "
+                        f"semantic_errors={len(result.semantic_errors)}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Validation failed with exception: {e}")
+            return ValidationResult(
+                success=False,
+                output=f"Validation exception: {e}",
+                syntax_errors=[str(e)],
+                semantic_errors=[],
+                compilation_time=0.0
+            )
+    
+    def _attempt_correction(self, task: GenerationTask, current_spec: str, 
+                          validation_result: ValidationResult, model, attempt_num: int) -> Dict[str, Any]:
+        """
+        Attempt to correct errors in the specification using LLM feedback.
+        
+        Args:
+            task: Original generation task
+            current_spec: Current specification with errors
+            validation_result: Validation result containing errors
+            model: LLM model for correction
+            attempt_num: Current attempt number
+            
+        Returns:
+            Dictionary with correction result
+        """
+        try:
+            # Create correction prompt with error feedback
+            correction_prompt = self._create_correction_prompt(
+                task, current_spec, validation_result, attempt_num
+            )
+            
+            logger.debug(f"Correction prompt created ({len(correction_prompt)} chars)")
+            
+            # Generate corrected specification (no source code needed for correction)
+            correction_result = model.generate_tla_specification(
+                "", 
+                correction_prompt
+            )
+            
+            if not correction_result.success:
+                return {
+                    'success': False,
+                    'error': correction_result.error_message,
+                    'corrected_specification': current_spec
+                }
+            
+            return {
+                'success': True,
+                'corrected_specification': correction_result.generated_text,
+                'correction_metadata': correction_result.metadata
+            }
+            
+        except Exception as e:
+            logger.error(f"Correction attempt failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'corrected_specification': current_spec
+            }
+    
+    def _create_initial_prompt(self, task: GenerationTask) -> str:
+        """Create initial generation prompt."""
+        # Get task-specific prompt template (same as direct_call method)
+        from ...tasks.loader import get_task_loader
+        task_loader = get_task_loader()
+        prompt_template = task_loader.get_task_prompt(task.task_name, "direct_call")  # Use direct_call prompt for initial generation
+        
+        # Prepare format variables
+        format_vars = {
+            'language': task.language,
+            'description': task.description,
+            'system_type': task.system_type,
+            'source_code': '{source_code}'  # Keep this placeholder for the model adapter
+        }
+        
+        # Add extra info if available
+        if task.extra_info:
+            format_vars.update(task.extra_info)
+        
+        # Format template with task information
+        return prompt_template.format(**format_vars)
+    
+    def _create_correction_prompt(self, task: GenerationTask, current_spec: str, 
+                                validation_result: ValidationResult, attempt_num: int) -> str:
+        """
+        Create correction prompt with error feedback.
+        
+        Args:
+            task: Original generation task
+            current_spec: Current specification with errors
+            validation_result: Validation errors
+            attempt_num: Current correction attempt number
+            
+        Returns:
+            Formatted correction prompt
+        """
+        # Get agent-based correction prompt template
+        from ...tasks.loader import get_task_loader
+        task_loader = get_task_loader()
+        
+        try:
+            correction_template = task_loader.get_task_prompt(task.task_name, self.name)
+        except Exception:
+            # Fallback to a default correction prompt if task-specific one doesn't exist
+            logger.warning(f"No agent_based prompt found for task {task.task_name}, using default correction prompt")
+            correction_template = self._get_default_correction_prompt()
+        
+        # Extract error information
+        error_summary = self._extract_error_summary(validation_result)
+        
+        # Prepare format variables - escape any problematic characters
+        def safe_format(text):
+            """Safely format text to avoid string formatting issues."""
+            if text is None:
+                return "None"
+            # Replace problematic characters that might break string formatting  
+            return str(text).replace('{', '{{').replace('}', '}}')
+        
+        format_vars = {
+            'language': safe_format(task.language),
+            'description': safe_format(task.description),
+            'system_type': safe_format(task.system_type),
+            'current_specification': safe_format(current_spec),
+            'error_summary': safe_format(error_summary),
+            'syntax_errors': safe_format('\n'.join(validation_result.syntax_errors) if validation_result.syntax_errors else "None"),
+            'semantic_errors': safe_format('\n'.join(validation_result.semantic_errors) if validation_result.semantic_errors else "None"),
+            'attempt_number': attempt_num,
+            'max_attempts': self.max_correction_attempts,
+            'validation_output': safe_format(validation_result.output)
+        }
+        
+        # Add extra info if available
+        if task.extra_info:
+            for key, value in task.extra_info.items():
+                format_vars[key] = safe_format(value)
+        
+        try:
+            return correction_template.format(**format_vars)
+        except Exception as e:
+            logger.error(f"Error formatting correction prompt: {e}")
+            logger.debug(f"Format variables: {format_vars}")
+            raise
+    
+    def _extract_error_summary(self, validation_result: ValidationResult) -> str:
+        """Extract a concise error summary from validation result."""
+        errors = []
+        
+        if validation_result.syntax_errors:
+            errors.append(f"Syntax errors ({len(validation_result.syntax_errors)}): " + 
+                         "; ".join(validation_result.syntax_errors[:3]))  # First 3 errors
+            if len(validation_result.syntax_errors) > 3:
+                errors.append(f"... and {len(validation_result.syntax_errors) - 3} more syntax errors")
+        
+        if validation_result.semantic_errors:
+            errors.append(f"Semantic errors ({len(validation_result.semantic_errors)}): " + 
+                         "; ".join(validation_result.semantic_errors[:3]))  # First 3 errors
+            if len(validation_result.semantic_errors) > 3:
+                errors.append(f"... and {len(validation_result.semantic_errors) - 3} more semantic errors")
+        
+        return "\n".join(errors) if errors else "No specific errors identified"
+    
+    def _get_default_correction_prompt(self) -> str:
+        """Default correction prompt template when task-specific prompt is not available."""
+        return """You are an expert in TLA+ specification language. I need you to fix errors in a TLA+ specification.
+
+Original task: Create a TLA+ specification for a {system_type} system.
+
+Description: {description}
+
+Current TLA+ specification (with errors):
+```tla
+{current_specification}
+```
+
+Validation errors found:
+{error_summary}
+
+Detailed syntax errors:
+{syntax_errors}
+
+Detailed semantic errors:
+{semantic_errors}
+
+This is correction attempt {attempt_number} of {max_attempts}.
+
+Please provide a corrected TLA+ specification that fixes these errors. Focus on:
+1. Fixing syntax errors (missing operators, incorrect syntax)
+2. Resolving semantic errors (undefined variables, incorrect logic)
+3. Maintaining the original intent and structure where possible
+4. Ensuring the specification is valid TLA+
+
+Return only the corrected TLA+ specification without explanations."""
+    
+    def get_method_info(self) -> Dict[str, Any]:
+        """Get information about agent-based method."""
+        return {
+            "name": self.name,
+            "description": "Agent-based LLM generation with automatic error correction",
+            "type": "iterative_correction",
+            "requires_model": True,
+            "supports_iteration": True,
+            "max_correction_attempts": self.max_correction_attempts,
+            "validation_timeout": self.validation_timeout,
+            "features": [
+                "automatic_error_detection",
+                "iterative_correction",
+                "syntax_validation",
+                "semantic_validation"
+            ]
+        }
