@@ -18,6 +18,14 @@ models:
     temperature: 0.1
     max_tokens: 64000
 
+  deepseek:
+    provider: "deepseek"
+    url: "https://api.deepseek.com"
+    model_name: "deepseek-reasoner"
+    api_key_env: "DEEPSEEK_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+
   my_yunwu:
     provider: "yunwu"
     url: "https://yunwu.ai/v1"
