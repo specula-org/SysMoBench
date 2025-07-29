@@ -73,7 +73,7 @@ class AnthropicAdapter(ModelAdapter):
         client_config = {
             "api_key": api_key,
             "max_retries": self.config.get("max_retries", 3),
-            "timeout": self.config.get("timeout", 60),
+            "timeout": self.config.get("timeout", 300),  # 5 minutes for large corrections
         }
         
         # Support custom base URL for Anthropic-compatible APIs
@@ -135,31 +135,39 @@ class AnthropicAdapter(ModelAdapter):
         if generation_config.stop_sequences:
             api_params["stop_sequences"] = generation_config.stop_sequences
         
-        # Make API call with error handling
+        # Make API call with streaming (no stream parameter needed for messages.stream())
         start_time = time.time()
         try:
-            response = self.client.messages.create(**api_params)
+            logger.info("Starting streaming generation...")
+            generated_text = ""
+            
+            with self.client.messages.stream(**api_params) as stream:
+                for text in stream.text_stream:
+                    generated_text += text
+                    # Optional: Add progress logging every 1000 chars
+                    if len(generated_text) % 1000 == 0:
+                        logger.debug(f"Generated {len(generated_text)} characters...")
+            
             end_time = time.time()
             
-            # Extract generated text
-            if not response.content or len(response.content) == 0:
-                raise GenerationError("Empty response from Anthropic API")
-            
-            generated_text = response.content[0].text
             if not generated_text:
-                raise GenerationError("Empty text content from Anthropic API")
+                raise GenerationError("Empty text content from Anthropic streaming API")
             
-            # Prepare metadata
+            # Get final message for metadata
+            final_message = stream.get_final_message()
+            
+            # Prepare metadata from streaming response
             metadata = {
                 "model": self.model_name,
                 "usage": {
-                    "input_tokens": response.usage.input_tokens,
-                    "output_tokens": response.usage.output_tokens,
-                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
+                    "input_tokens": final_message.usage.input_tokens,
+                    "output_tokens": final_message.usage.output_tokens,
+                    "total_tokens": final_message.usage.input_tokens + final_message.usage.output_tokens,
                 },
                 "latency_seconds": end_time - start_time,
-                "stop_reason": response.stop_reason,
-                "response_id": response.id,
+                "stop_reason": final_message.stop_reason,
+                "response_id": final_message.id,
+                "streaming": True
             }
             
             return GenerationResult(
@@ -174,7 +182,8 @@ class AnthropicAdapter(ModelAdapter):
         except anthropic.APIError as e:
             raise GenerationError(f"Anthropic API error: {e}")
         except Exception as e:
-            raise GenerationError(f"Unexpected error during generation: {e}")
+            logger.error(f"Streaming generation failed: {e}")
+            raise GenerationError(f"Unexpected error during streaming generation: {e}")
     
     def is_available(self) -> bool:
         """

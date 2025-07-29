@@ -144,31 +144,44 @@ class OpenAIAdapter(ModelAdapter):
         if generation_config.seed is not None:
             api_params["seed"] = generation_config.seed
         
-        # Enable streaming for better responsiveness with large requests
-        api_params["stream"] = False  # TODO: Implement streaming support
+        # Enable streaming for better timeout handling
+        api_params["stream"] = True
         
-        # Make API call with error handling
+        # Make API call with streaming
         start_time = time.time()
         try:
-            response = self.client.chat.completions.create(**api_params)
+            logger.info("Starting streaming generation...")
+            generated_text = ""
+            
+            stream = self.client.chat.completions.create(**api_params)
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    generated_text += chunk.choices[0].delta.content
+                    # Optional: Add progress logging every 1000 chars
+                    if len(generated_text) % 1000 == 0:
+                        logger.debug(f"Generated {len(generated_text)} characters...")
+            
             end_time = time.time()
             
-            # Extract generated text
-            generated_text = response.choices[0].message.content
             if not generated_text:
-                raise GenerationError("Empty response from OpenAI API")
+                raise GenerationError("Empty response from OpenAI streaming API")
+            
+            # For streaming, we don't get usage stats until the end
+            # Estimate token usage based on text length (rough approximation)
+            estimated_completion_tokens = len(generated_text) // 4  # rough estimate
             
             # Prepare metadata
             metadata = {
                 "model": self.model_name,
                 "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
+                    "prompt_tokens": 0,  # Not available in streaming
+                    "completion_tokens": estimated_completion_tokens,
+                    "total_tokens": estimated_completion_tokens,
                 },
                 "latency_seconds": end_time - start_time,
-                "finish_reason": response.choices[0].finish_reason,
-                "response_id": response.id,
+                "finish_reason": "streaming_complete",
+                "response_id": f"stream_{int(start_time)}",
+                "streaming": True
             }
             
             return GenerationResult(

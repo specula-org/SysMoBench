@@ -6,10 +6,12 @@ successfully using the TLA tools (SANY parser).
 """
 
 import logging
+import time
 from typing import Dict, List, Any, Tuple
 
 from ...core.verification.validators import TLAValidator, ValidationResult
 from ...models.base import GenerationResult
+from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SyntaxEvaluationResult
 
@@ -55,6 +57,16 @@ class CompilationCheckEvaluator(BaseEvaluator):
         """
         logger.info(f"Evaluating compilation: {task_name}/{method_name}/{model_name}")
         
+        # Create structured output directory
+        output_manager = get_output_manager()
+        output_dir = output_manager.create_experiment_dir(
+            metric="compilation_check",
+            task=task_name,
+            method=method_name,
+            model=model_name
+        )
+        logger.info(f"Using output directory: {output_dir}")
+        
         # Create evaluation result
         eval_result = SyntaxEvaluationResult(task_name, method_name, model_name)
         self._set_generation_result(eval_result, generation_result)
@@ -76,11 +88,13 @@ class CompilationCheckEvaluator(BaseEvaluator):
         # Validate the generated specification
         try:
             logger.debug("Starting TLA+ specification validation...")
-            validation_result = self.validator.validate_specification(
-                generation_result.generated_text,
-                module_name=spec_module,
-                task_name=task_name
-            )
+            # Save specification to structured output directory
+            spec_file_path = output_dir / f"{spec_module or 'UnnamedModule'}.tla"
+            with open(spec_file_path, 'w', encoding='utf-8') as spec_file:
+                spec_file.write(generation_result.generated_text)
+            
+            # Validate using the saved file path
+            validation_result = self.validator.validate_file(str(spec_file_path))
             self._set_validation_result(eval_result, validation_result)
             
             if validation_result.success:
@@ -99,6 +113,38 @@ class CompilationCheckEvaluator(BaseEvaluator):
                 compilation_time=0.0
             )
             self._set_validation_result(eval_result, validation_result)
+        
+        # Save TLA specification to output directory
+        if generation_result.success and generation_result.generated_text:
+            module_name = spec_module or task_name
+            spec_file_path = output_dir / f"{module_name}.tla"
+            with open(spec_file_path, 'w', encoding='utf-8') as f:
+                f.write(generation_result.generated_text)
+            logger.info(f"Saved specification to: {spec_file_path}")
+        
+        # Save results and metadata
+        result_data = {
+            "overall_success": eval_result.overall_success,
+            "generation_successful": eval_result.generation_successful,
+            "compilation_successful": eval_result.compilation_successful,
+            "generation_time": eval_result.generation_time,
+            "compilation_time": eval_result.compilation_time,
+            "syntax_errors": eval_result.syntax_errors,
+            "semantic_errors": eval_result.semantic_errors,
+            "generation_error": eval_result.generation_error
+        }
+        
+        metadata = {
+            "task_name": task_name,
+            "method_name": method_name,
+            "model_name": model_name,
+            "metric": "compilation_check",
+            "spec_module": spec_module,
+            "validation_timeout": self.timeout,
+            "evaluation_timestamp": time.time()
+        }
+        
+        output_manager.save_result(output_dir, result_data, metadata)
         
         logger.info(f"Evaluation complete: success={eval_result.overall_success}")
         return eval_result

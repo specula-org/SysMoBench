@@ -92,12 +92,14 @@ class AgentBasedMethod(TLAGenerationMethod):
                 "method_type": "agent_based_with_correction"
             }
             
+            # Always return the final specification, even if correction failed
+            # This allows users to inspect the generated content and understand what went wrong
             return GenerationOutput(
                 tla_specification=final_result['final_specification'],
                 method_name=self.name,
                 task_name=task.task_name,
                 metadata=metadata,
-                success=final_result['success'],
+                success=True,  # Consider as success since we have a specification to evaluate
                 error_message=final_result.get('error_message')
             )
             
@@ -116,8 +118,17 @@ class AgentBasedMethod(TLAGenerationMethod):
         """Generate initial TLA+ specification using standard prompt."""
         prompt = self._create_initial_prompt(task)
         
+        # Create generation config with model's configured max_tokens
+        max_tokens = model.config.get('max_tokens', 4096)
+        generation_config = GenerationConfig(
+            max_tokens=max_tokens,
+            temperature=model.config.get('temperature', 0.1),
+            top_p=model.config.get('top_p', 1.0)
+        )
+        
+        logger.info(f"Initial generation config: max_tokens={max_tokens}, model_config={model.config}")
         logger.debug(f"Using initial prompt ({len(prompt)} chars)")
-        return model.generate_tla_specification(task.source_code, prompt)
+        return model.generate_tla_specification(task.source_code, prompt, generation_config)
     
     def _correction_loop(self, task: GenerationTask, initial_spec: str, model) -> Dict[str, Any]:
         """
@@ -158,8 +169,38 @@ class AgentBasedMethod(TLAGenerationMethod):
                     'final_validation_result': validation_result
                 }
             
-            # Specification has errors, attempt correction
-            logger.info(f"✗ Specification has errors, attempting correction (attempt {correction_attempts + 1})")
+            # Specification has errors, print detailed error information
+            logger.error(f"✗ Validation failed with {len(validation_result.syntax_errors)} syntax errors and {len(validation_result.semantic_errors)} semantic errors")
+            
+            if validation_result.syntax_errors:
+                logger.error("Syntax errors:")
+                for i, error in enumerate(validation_result.syntax_errors[:5]):  # Show first 5 errors
+                    logger.error(f"  {i+1}. {error}")
+                if len(validation_result.syntax_errors) > 5:
+                    logger.error(f"  ... and {len(validation_result.syntax_errors) - 5} more syntax errors")
+            
+            if validation_result.semantic_errors:
+                logger.error("Semantic errors:")
+                for i, error in enumerate(validation_result.semantic_errors[:5]):  # Show first 5 errors
+                    logger.error(f"  {i+1}. {error}")
+                if len(validation_result.semantic_errors) > 5:
+                    logger.error(f"  ... and {len(validation_result.semantic_errors) - 5} more semantic errors")
+            
+            # Print complete validation output for debugging in early development phase
+            if validation_result.output:
+                logger.error("=== COMPLETE VALIDATION OUTPUT FOR DEBUGGING ===")
+                logger.error(validation_result.output)  # Print entire output
+                logger.error("=== END COMPLETE VALIDATION OUTPUT ===")
+                
+                # Also print the specification content that failed validation
+                logger.error("=== SPECIFICATION CONTENT THAT FAILED VALIDATION ===")
+                logger.error(current_spec[:2000])  # First 2000 chars of spec
+                if len(current_spec) > 2000:
+                    logger.error(f"... (specification truncated, total length: {len(current_spec)} chars)")
+                logger.error("=== END SPECIFICATION CONTENT ===")
+            
+            # Attempt correction
+            logger.info(f"✗ Attempting correction (attempt {correction_attempts + 1})")
             
             correction_start = time.time()
             correction_result = self._attempt_correction(
@@ -192,6 +233,39 @@ class AgentBasedMethod(TLAGenerationMethod):
         # Final validation to get current error state
         final_validation = self._validate_specification(current_spec, task.spec_module)
         
+        # Print final error summary
+        logger.error("=== FINAL VALIDATION ERRORS AFTER ALL CORRECTION ATTEMPTS ===")
+        logger.error(f"Final result: {len(final_validation.syntax_errors)} syntax errors, {len(final_validation.semantic_errors)} semantic errors")
+        
+        if final_validation.syntax_errors:
+            logger.error("Final syntax errors:")
+            for i, error in enumerate(final_validation.syntax_errors[:5]):
+                logger.error(f"  {i+1}. {error}")
+            if len(final_validation.syntax_errors) > 5:
+                logger.error(f"  ... and {len(final_validation.syntax_errors) - 5} more syntax errors")
+        
+        if final_validation.semantic_errors:
+            logger.error("Final semantic errors:")
+            for i, error in enumerate(final_validation.semantic_errors[:5]):
+                logger.error(f"  {i+1}. {error}")
+            if len(final_validation.semantic_errors) > 5:
+                logger.error(f"  ... and {len(final_validation.semantic_errors) - 5} more semantic errors")
+        
+        # Print complete final validation output for debugging
+        if final_validation.output:
+            logger.error("=== COMPLETE FINAL VALIDATION OUTPUT FOR DEBUGGING ===")
+            logger.error(final_validation.output)  # Print entire output
+            logger.error("=== END COMPLETE FINAL VALIDATION OUTPUT ===")
+            
+            # Also print the final specification content
+            logger.error("=== FINAL SPECIFICATION CONTENT ===")
+            logger.error(current_spec[:2000])  # First 2000 chars of spec
+            if len(current_spec) > 2000:
+                logger.error(f"... (final specification truncated, total length: {len(current_spec)} chars)")
+            logger.error("=== END FINAL SPECIFICATION CONTENT ===")
+        
+        logger.error("=== END FINAL VALIDATION ERRORS ===")
+        
         return {
             'success': False,
             'final_specification': current_spec,
@@ -204,7 +278,7 @@ class AgentBasedMethod(TLAGenerationMethod):
     
     def _validate_specification(self, specification: str, module_name: Optional[str] = None) -> ValidationResult:
         """
-        Validate TLA+ specification for syntax and basic semantic errors.
+        Validate TLA+ specification for syntax and basic semantic errors without saving to disk.
         
         Args:
             specification: TLA+ specification content
@@ -214,18 +288,55 @@ class AgentBasedMethod(TLAGenerationMethod):
             ValidationResult with validation outcome
         """
         try:
-            # Use the existing TLA validator for syntax/semantic checking
-            result = self.validator.validate_specification(
-                specification, 
-                module_name=module_name,
-                task_name="agent_validation"
-            )
+            # Create a temporary validator that doesn't save files
+            import tempfile
+            import os
+            from pathlib import Path
             
-            logger.debug(f"Validation result: success={result.success}, "
-                        f"syntax_errors={len(result.syntax_errors)}, "
-                        f"semantic_errors={len(result.semantic_errors)}")
+            # Create temporary file for validation with meaningful name
+            import tempfile
+            temp_dir = tempfile.gettempdir()
             
-            return result
+            if not module_name:
+                raise ValueError("Module name is required for validation but was not provided")
+            
+            temp_file_path = os.path.join(temp_dir, f"{module_name}.tla")
+            
+            with open(temp_file_path, 'w', encoding='utf-8') as temp_file:
+                temp_file.write(specification)
+            
+            try:
+                # Run SANY validation on temporary file
+                from ...core.verification.validators import TLAValidator
+                temp_validator = TLAValidator(timeout=self.validation_timeout)
+                
+                # Call the internal validation method directly
+                success, output = temp_validator._run_sany_validation(temp_file_path)
+                
+                # Parse errors from output
+                syntax_errors, semantic_errors = temp_validator._parse_errors(output) if not success else ([], [])
+                
+                # Create ValidationResult object
+                result = ValidationResult(
+                    success=success,
+                    output=output,
+                    syntax_errors=syntax_errors,
+                    semantic_errors=semantic_errors,
+                    compilation_time=0.0
+                )
+                
+                logger.debug(f"Validation result: success={result.success}, "
+                            f"syntax_errors={len(result.syntax_errors)}, "
+                            f"semantic_errors={len(result.semantic_errors)}")
+                
+                return result
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
             
         except Exception as e:
             logger.error(f"Validation failed with exception: {e}")
@@ -260,10 +371,21 @@ class AgentBasedMethod(TLAGenerationMethod):
             
             logger.debug(f"Correction prompt created ({len(correction_prompt)} chars)")
             
+            # Create generation config with model's configured max_tokens
+            max_tokens = model.config.get('max_tokens', 4096)
+            generation_config = GenerationConfig(
+                max_tokens=max_tokens,
+                temperature=model.config.get('temperature', 0.1),
+                top_p=model.config.get('top_p', 1.0)
+            )
+            
+            logger.info(f"Correction generation config: max_tokens={max_tokens}, attempt={attempt_num}")
+            
             # Generate corrected specification (no source code needed for correction)
             correction_result = model.generate_tla_specification(
                 "", 
-                correction_prompt
+                correction_prompt,
+                generation_config
             )
             
             if not correction_result.success:

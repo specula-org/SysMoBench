@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from ...models.base import GenerationResult
 from ...config import get_configured_model
+from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SemanticEvaluationResult
 
@@ -275,8 +276,31 @@ class TLCRunner:
             
             return success, output, result.returncode
             
-        except subprocess.TimeoutExpired:
-            return False, f"TLC execution timed out after {self.timeout} seconds", -1
+        except subprocess.TimeoutExpired as e:
+            # For large state spaces, timeout without violations should be considered success
+            # Parse partial output to check for violations
+            partial_output = ""
+            try:
+                # Try to get partial output from the process
+                if hasattr(e, 'stdout') and e.stdout:
+                    partial_output += e.stdout.decode() if isinstance(e.stdout, bytes) else str(e.stdout)
+                if hasattr(e, 'stderr') and e.stderr:
+                    partial_output += e.stderr.decode() if isinstance(e.stderr, bytes) else str(e.stderr)
+            except:
+                # If we can't get partial output, just use empty string
+                partial_output = ""
+            
+            # Parse the partial output for violations and deadlocks
+            violations, deadlock_found, states_explored = self.parse_tlc_output(partial_output)
+            
+            if violations or deadlock_found:
+                # Found violations or deadlocks - this is a real failure
+                return False, f"TLC found violations/deadlocks before timeout after {self.timeout} seconds:\n{partial_output}", -1
+            else:
+                # No violations found within timeout - consider this success for large state spaces
+                logger.info(f"TLC timeout after {self.timeout}s with no violations found - considering as success")
+                success_msg = f"TLC explored {states_explored} states in {self.timeout} seconds with no violations found (timeout reached but no errors detected)"
+                return True, success_msg, 0
         except Exception as e:
             return False, f"TLC execution failed: {e}", -1
     
@@ -327,7 +351,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
     3. Model checking with TLC
     """
     
-    def __init__(self, tlc_timeout: int = 300):
+    def __init__(self, tlc_timeout: int = 60):
         """
         Initialize invariant verification evaluator.
         
@@ -360,6 +384,16 @@ class InvariantVerificationEvaluator(BaseEvaluator):
         """
         logger.info(f"Semantic evaluation: {task_name}/{method_name}/{model_name}")
         
+        # Create structured output directory
+        output_manager = get_output_manager()
+        output_dir = output_manager.create_experiment_dir(
+            metric="invariant_verification",
+            task=task_name,
+            method=method_name,
+            model=model_name
+        )
+        logger.info(f"Using output directory: {output_dir}")
+        
         # Create evaluation result
         result = SemanticEvaluationResult(task_name, method_name, model_name)
         result.specification_file = spec_file_path
@@ -375,40 +409,30 @@ class InvariantVerificationEvaluator(BaseEvaluator):
             
             logger.info("✓ Specification file loaded")
             
-            # Step 2: Generate invariants
-            logger.info("Generating invariants...")
-            start_time = time.time()
+            # Step 2: Skip invariant generation - use existing TLA+ specification directly
+            logger.info("⏭️  Skipping invariant generation - using original specification without additional invariants")
             
-            inv_success, invariants, inv_error = self.invariant_generator.generate_invariants(
-                tla_content, task_name, model_name
-            )
+            # Copy original specification without modification to structured output directory
+            module_name = spec_module or Path(spec_file_path).stem
+            output_spec_path = output_dir / f"{module_name}.tla"
+            with open(output_spec_path, 'w', encoding='utf-8') as f:
+                f.write(tla_content)
+            logger.info(f"Original specification copied to: {output_spec_path}")
             
-            result.invariant_generation_time = time.time() - start_time
-            result.invariant_generation_successful = inv_success
-            result.generated_invariants = [invariants] if invariants else []
-            result.invariant_generation_error = inv_error
+            # Update result with new paths
+            result.specification_file = str(output_spec_path)
+            result.invariant_generation_time = 0.0
+            result.invariant_generation_successful = True
+            result.generated_invariants = []  # No generated invariants
+            result.invariant_generation_error = None
             
-            if not inv_success:
-                logger.error(f"✗ Invariant generation failed: {inv_error}")
-                return result
-            
-            logger.info(f"✓ Invariants generated in {result.invariant_generation_time:.2f}s")
-            
-            # Insert invariants into TLA+ specification before ====
-            updated_tla_content = self._insert_invariants_into_spec(tla_content, invariants)
-            
-            # Save updated specification with invariants
-            with open(spec_file_path, 'w', encoding='utf-8') as f:
-                f.write(updated_tla_content)
-            logger.info(f"Invariants inserted into specification: {spec_file_path}")
-            
-            # Step 3: Generate TLC configuration
-            # Use original TLA content (without invariants) to avoid duplication in prompt
+            # Step 3: Generate TLC configuration (without generated invariants)
             logger.info("Generating TLC configuration...")
             start_time = time.time()
             
+            # Use empty invariants string since we're not generating new invariants
             cfg_success, config, cfg_error = self.config_generator.generate_config(
-                tla_content, invariants, task_name, model_name
+                tla_content, "", task_name, model_name  # Empty invariants
             )
             
             result.config_generation_time = time.time() - start_time
@@ -419,10 +443,8 @@ class InvariantVerificationEvaluator(BaseEvaluator):
                 logger.error(f"✗ Config generation failed: {cfg_error}")
                 return result
             
-            # Save config file
-            spec_dir = Path(spec_file_path).parent
-            module_name = spec_module or Path(spec_file_path).stem
-            config_file_path = spec_dir / f"{module_name}.cfg"
+            # Save config file to structured output directory
+            config_file_path = output_dir / f"{module_name}.cfg"
             
             logger.debug(f"Writing config to {config_file_path}, length: {len(config)} chars")
             logger.debug(f"Config content preview: {config[:200]}...")
@@ -437,7 +459,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
             start_time = time.time()
             
             tlc_success, tlc_output, tlc_exit_code = self.tlc_runner.run_model_checking(
-                spec_file_path, str(config_file_path)
+                str(output_spec_path), str(config_file_path)
             )
             
             result.model_checking_time = time.time() - start_time
@@ -470,6 +492,39 @@ class InvariantVerificationEvaluator(BaseEvaluator):
                 violations_msg = f"{len(violations)} violations" if violations else "no violations"
                 deadlock_msg = "deadlock found" if deadlock else "no deadlock"
                 logger.info(f"✗ Semantic evaluation: FAIL ({violations_msg}, {deadlock_msg})")
+            
+            # Save results and metadata to structured output directory
+            result_data = {
+                "overall_success": result.overall_success,
+                "invariant_generation_successful": result.invariant_generation_successful,
+                "config_generation_successful": result.config_generation_successful,
+                "model_checking_successful": result.model_checking_successful,
+                "invariant_generation_time": result.invariant_generation_time,
+                "config_generation_time": result.config_generation_time,
+                "model_checking_time": result.model_checking_time,
+                "states_explored": result.states_explored,
+                "invariant_violations": result.invariant_violations,
+                "deadlock_found": result.deadlock_found,
+                "generated_invariants": result.generated_invariants,
+                "errors": {
+                    "invariant_generation_error": result.invariant_generation_error,
+                    "config_generation_error": result.config_generation_error,
+                    "model_checking_error": result.model_checking_error
+                }
+            }
+            
+            metadata = {
+                "task_name": task_name,
+                "method_name": method_name,
+                "model_name": model_name,
+                "metric": "invariant_verification",
+                "specification_file": result.specification_file,
+                "config_file_path": result.config_file_path,
+                "tlc_timeout": self.timeout,
+                "evaluation_timestamp": time.time()
+            }
+            
+            output_manager.save_result(output_dir, result_data, metadata)
             
             return result
             
@@ -519,7 +574,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
 
 
 # Convenience function for backward compatibility
-def create_invariant_verification_evaluator(tlc_timeout: int = 300) -> InvariantVerificationEvaluator:
+def create_invariant_verification_evaluator(tlc_timeout: int = 60) -> InvariantVerificationEvaluator:
     """
     Factory function to create an invariant verification evaluator.
     

@@ -20,7 +20,9 @@ etcd-specific modeling requirements:
 
 Generate a TLA+ specification that accurately models etcd's distributed behavior.
 
-IMPORTANT: 
+CRITICAL OUTPUT REQUIREMENTS:
 1. The MODULE name must be exactly "etcdraft" (---- MODULE etcdraft ----)
-2. Return ONLY the pure TLA+ specification content
-3. Do not include any explanations, comments, markdown formatting, or code blocks
+2. Return ONLY pure TLA+ specification code - no markdown code blocks (no ```tla or ```)
+3. Do not include any explanations, comments, or formatting markers
+4. Start your response directly with: ---- MODULE etcdraft ----
+5. End your response with the closing ====
