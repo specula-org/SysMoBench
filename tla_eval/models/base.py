@@ -81,33 +81,21 @@ class ModelAdapter(ABC):
         
         for attempt in range(max_retries + 1):  # 0, 1, 2, 3 (4 total attempts)
             try:
-                return func(*args, **kwargs)
+                result = func(*args, **kwargs)
+                if attempt > 0:
+                    logger.info(f"✓ Request succeeded after {attempt} retries")
+                return result
                 
             except Exception as e:
                 last_exception = e
-                error_msg = str(e).lower()
                 
-                # Check for 503 Service Unavailable or similar busy/overloaded errors
-                is_service_unavailable = (
-                    "503" in error_msg or
-                    "service unavailable" in error_msg or
-                    "overloaded" in error_msg or
-                    "too many requests" in error_msg or
-                    "rate limit" in error_msg or
-                    "quota exceeded" in error_msg or
-                    "busy" in error_msg or
-                    "temporarily unavailable" in error_msg
-                )
-                
-                if is_service_unavailable and attempt < max_retries:
-                    logger.warning(
-                        f"Service unavailable (attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                        f"Retrying in {retry_delay} seconds..."
-                    )
+                # Only retry on 503 Service Unavailable
+                if "503" in str(e) and attempt < max_retries:
+                    logger.warning(f"503 Service Unavailable (attempt {attempt + 1}/{max_retries + 1}). Retrying in {retry_delay}s...")
                     time.sleep(retry_delay)
                     continue
                 else:
-                    # Not a retryable error or max retries reached
+                    # Any other error or max retries reached - stop immediately
                     break
         
         # All retries failed, raise the last exception

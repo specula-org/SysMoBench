@@ -152,16 +152,36 @@ class GenAIAdapter(ModelAdapter):
             
             end_time = time.time()
             
-            # Extract text content according to the official API example
+            # Extract text content with comprehensive error handling
+            generated_text = ""
             try:
-                generated_text = response.text
+                # First, log the response structure for debugging
+                logger.debug(f"Response type: {type(response)}")
+                logger.debug(f"Response has text attr: {hasattr(response, 'text')}")
+                
+                if hasattr(response, 'text'):
+                    try:
+                        generated_text = response.text
+                    except Exception as text_error:
+                        logger.error(f"Error accessing response.text: {text_error}")
+                        logger.error(f"Text error type: {type(text_error).__name__}")
+                        raise GenerationError(f"Failed to access response.text: {text_error}")
+                else:
+                    logger.error(f"Response missing text attribute")
+                    logger.error(f"Available attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
+                    raise GenerationError("Response object missing text attribute")
+                
                 if not generated_text:
                     raise GenerationError("Empty text response from GenAI API")
-            except AttributeError as e:
-                logger.error(f"Response object missing text attribute: {e}")
-                logger.error(f"Response type: {type(response)}")
-                logger.error(f"Response attributes: {dir(response) if response else 'None'}")
-                raise GenerationError(f"Invalid response format from GenAI API: {e}")
+                    
+            except GenerationError:
+                raise  # Re-raise GenerationError as-is
+            except Exception as e:
+                logger.error(f"Unexpected error extracting text: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise GenerationError(f"Unexpected error extracting response text: {e}")
             
             # Prepare metadata with safe attribute access
             usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}

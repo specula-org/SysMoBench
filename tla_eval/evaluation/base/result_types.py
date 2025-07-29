@@ -113,6 +113,9 @@ class SemanticEvaluationResult(EvaluationResult):
     def __init__(self, task_name: str, method_name: str, model_name: str):
         super().__init__(task_name, method_name, model_name)
         
+        # Generation results (for compatibility with syntax evaluation)
+        self.generation_time = 0.0
+        
         # Invariant generation
         self.invariant_generation_successful = False
         self.invariant_generation_time = 0.0
@@ -142,6 +145,7 @@ class SemanticEvaluationResult(EvaluationResult):
             "method_name": self.method_name,
             "model_name": self.model_name,
             "timestamp": self.timestamp,
+            "generation_time": self.generation_time,
             "invariant_generation": {
                 "successful": self.invariant_generation_successful,
                 "time_seconds": self.invariant_generation_time,

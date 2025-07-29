@@ -210,14 +210,13 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             
         elif metric == "invariant_verification":
             # Semantics evaluation: Model checking with TLC
-            # Get specification file path from syntax evaluation or user input
-            spec_file_path = f"data/spec/{task_name}/{task.spec_module}.tla"
-            if not Path(spec_file_path).exists():
-                logger.error(f"Specification file not found: {spec_file_path}")
-                return {"success": False, "error": f"Specification file not found: {spec_file_path}"}
+            # Use the generated specification from generation_result
+            if not generation_result.success:
+                logger.error("Cannot perform invariant verification: TLA+ generation failed")
+                return {"success": False, "error": "TLA+ generation failed"}
             
             evaluation_result = evaluator.evaluate(
-                spec_file_path, task_name, method_name, model_name
+                generation_result, task_name, method_name, model_name, task.spec_module
             )
             logger.info(f"Invariant verification: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
@@ -238,11 +237,10 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                             generation_result, task_name, method_name, model_name, task.spec_module
                         )
                     elif metric_info.dimension == "semantics":
-                        spec_file_path = f"data/spec/{task_name}/{task.spec_module}.tla"
-                        if not Path(spec_file_path).exists():
-                            return {"success": False, "error": f"Specification file not found: {spec_file_path}"}
+                        if not generation_result.success:
+                            return {"success": False, "error": "TLA+ generation failed"}
                         evaluation_result = evaluator.evaluate(
-                            spec_file_path, task_name, method_name, model_name
+                            generation_result, task_name, method_name, model_name, task.spec_module
                         )
                     elif metric_info.dimension == "consistency":
                         consistency_config = evaluator.get_default_config() if hasattr(evaluator, 'get_default_config') else {}
@@ -420,7 +418,7 @@ Examples:
     parser.add_argument("--output", default="results", help="Output directory (default: results)")
     
     # Generation parameters
-    parser.add_argument("--max-tokens", type=int, default=4096, help="Maximum tokens to generate")
+    parser.add_argument("--max-tokens", type=int, default=640000, help="Maximum tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.1, help="Generation temperature")
     
     # Listing options

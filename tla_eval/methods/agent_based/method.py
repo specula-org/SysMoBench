@@ -192,12 +192,6 @@ class AgentBasedMethod(TLAGenerationMethod):
                 logger.error(validation_result.output)  # Print entire output
                 logger.error("=== END COMPLETE VALIDATION OUTPUT ===")
                 
-                # # Also print the specification content that failed validation
-                # logger.error("=== SPECIFICATION CONTENT THAT FAILED VALIDATION ===")
-                # logger.error(current_spec[:2000])  # First 2000 chars of spec
-                # if len(current_spec) > 2000:
-                #     logger.error(f"... (specification truncated, total length: {len(current_spec)} chars)")
-                # logger.error("=== END SPECIFICATION CONTENT ===")
             
             # Attempt correction
             logger.info(f"✗ Attempting correction (attempt {correction_attempts + 1})")
@@ -257,12 +251,7 @@ class AgentBasedMethod(TLAGenerationMethod):
             logger.error(final_validation.output)  # Print entire output
             logger.error("=== END COMPLETE FINAL VALIDATION OUTPUT ===")
             
-            # Also print the final specification content
-            logger.error("=== FINAL SPECIFICATION CONTENT ===")
-            logger.error(current_spec[:2000])  # First 2000 chars of spec
-            if len(current_spec) > 2000:
-                logger.error(f"... (final specification truncated, total length: {len(current_spec)} chars)")
-            logger.error("=== END FINAL SPECIFICATION CONTENT ===")
+            # Final specification content removed - too verbose for normal output
         
         logger.error("=== END FINAL VALIDATION ERRORS ===")
         

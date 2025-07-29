@@ -67,23 +67,29 @@ class InvariantGenerator:
                 
                 import time
                 start_time = time.time()
-                response = model.client.chat.completions.create(**api_params)
+                
+                # Use the unified model interface instead of direct API calls
+                from ...models.base import GenerationConfig
+                gen_config = GenerationConfig(
+                    max_tokens=api_params.get("max_tokens", 4096),
+                    temperature=api_params.get("temperature", 0.1)
+                )
+                
+                result = model.generate_tla_specification("", prompt, gen_config)
                 end_time = time.time()
                 
-                generated_text = response.choices[0].message.content
-                metadata = {
-                    "model": model.model_name,
-                    "latency_seconds": end_time - start_time,
-                    "finish_reason": response.choices[0].finish_reason,
-                }
+                if not result.success:
+                    raise Exception(f"Model generation failed: {result.error_message}")
                 
-                from ...models.base import GenerationResult
-                result = GenerationResult(
-                    generated_text=generated_text,
-                    metadata=metadata,
-                    timestamp=end_time,
-                    success=True
-                )
+                generated_text = result.generated_text
+                metadata = result.metadata.copy()
+                metadata.update({
+                    "latency_seconds": end_time - start_time,
+                })
+                
+                # Update the result with timing information
+                result.metadata.update(metadata)
+                result.timestamp = end_time
             else:
                 # Fallback for other model types
                 result = model.generate_tla_specification("", prompt)
@@ -155,28 +161,34 @@ class ConfigGenerator:
                 
                 import time
                 start_time = time.time()
-                response = model.client.chat.completions.create(**api_params)
+                
+                # Use the unified model interface instead of direct API calls
+                from ...models.base import GenerationConfig
+                gen_config = GenerationConfig(
+                    max_tokens=api_params.get("max_tokens", 4096),
+                    temperature=api_params.get("temperature", 0.1)
+                )
+                
+                result = model.generate_tla_specification("", prompt, gen_config)
                 end_time = time.time()
                 
-                generated_text = response.choices[0].message.content
+                if not result.success:
+                    raise Exception(f"Model generation failed: {result.error_message}")
+                
+                generated_text = result.generated_text
                 logger.debug(f"=== RAW LLM RESPONSE (CONFIG) ===")
                 logger.debug(f"Length: {len(generated_text)}")
                 logger.debug(f"Content: {repr(generated_text)}")
                 logger.debug(f"SPECIFICATION count: {generated_text.count('SPECIFICATION')}")
                 
-                metadata = {
-                    "model": model.model_name,
+                metadata = result.metadata.copy()
+                metadata.update({
                     "latency_seconds": end_time - start_time,
-                    "finish_reason": response.choices[0].finish_reason,
-                }
+                })
                 
-                from ...models.base import GenerationResult
-                result = GenerationResult(
-                    generated_text=generated_text,
-                    metadata=metadata,
-                    timestamp=end_time,
-                    success=True
-                )
+                # Update the result with timing information
+                result.metadata.update(metadata)
+                result.timestamp = end_time
             else:
                 # Fallback for other model types
                 result = model.generate_tla_specification("", prompt)
@@ -364,7 +376,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
         self.tlc_runner = TLCRunner(timeout=tlc_timeout)
     
     def evaluate(self, 
-                spec_file_path: str,
+                generation_result: GenerationResult,
                 task_name: str,
                 method_name: str,
                 model_name: str,
@@ -373,7 +385,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
         Evaluate a TLA+ specification using model checking.
         
         Args:
-            spec_file_path: Path to TLA+ specification file
+            generation_result: GenerationResult containing the TLA+ specification
             task_name: Name of the task
             method_name: Name of the generation method
             model_name: Name of the model used
@@ -396,31 +408,38 @@ class InvariantVerificationEvaluator(BaseEvaluator):
         
         # Create evaluation result
         result = SemanticEvaluationResult(task_name, method_name, model_name)
-        result.specification_file = spec_file_path
+        
+        # Set generation time from the generation result metadata
+        if hasattr(generation_result, 'metadata') and 'latency_seconds' in generation_result.metadata:
+            result.generation_time = generation_result.metadata['latency_seconds']
         
         try:
-            # Step 1: Read and validate specification
-            if not Path(spec_file_path).exists():
-                logger.error(f"Specification file not found: {spec_file_path}")
+            # Step 1: Get specification from generation result
+            if not generation_result.success:
+                logger.error("Generation failed, cannot perform semantic evaluation")
+                result.error_message = "Generation failed"
                 return result
             
-            with open(spec_file_path, 'r', encoding='utf-8') as f:
-                tla_content = f.read()
+            tla_content = generation_result.generated_text
+            if not tla_content.strip():
+                logger.error("Empty TLA+ specification from generation result")
+                result.error_message = "Empty specification"
+                return result
             
-            logger.info("✓ Specification file loaded")
+            logger.info("✓ Specification content loaded from generation result")
+            
+            # Save specification to output directory for reference
+            module_name = spec_module or 'etcdraft'
+            spec_file_path = output_dir / f"{module_name}.tla"
+            with open(spec_file_path, 'w', encoding='utf-8') as f:
+                f.write(tla_content)
+            result.specification_file = str(spec_file_path)
             
             # Step 2: Skip invariant generation - use existing TLA+ specification directly
             logger.info("⏭️  Skipping invariant generation - using original specification without additional invariants")
             
-            # Copy original specification without modification to structured output directory
-            module_name = spec_module or Path(spec_file_path).stem
-            output_spec_path = output_dir / f"{module_name}.tla"
-            with open(output_spec_path, 'w', encoding='utf-8') as f:
-                f.write(tla_content)
-            logger.info(f"Original specification copied to: {output_spec_path}")
-            
-            # Update result with new paths
-            result.specification_file = str(output_spec_path)
+            # The specification is already saved above in spec_file_path
+            logger.info(f"Original specification saved to: {spec_file_path}")
             result.invariant_generation_time = 0.0
             result.invariant_generation_successful = True
             result.generated_invariants = []  # No generated invariants
@@ -459,7 +478,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
             start_time = time.time()
             
             tlc_success, tlc_output, tlc_exit_code = self.tlc_runner.run_model_checking(
-                str(output_spec_path), str(config_file_path)
+                str(spec_file_path), str(config_file_path)
             )
             
             result.model_checking_time = time.time() - start_time

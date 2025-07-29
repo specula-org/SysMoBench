@@ -287,18 +287,63 @@ class TLAValidator:
         semantic_errors = []
         lines = output.split('\n')
         
+        # If SANY just says "Could not parse module" without specific details,
+        # it usually means there's a fundamental syntax error that prevents parsing.
+        # In this case, we should look for any clues in the output.
+        if "Could not parse module" in output and "line" not in output.lower():
+            # Generic parsing failure - try to extract any useful information
+            module_name = "unknown"
+            for line in lines:
+                if "Could not parse module" in line:
+                    try:
+                        # Extract module name from error
+                        parts = line.split("Could not parse module")[1].strip()
+                        module_name = parts.split()[0] if parts else "unknown"
+                        break
+                    except:
+                        pass
+            
+            # Look for any other error indicators in the output
+            potential_errors = []
+            for line in lines:
+                line_clean = line.strip()
+                if (line_clean and 
+                    not line_clean.startswith("***") and
+                    not line_clean.startswith("Parsing file") and
+                    not line_clean.startswith("SANY") and
+                    not line_clean.startswith("In module") and
+                    ("error" in line_clean.lower() or 
+                     "unexpected" in line_clean.lower() or
+                     "invalid" in line_clean.lower() or
+                     "missing" in line_clean.lower())):
+                    potential_errors.append(line_clean)
+            
+            if potential_errors:
+                syntax_errors.extend(potential_errors)
+            else:
+                # If no specific errors found, provide a generic but helpful message
+                syntax_errors.append(f"Module '{module_name}' contains syntax errors that prevent parsing. "
+                                   "Common causes: missing commas, unmatched parentheses, invalid operators, "
+                                   "incorrect TLA+ syntax, or malformed module structure.")
+            
+            return syntax_errors, semantic_errors
+        
+        # Standard error parsing for detailed SANY output
         current_error_type = None
         error_context = []
+        collecting_error = False
         
-        for line in lines:
+        for i, line in enumerate(lines):
             line_stripped = line.strip()
             
             # Detect error type sections
             if "Fatal errors while parsing" in line or "Parse errors:" in line:
                 current_error_type = "syntax"
+                collecting_error = True
                 continue
             elif "Semantic errors:" in line:
                 current_error_type = "semantic"
+                collecting_error = True
                 continue
             elif line_stripped.startswith("*** Errors:"):
                 # End of error section, process accumulated context
@@ -311,28 +356,34 @@ class TLAValidator:
                             semantic_errors.append(error_text)
                 error_context = []
                 current_error_type = None
+                collecting_error = False
                 continue
             
-            # Handle "Could not parse module" errors specifically
-            if "Could not parse module" in line and current_error_type == "syntax":
-                syntax_errors.append(line_stripped)
-                continue
-            
-            # Collect error details when we're in an error section
-            if current_error_type:
-                # Skip empty lines and section headers
-                if line_stripped and not line_stripped.startswith("***"):
-                    # Look for specific error patterns
-                    if any(indicator in line_stripped.lower() for indicator in 
-                           ['error:', 'unknown operator', 'undefined', 'line', 'col']):
+            # When collecting errors, gather all relevant lines
+            if collecting_error and current_error_type:
+                # Skip empty lines but collect everything else
+                if line_stripped:
+                    # Look for specific error patterns that indicate important information
+                    is_error_detail = (
+                        "line" in line_stripped.lower() and "col" in line_stripped.lower() or
+                        "error" in line_stripped.lower() or
+                        "unexpected" in line_stripped.lower() or
+                        "undefined" in line_stripped.lower() or
+                        "unknown operator" in line_stripped.lower() or
+                        "Could not parse" in line_stripped or
+                        any(word in line_stripped.lower() for word in 
+                            ['parsing error', 'syntax error', 'invalid', 'missing', 'expected'])
+                    )
+                    
+                    if is_error_detail:
                         error_context.append(line_stripped)
-                        
-            # Also catch standalone error lines
+            
+            # Also catch standalone error lines outside of sections
             elif any(indicator in line_stripped.lower() for indicator in 
-                     ['parse error', 'fatal error']):
+                     ['parse error', 'parsing error', 'syntax error', 'fatal error']):
                 syntax_errors.append(line_stripped)
             elif any(indicator in line_stripped.lower() for indicator in 
-                     ['semantic error', 'unknown operator', 'undefined']):
+                     ['semantic error', 'unknown operator', 'undefined identifier']):
                 semantic_errors.append(line_stripped)
         
         # Process any remaining error context
@@ -343,6 +394,10 @@ class TLAValidator:
                     syntax_errors.append(error_text)
                 else:
                     semantic_errors.append(error_text)
+        
+        # If still no specific errors found but output indicates failure, provide generic error
+        if not syntax_errors and not semantic_errors and ("Fatal errors" in output or "*** Errors:" in output):
+            syntax_errors.append("TLA+ specification contains syntax errors. Check module structure, operators, and syntax.")
         
         return syntax_errors, semantic_errors
 
