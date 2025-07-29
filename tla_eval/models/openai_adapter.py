@@ -89,7 +89,7 @@ class OpenAIAdapter(ModelAdapter):
         if self.model_name not in self.MODEL_CONFIGS:
             logger.warning(f"Unknown model {self.model_name}, using default settings")
     
-    def generate_tla_specification(
+    def _generate_tla_specification_impl(
         self, 
         source_code: str, 
         prompt_template: str,

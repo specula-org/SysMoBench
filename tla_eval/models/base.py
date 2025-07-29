@@ -6,9 +6,10 @@ It ensures compatibility between different model types (API-based, local, etc.).
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from dataclasses import dataclass
 import time
+import logging
 
 
 @dataclass
@@ -35,6 +36,9 @@ class GenerationResult:
             self.timestamp = time.time()
 
 
+logger = logging.getLogger(__name__)
+
+
 class ModelAdapter(ABC):
     """
     Abstract base class for all model adapters.
@@ -55,20 +59,77 @@ class ModelAdapter(ABC):
         self.config = kwargs
         self._setup_model()
     
+    def _retry_on_service_unavailable(self, func: Callable, *args, **kwargs):
+        """
+        Retry wrapper for handling 503 Service Unavailable errors.
+        
+        Args:
+            func: Function to retry
+            *args: Arguments to pass to the function
+            **kwargs: Keyword arguments to pass to the function
+            
+        Returns:
+            Result of the function call
+            
+        Raises:
+            Exception: The last exception if all retries fail
+        """
+        max_retries = 3
+        retry_delay = 30  # 30 seconds as requested
+        
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):  # 0, 1, 2, 3 (4 total attempts)
+            try:
+                return func(*args, **kwargs)
+                
+            except Exception as e:
+                last_exception = e
+                error_msg = str(e).lower()
+                
+                # Check for 503 Service Unavailable or similar busy/overloaded errors
+                is_service_unavailable = (
+                    "503" in error_msg or
+                    "service unavailable" in error_msg or
+                    "overloaded" in error_msg or
+                    "too many requests" in error_msg or
+                    "rate limit" in error_msg or
+                    "quota exceeded" in error_msg or
+                    "busy" in error_msg or
+                    "temporarily unavailable" in error_msg
+                )
+                
+                if is_service_unavailable and attempt < max_retries:
+                    logger.warning(
+                        f"Service unavailable (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                        f"Retrying in {retry_delay} seconds..."
+                    )
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    # Not a retryable error or max retries reached
+                    break
+        
+        # All retries failed, raise the last exception
+        raise last_exception
+    
     @abstractmethod
     def _setup_model(self):
         """Setup model-specific initialization. Called during __init__."""
         pass
     
     @abstractmethod
-    def generate_tla_specification(
+    def _generate_tla_specification_impl(
         self, 
         source_code: str, 
         prompt_template: str,
         generation_config: Optional[GenerationConfig] = None
     ) -> GenerationResult:
         """
-        Generate TLA+ specification from source code.
+        Internal implementation of TLA+ specification generation.
+        
+        This method should be implemented by each adapter and contains
+        the actual API call logic.
         
         Args:
             source_code: The source code to convert to TLA+
@@ -82,6 +143,36 @@ class ModelAdapter(ABC):
             ModelError: If generation fails
         """
         pass
+    
+    def generate_tla_specification(
+        self, 
+        source_code: str, 
+        prompt_template: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Generate TLA+ specification from source code with automatic retry on service unavailable.
+        
+        This method wraps the internal implementation with retry logic for handling
+        503 Service Unavailable errors and similar temporary issues.
+        
+        Args:
+            source_code: The source code to convert to TLA+
+            prompt_template: Template for formatting the prompt
+            generation_config: Generation parameters
+            
+        Returns:
+            GenerationResult containing the generated TLA+ specification
+            
+        Raises:
+            ModelError: If generation fails after all retries
+        """
+        return self._retry_on_service_unavailable(
+            self._generate_tla_specification_impl,
+            source_code,
+            prompt_template,
+            generation_config
+        )
     
     @abstractmethod
     def is_available(self) -> bool:

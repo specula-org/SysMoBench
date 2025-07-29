@@ -1,0 +1,290 @@
+"""
+Google GenAI API adapter for TLA+ specification generation.
+
+This module provides integration with Google's GenAI models through their API.
+Supports Gemini models and other Google AI models.
+"""
+
+import os
+import time
+from typing import Dict, Any, Optional
+import logging
+
+try:
+    from google import genai
+    from google.genai import types
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+
+from .base import (
+    ModelAdapter, 
+    GenerationConfig, 
+    GenerationResult,
+    ModelError,
+    ModelUnavailableError,
+    GenerationError,
+    RateLimitError
+)
+
+logger = logging.getLogger(__name__)
+
+
+class GenAIAdapter(ModelAdapter):
+    """
+    Adapter for Google GenAI models via API.
+    
+    Supports Gemini models and other Google AI chat completion models.
+    
+    Configuration parameters:
+        - api_key: Google GenAI API key (or set GOOGLE_AI_API_KEY env var)
+        - model_name: Model identifier (e.g., "gemini-2.5-flash", "gemini-pro")
+        - max_retries: Maximum number of retry attempts (default: 3)
+        - timeout: Request timeout in seconds (default: 300)
+        - thinking_budget: Thinking budget for models that support it (default: 0 to disable)
+    """
+    
+    # Default model configurations
+    MODEL_CONFIGS = {
+        "gemini-2.5-flash": {"max_tokens": 64000, "context_length": 1000000},
+        "gemini-2.5-pro": {"max_tokens": 64000, "context_length": 1000000},
+        "gemini-1.5-pro": {"max_tokens": 64000, "context_length": 2000000},
+        "gemini-1.5-flash": {"max_tokens": 64000, "context_length": 1000000},  
+        "gemini-pro": {"max_tokens": 64000, "context_length": 30720},
+        "gemini-pro-vision": {"max_tokens": 64000, "context_length": 30720},
+    }
+    
+    def _setup_model(self):
+        """Initialize Google GenAI client and validate configuration."""
+        if not GENAI_AVAILABLE:
+            raise ModelUnavailableError(
+                "Google GenAI library not installed. Run: pip install google-genai"
+            )
+        
+        # Get API key from config or environment
+        api_key = self.config.get("api_key") or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ModelUnavailableError(
+                "Gemini API key not found. Set GEMINI_API_KEY environment variable "
+                "or pass api_key in configuration."
+            )
+        
+        # Initialize GenAI client
+        try:
+            self.client = genai.Client(api_key=api_key)
+        except Exception as e:
+            raise ModelUnavailableError(f"Failed to initialize GenAI client: {e}")
+        
+        # Validate model name
+        if self.model_name not in self.MODEL_CONFIGS:
+            logger.warning(f"Unknown GenAI model {self.model_name}, using default settings")
+    
+    def _generate_tla_specification_impl(
+        self, 
+        source_code: str, 
+        prompt_template: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Generate TLA+ specification using Google GenAI API.
+        
+        Args:
+            source_code: Source code to convert to TLA+
+            prompt_template: Prompt template with {source_code} placeholder
+            generation_config: Generation parameters
+            
+        Returns:
+            GenerationResult with generated TLA+ specification
+            
+        Raises:
+            GenerationError: If API call fails
+            RateLimitError: If rate limit is exceeded
+        """
+        if not self.is_available():
+            raise ModelUnavailableError("GenAI adapter is not properly configured")
+        
+        # Use default config if not provided
+        if generation_config is None:
+            generation_config = GenerationConfig()
+        
+        # Format prompt - check if prompt_template already contains the content
+        if "{source_code}" in prompt_template:
+            prompt_content = prompt_template.format(source_code=source_code)
+        else:
+            # Prompt is already formatted, use as-is
+            prompt_content = prompt_template
+        
+        # Prepare generation config
+        config_params = {
+            "temperature": generation_config.temperature,
+            "top_p": generation_config.top_p,
+            "max_output_tokens": generation_config.max_tokens,
+        }
+        
+        # Add thinking config
+        thinking_budget = self.config.get("thinking_budget", 0)
+        if thinking_budget > 0:
+            config_params["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=thinking_budget
+            )
+        else:
+            # Explicitly disable thinking
+            config_params["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=0
+            )
+        
+        # Add stop sequences if provided
+        if generation_config.stop_sequences:
+            config_params["stop_sequences"] = generation_config.stop_sequences
+            
+        genai_config = types.GenerateContentConfig(**config_params)
+        
+        # Make API call
+        start_time = time.time()
+        try:
+            logger.info(f"Starting generation with model {self.model_name}...")
+            
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt_content,
+                config=genai_config
+            )
+            
+            end_time = time.time()
+            
+            # Extract text content according to the official API example
+            try:
+                generated_text = response.text
+                if not generated_text:
+                    raise GenerationError("Empty text response from GenAI API")
+            except AttributeError as e:
+                logger.error(f"Response object missing text attribute: {e}")
+                logger.error(f"Response type: {type(response)}")
+                logger.error(f"Response attributes: {dir(response) if response else 'None'}")
+                raise GenerationError(f"Invalid response format from GenAI API: {e}")
+            
+            # Prepare metadata with safe attribute access
+            usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            finish_reason = "unknown"
+            
+            try:
+                if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                    usage_meta = response.usage_metadata
+                    usage_data = {
+                        "prompt_tokens": getattr(usage_meta, 'prompt_token_count', 0),
+                        "completion_tokens": getattr(usage_meta, 'candidates_token_count', 0),
+                        "total_tokens": getattr(usage_meta, 'total_token_count', 0),
+                    }
+            except Exception as e:
+                logger.warning(f"Could not extract usage metadata: {e}")
+            
+            try:
+                if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
+                    finish_reason = getattr(response.candidates[0], 'finish_reason', 'unknown')
+            except Exception as e:
+                logger.warning(f"Could not extract finish reason: {e}")
+            
+            metadata = {
+                "model": self.model_name,
+                "usage": usage_data,
+                "latency_seconds": end_time - start_time,
+                "finish_reason": str(finish_reason),
+                "response_id": f"genai_{int(start_time)}",
+                "streaming": False
+            }
+            
+            return GenerationResult(
+                generated_text=generated_text,
+                metadata=metadata,
+                timestamp=end_time,
+                success=True
+            )
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"GenAI generation failed: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            
+            # Check for specific error types
+            if "rate limit" in error_msg.lower() or "quota" in error_msg.lower():
+                raise RateLimitError(f"GenAI rate limit exceeded: {e}")
+            elif "api key" in error_msg.lower() or "authentication" in error_msg.lower():
+                raise ModelUnavailableError(f"GenAI authentication error: {e}")
+            else:
+                # Add more context for debugging
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
+                raise GenerationError(f"GenAI API error: {e}")
+    
+    def is_available(self) -> bool:
+        """
+        Check if GenAI adapter is available and properly configured.
+        
+        Returns:
+            True if adapter can be used, False otherwise
+        """
+        try:
+            # Check if GenAI library is available
+            if not GENAI_AVAILABLE:
+                return False
+            
+            # Check if client is initialized
+            if not hasattr(self, 'client'):
+                return False
+            
+            # Check if API key is set
+            api_key = self.config.get("api_key") or os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                return False
+            
+            return True
+            
+        except Exception:
+            return False
+    
+    def validate_config(self) -> list[str]:
+        """
+        Validate GenAI adapter configuration.
+        
+        Returns:
+            List of validation error messages
+        """
+        errors = super().validate_config()
+        
+        # Check GenAI library
+        if not GENAI_AVAILABLE:
+            errors.append("Google GenAI library not installed")
+        
+        # Check API key
+        api_key = self.config.get("api_key") or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            errors.append("Gemini API key not found")
+        
+        # Check model name format (basic validation)
+        if self.model_name and not (self.model_name.startswith("gemini") or "chat" in self.model_name.lower()):
+            logger.warning(f"Model name '{self.model_name}' doesn't follow expected GenAI naming pattern")
+        
+        # Validate thinking budget if provided
+        thinking_budget = self.config.get("thinking_budget")
+        if thinking_budget is not None:
+            if not isinstance(thinking_budget, int) or thinking_budget < 0:
+                errors.append("thinking_budget must be a non-negative integer")
+        
+        return errors
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get detailed information about the GenAI model."""
+        info = super().get_model_info()
+        
+        # Add GenAI-specific information
+        model_config = self.MODEL_CONFIGS.get(self.model_name, {})
+        info.update({
+            "provider": "google_genai",
+            "model_type": "chat_completion",
+            "max_tokens": model_config.get("max_tokens", "unknown"),
+            "context_length": model_config.get("context_length", "unknown"),
+            "thinking_budget": self.config.get("thinking_budget", 0),
+            "api_version": "google-genai" if GENAI_AVAILABLE else "not_installed",
+        })
+        
+        return info

@@ -11,6 +11,7 @@ import logging
 from .base import ModelAdapter, ModelUnavailableError
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
+from .genai_adapter import GenAIAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,8 @@ class ModelFactory:
     _ADAPTERS: Dict[str, Type[ModelAdapter]] = {
         "openai": OpenAIAdapter,
         "anthropic": AnthropicAdapter,
+        "genai": GenAIAdapter,
+        "google_genai": GenAIAdapter,  # Alternative name
     }
     
     # Predefined model configurations
@@ -58,6 +61,32 @@ class ModelFactory:
             "provider": "anthropic",
             "model_name": "claude-3-haiku-20240307",
             "temperature": 0.1,
+        },
+        
+        # Google GenAI models
+        "genai_gemini_2_5_flash": {
+            "provider": "genai",
+            "model_name": "gemini-2.5-flash",
+            "temperature": 0.1,
+            "thinking_budget": 0,
+        },
+        "genai_gemini_1_5_pro": {
+            "provider": "genai", 
+            "model_name": "gemini-1.5-pro",
+            "temperature": 0.1,
+            "thinking_budget": 0,
+        },
+        "genai_gemini_1_5_flash": {
+            "provider": "genai",
+            "model_name": "gemini-1.5-flash",
+            "temperature": 0.1,
+            "thinking_budget": 0,
+        },
+        "genai_gemini_pro": {
+            "provider": "genai",
+            "model_name": "gemini-pro",
+            "temperature": 0.1,
+            "thinking_budget": 0,
         },
     }
     

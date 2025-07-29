@@ -7,6 +7,12 @@ enabling uniform access to different APIs and local models for TLA+ generation.
 Available adapters:
 - OpenAIAdapter: OpenAI GPT models (GPT-4, GPT-3.5, etc.)
 - AnthropicAdapter: Anthropic Claude models (Claude 3 family)
+- GenAIAdapter: Google GenAI models (Gemini family)
+
+Features:
+- Automatic retry on 503 Service Unavailable errors (up to 3 retries with 30s delay)
+- Uniform interface across all providers
+- Comprehensive error handling and logging
 
 Usage:
     from tla_eval.models import get_model_adapter
@@ -16,6 +22,9 @@ Usage:
     
     # Using custom configuration
     model = get_model_adapter("openai", model_name="gpt-4", temperature=0.2)
+    
+    # All adapters automatically retry on service unavailable errors
+    result = model.generate_tla_specification(source_code, prompt_template)
 """
 
 from .base import (
@@ -30,6 +39,7 @@ from .base import (
 
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
+from .genai_adapter import GenAIAdapter
 from .factory import ModelFactory, get_model_adapter
 
 __all__ = [
@@ -46,7 +56,8 @@ __all__ = [
     
     # Adapter implementations
     "OpenAIAdapter",
-    "AnthropicAdapter",
+    "AnthropicAdapter", 
+    "GenAIAdapter",
     
     # Factory and utilities
     "ModelFactory",
