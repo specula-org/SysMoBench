@@ -162,17 +162,35 @@ class GenAIAdapter(ModelAdapter):
                 if hasattr(response, 'text'):
                     try:
                         generated_text = response.text
+                        logger.debug(f"Generated text length: {len(generated_text) if generated_text else 0}")
                     except Exception as text_error:
                         logger.error(f"Error accessing response.text: {text_error}")
-                        logger.error(f"Text error type: {type(text_error).__name__}")
                         raise GenerationError(f"Failed to access response.text: {text_error}")
                 else:
                     logger.error(f"Response missing text attribute")
-                    logger.error(f"Available attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
                     raise GenerationError("Response object missing text attribute")
                 
                 if not generated_text:
-                    raise GenerationError("Empty text response from GenAI API")
+                    # Check for specific reasons why response might be empty
+                    error_details = []
+                    
+                    if hasattr(response, 'candidates') and response.candidates:
+                        candidate = response.candidates[0]
+                        if hasattr(candidate, 'finish_reason'):
+                            error_details.append(f"finish_reason: {candidate.finish_reason}")
+                        if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
+                            error_details.append(f"safety_ratings: {candidate.safety_ratings}")
+                    
+                    if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                        error_details.append(f"prompt_feedback: {response.prompt_feedback}")
+                    
+                    error_msg = "Empty text response from GenAI API"
+                    if error_details:
+                        error_msg += f" ({'; '.join(error_details)})"
+                    else:
+                        error_msg += " (possible content filtering or model limitations)"
+                    
+                    raise GenerationError(error_msg)
                     
             except GenerationError:
                 raise  # Re-raise GenerationError as-is

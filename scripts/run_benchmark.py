@@ -520,7 +520,10 @@ Examples:
         if result["success"]:
             eval_result = result["evaluation_result"]
             
-            if evaluation_type == "syntax":
+            # Determine evaluation type from the result object type instead of variable
+            from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult
+            
+            if isinstance(eval_result, SyntaxEvaluationResult):
                 print(f"\nSyntax Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
                 print(f"Generation time: {eval_result.generation_time:.2f}s")
                 print(f"Compilation time: {eval_result.compilation_time:.2f}s")
@@ -533,7 +536,7 @@ Examples:
                     if not eval_result.compilation_successful:
                         print(f"Compilation errors: {eval_result.syntax_errors + eval_result.semantic_errors}")
                         
-            elif evaluation_type == "semantics":
+            elif isinstance(eval_result, SemanticEvaluationResult):
                 print(f"\nSemantics Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
                 print(f"Invariant generation time: {eval_result.invariant_generation_time:.2f}s")
                 print(f"Config generation time: {eval_result.config_generation_time:.2f}s")

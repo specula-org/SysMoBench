@@ -148,50 +148,27 @@ class ConfigGenerator:
             template = Template(prompt_template)
             prompt = template.substitute(tla_spec=tla_content, invariants=invariants)
             
-            # Generate config by calling the model directly (not source-to-TLA generation)
-            # We bypass generate_tla_specification to avoid double formatting
-            if hasattr(model, 'client'):
-                # For OpenAI-compatible models, call directly
-                api_params = {
-                    "model": model.model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 4096,
-                    "temperature": 0.1,
-                }
-                
-                import time
-                start_time = time.time()
-                
-                # Use the unified model interface instead of direct API calls
-                from ...models.base import GenerationConfig
-                gen_config = GenerationConfig(
-                    max_tokens=api_params.get("max_tokens", 4096),
-                    temperature=api_params.get("temperature", 0.1)
-                )
-                
-                result = model.generate_tla_specification("", prompt, gen_config)
-                end_time = time.time()
-                
-                if not result.success:
-                    raise Exception(f"Model generation failed: {result.error_message}")
-                
-                generated_text = result.generated_text
-                logger.debug(f"=== RAW LLM RESPONSE (CONFIG) ===")
-                logger.debug(f"Length: {len(generated_text)}")
-                logger.debug(f"Content: {repr(generated_text)}")
-                logger.debug(f"SPECIFICATION count: {generated_text.count('SPECIFICATION')}")
-                
-                metadata = result.metadata.copy()
-                metadata.update({
-                    "latency_seconds": end_time - start_time,
-                })
-                
-                # Update the result with timing information
-                result.metadata.update(metadata)
-                result.timestamp = end_time
+            # Use the unified model interface for config generation
+            from ...models.base import GenerationConfig
+            gen_config = GenerationConfig(
+                max_tokens=64000,
+                temperature=0.1
+            )
+            
+            import time
+            start_time = time.time()
+            
+            result = model.generate_tla_specification("", prompt, gen_config)
+            end_time = time.time()
+            
+            logger.debug(f"=== CONFIG GENERATION RESULT ===")
+            logger.debug(f"Success: {result.success}")
+            logger.debug(f"Length: {len(result.generated_text) if result.success else 0}")
+            if result.success:
+                logger.debug(f"Content preview: {repr(result.generated_text[:200])}")
+                logger.debug(f"SPECIFICATION count: {result.generated_text.count('SPECIFICATION')}")
             else:
-                # Fallback for other model types
-                result = model.generate_tla_specification("", prompt)
+                logger.debug(f"Error: {result.error_message}")
             
             if result.success:
                 final_config = result.generated_text.strip()

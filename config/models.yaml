@@ -9,6 +9,7 @@ models:
     api_key_env: "OPENAI_API_KEY"  # or set api_key directly
     temperature: 0.1
     max_tokens: 4096
+    top_p: 0.9
     
   # User's Anthropic configuration  
   my_claude:
@@ -17,6 +18,7 @@ models:
     api_key_env: "ANTHROPIC_API_KEY"
     temperature: 0.1
     max_tokens: 64000
+    top_p: 0.9
 
   deepseek:
     provider: "deepseek"
@@ -25,6 +27,7 @@ models:
     api_key_env: "DEEPSEEK_API_KEY"
     temperature: 0.1
     max_tokens: 64000
+    top_p: 0.9
 
   my_yunwu:
     provider: "yunwu"
@@ -33,6 +36,7 @@ models:
     api_key_env: "YUNWU_API_KEY"
     temperature: 0.1
     max_tokens: 64000
+    top_p: 0.9
 
   gemini:
     provider: "genai"
@@ -40,6 +44,7 @@ models:
     api_key_env: "GEMINI_API_KEY"
     temperature: 0.1
     max_tokens: 64000
+    top_p: 0.9
     thinking_budget: 32768
 
 

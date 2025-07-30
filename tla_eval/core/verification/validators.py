@@ -209,6 +209,7 @@ class TLAValidator:
             Tuple of (success, output)
         """
         try:
+            # Run SANY with standard options
             cmd = [
                 "java",
                 "-cp", str(self.tla_tools_path),
@@ -233,7 +234,8 @@ class TLAValidator:
                 result.returncode != 0 or
                 "*** Errors:" in output or
                 "Fatal errors" in output or
-                "Semantic errors:" in output
+                "Semantic errors:" in output or
+                "Could not parse" in output
             )
             success = not has_errors
             
@@ -287,10 +289,35 @@ class TLAValidator:
         semantic_errors = []
         lines = output.split('\n')
         
-        # If SANY just says "Could not parse module" without specific details,
-        # it usually means there's a fundamental syntax error that prevents parsing.
-        # In this case, we should look for any clues in the output.
-        if "Could not parse module" in output and "line" not in output.lower():
+        # First, try to find specific error messages with line/column information in verbose output
+        detailed_errors = []
+        for i, line in enumerate(lines):
+            line_clean = line.strip()
+            
+            # Look for detailed error patterns that SANY produces in verbose mode
+            if any(pattern in line_clean.lower() for pattern in [
+                'lexical error', 'syntax error', 'parse error', 'parsing error',
+                'unexpected token', 'unexpected symbol', 'expected', 'missing',
+                'line', 'column'
+            ]):
+                # This looks like a detailed error message
+                detailed_errors.append(line_clean)
+                
+                # Check next few lines for additional context
+                for j in range(i + 1, min(i + 3, len(lines))):
+                    context_line = lines[j].strip()
+                    if context_line and not context_line.startswith('***') and len(context_line) < 200:
+                        # Add contextual information if it's relevant
+                        if any(word in context_line.lower() for word in ['at', 'near', 'found', 'expecting']):
+                            detailed_errors.append(f"  -> {context_line}")
+        
+        if detailed_errors:
+            syntax_errors.extend(detailed_errors)
+            return syntax_errors, semantic_errors
+        
+        # If no detailed errors found, fall back to original parsing logic
+        # but with improved error message extraction
+        if "Could not parse module" in output:
             # Generic parsing failure - try to extract any useful information
             module_name = "unknown"
             for line in lines:
@@ -303,7 +330,7 @@ class TLAValidator:
                     except:
                         pass
             
-            # Look for any other error indicators in the output
+            # Look for any useful error indicators in the entire output
             potential_errors = []
             for line in lines:
                 line_clean = line.strip()
@@ -312,21 +339,125 @@ class TLAValidator:
                     not line_clean.startswith("Parsing file") and
                     not line_clean.startswith("SANY") and
                     not line_clean.startswith("In module") and
-                    ("error" in line_clean.lower() or 
-                     "unexpected" in line_clean.lower() or
-                     "invalid" in line_clean.lower() or
-                     "missing" in line_clean.lower())):
-                    potential_errors.append(line_clean)
+                    not line_clean.startswith("Fatal errors") and
+                    len(line_clean) > 10):  # Ignore very short lines
+                    
+                    # Check if this line contains error-related information
+                    if any(word in line_clean.lower() for word in [
+                        'error', 'unexpected', 'invalid', 'missing', 'undefined',
+                        'unknown', 'illegal', 'malformed', 'incorrect'
+                    ]):
+                        potential_errors.append(line_clean)
             
             if potential_errors:
-                syntax_errors.extend(potential_errors)
+                # Format the errors nicely
+                for error in potential_errors[:5]:  # Limit to first 5 errors
+                    syntax_errors.append(f"Parse error in module '{module_name}': {error}")
             else:
-                # If no specific errors found, provide a generic but helpful message
-                syntax_errors.append(f"Module '{module_name}' contains syntax errors that prevent parsing. "
-                                   "Common causes: missing commas, unmatched parentheses, invalid operators, "
-                                   "incorrect TLA+ syntax, or malformed module structure.")
+                # Since SANY doesn't provide detailed error info, try to analyze the TLA+ content
+                # to provide more helpful error messages
+                try:
+                    # Try to provide basic syntax checking
+                    file_path = None
+                    for line in lines:
+                        if "Parsing file" in line:
+                            file_path = line.split("Parsing file")[1].strip()
+                            break
+                    
+                    if file_path:
+                        # Read and analyze the file content for common issues
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        syntax_issues = self._analyze_tla_syntax_issues(content, module_name)
+                        if syntax_issues:
+                            syntax_errors.extend(syntax_issues)
+                        else:
+                            syntax_errors.append(f"Module '{module_name}' has syntax errors preventing SANY parsing. "
+                                               "Common issues: incomplete expressions, missing operators, "
+                                               "incorrect TLA+ syntax structure.")
+                    else:
+                        syntax_errors.append(f"Module '{module_name}' contains fundamental syntax errors that prevent parsing.")
+                        
+                except Exception as analysis_error:
+                    # Fallback to generic message if analysis fails
+                    syntax_errors.append(f"Module '{module_name}' contains syntax errors that prevent parsing. "
+                                       "SANY could not provide specific error details.")
             
             return syntax_errors, semantic_errors
+    
+    def _analyze_tla_syntax_issues(self, content: str, module_name: str) -> List[str]:
+        """
+        Analyze TLA+ content for common syntax issues that prevent parsing.
+        
+        Args:
+            content: TLA+ specification content
+            module_name: Module name
+            
+        Returns:
+            List of detected syntax issues
+        """
+        issues = []
+        lines = content.split('\n')
+        
+        # Check for module declaration
+        has_module_decl = False
+        for line in lines:
+            if line.strip().startswith('----') and 'MODULE' in line:
+                has_module_decl = True
+                break
+            elif line.strip().startswith('MODULE '):
+                has_module_decl = True
+                break
+                
+        if not has_module_decl:
+            issues.append(f"Missing MODULE declaration at the beginning")
+        
+        # Check for module ending
+        has_module_end = any('====' in line for line in lines)
+        if not has_module_end:
+            issues.append(f"Missing module ending (====)")
+        
+        # Check for common syntax problems
+        for i, line in enumerate(lines, 1):
+            line_clean = line.strip()
+            if not line_clean or line_clean.startswith('\\*'):
+                continue
+                
+            # Check for incomplete expressions
+            if line_clean.endswith('/\\') or line_clean.endswith('\\/'):
+                issues.append(f"Line {i}: Incomplete logical expression ending with '/\\' or '\\/'")
+            
+            # Check for missing operators before expressions
+            if any(line_clean.startswith(op) for op in ['/\\', '\\/', '=>', '<=>']):
+                # This might be OK in some contexts, but often indicates missing operators
+                pass
+            
+            # Check for unmatched brackets/parentheses
+            open_brackets = line_clean.count('[') - line_clean.count(']')
+            open_parens = line_clean.count('(') - line_clean.count(')')
+            open_braces = line_clean.count('{') - line_clean.count('}')
+            
+            if open_brackets != 0:
+                issues.append(f"Line {i}: Unmatched square brackets [ ]")
+            if open_parens != 0:
+                issues.append(f"Line {i}: Unmatched parentheses ( )")
+            if open_braces != 0:
+                issues.append(f"Line {i}: Unmatched curly braces {{ }}")
+            
+            # Check for common keyword/operator mistakes
+            if '==' in line_clean and not any(op in line_clean for op in ['Init', 'Next', 'Spec', 'ASSUME', 'THEOREM']):
+                # Assignment without context might be an error
+                if not line_clean.startswith('\\*') and '\\E' not in line_clean and '\\A' not in line_clean:
+                    pass  # This is often valid TLA+
+            
+            # Check for missing equals after variable names
+            if any(keyword in line_clean for keyword in ['Init', 'Next', 'Spec']) and '==' not in line_clean:
+                if not line_clean.strip().endswith('=='):
+                    issues.append(f"Line {i}: Definition '{line_clean}' missing '==' operator")
+        
+        # Limit to most important issues
+        return issues[:5]
         
         # Standard error parsing for detailed SANY output
         current_error_type = None

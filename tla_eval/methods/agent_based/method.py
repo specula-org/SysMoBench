@@ -118,15 +118,14 @@ class AgentBasedMethod(TLAGenerationMethod):
         """Generate initial TLA+ specification using standard prompt."""
         prompt = self._create_initial_prompt(task)
         
-        # Create generation config with model's configured max_tokens
-        max_tokens = model.config.get('max_tokens', 4096)
+        # Create generation config from model's YAML configuration
         generation_config = GenerationConfig(
-            max_tokens=max_tokens,
-            temperature=model.config.get('temperature', 0.1),
-            top_p=model.config.get('top_p', 1.0)
+            max_tokens=model.config.get('max_tokens'),
+            temperature=model.config.get('temperature'),
+            top_p=model.config.get('top_p')  # Only if defined in YAML
         )
         
-        logger.info(f"Initial generation config: max_tokens={max_tokens}, model_config={model.config}")
+        logger.info(f"Initial generation config from YAML: {model.config}")
         logger.debug(f"Using initial prompt ({len(prompt)} chars)")
         return model.generate_tla_specification(task.source_code, prompt, generation_config)
     
@@ -360,15 +359,14 @@ class AgentBasedMethod(TLAGenerationMethod):
             
             logger.debug(f"Correction prompt created ({len(correction_prompt)} chars)")
             
-            # Create generation config with model's configured max_tokens
-            max_tokens = model.config.get('max_tokens', 4096)
+            # Create generation config from model's YAML configuration
             generation_config = GenerationConfig(
-                max_tokens=max_tokens,
-                temperature=model.config.get('temperature', 0.1),
-                top_p=model.config.get('top_p', 1.0)
+                max_tokens=model.config.get('max_tokens'),
+                temperature=model.config.get('temperature'),
+                top_p=model.config.get('top_p')  # Only if defined in YAML
             )
             
-            logger.info(f"Correction generation config: max_tokens={max_tokens}, attempt={attempt_num}")
+            logger.info(f"Correction generation config from YAML, attempt={attempt_num}")
             
             # Generate corrected specification (no source code needed for correction)
             correction_result = model.generate_tla_specification(

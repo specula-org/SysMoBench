@@ -39,8 +39,16 @@ class DirectCallMethod(TLAGenerationMethod):
             # Create prompt
             prompt = self._create_prompt(task)
             
+            # Create generation config from model's YAML configuration
+            from ...models.base import GenerationConfig
+            generation_config = GenerationConfig(
+                max_tokens=model.config.get('max_tokens'),
+                temperature=model.config.get('temperature'),
+                top_p=model.config.get('top_p')  # Only if defined in YAML
+            )
+            
             # Generate TLA+ specification
-            result = model.generate_tla_specification(task.source_code, prompt)
+            result = model.generate_tla_specification(task.source_code, prompt, generation_config)
             
             # Return output
             return GenerationOutput(
