@@ -405,6 +405,32 @@ class InvariantVerificationEvaluator(BaseEvaluator):
             
             logger.info("✓ Specification content loaded from generation result")
             
+            # Step 1.5: Check if specification passed syntax validation (for agent_based method)
+            # If agent_based method failed correction after 3 attempts, skip expensive semantic evaluation
+            if method_name == "agent_based" and generation_result.metadata:
+                correction_metadata = generation_result.metadata.get('correction_metadata', {})
+                if correction_metadata and not correction_metadata.get('success', True):
+                    final_validation = correction_metadata.get('final_validation_result')
+                    if final_validation and not final_validation.success and final_validation.syntax_errors:
+                        logger.warning("⚠️ Specification failed syntax validation after 3 correction attempts")
+                        logger.warning("Skipping expensive semantic evaluation (config generation + TLC) to save costs")
+                        logger.warning(f"Syntax errors: {len(final_validation.syntax_errors)} errors found")
+                        
+                        result.error_message = f"Syntax validation failed after {correction_metadata.get('correction_attempts', 3)} attempts"
+                        result.invariant_generation_successful = False
+                        result.config_generation_successful = False  
+                        result.model_checking_successful = False
+                        result.overall_success = False
+                        
+                        # Still save the specification for inspection
+                        module_name = spec_module or 'etcdraft'
+                        spec_file_path = output_dir / f"{module_name}.tla"
+                        with open(spec_file_path, 'w', encoding='utf-8') as f:
+                            f.write(tla_content)
+                        result.specification_file = str(spec_file_path)
+                        
+                        return result
+            
             # Save specification to output directory for reference
             module_name = spec_module or 'etcdraft'
             spec_file_path = output_dir / f"{module_name}.tla"

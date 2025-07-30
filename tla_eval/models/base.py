@@ -15,9 +15,9 @@ import logging
 @dataclass
 class GenerationConfig:
     """Configuration for text generation parameters."""
-    max_tokens: int = 4096
+    max_tokens: int = 32000
     temperature: float = 0.1
-    top_p: float = 1.0
+    top_p: float = 0.9
     stop_sequences: Optional[List[str]] = None
     seed: Optional[int] = None
 

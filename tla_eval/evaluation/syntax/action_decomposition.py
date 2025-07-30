@@ -14,12 +14,14 @@ import re
 import tempfile
 import shutil
 import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass
 
 from ...core.verification.validators import TLAValidator, ValidationResult
 from ...models.base import GenerationResult
+from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SyntaxEvaluationResult
 
@@ -140,6 +142,68 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             self._set_validation_result(eval_result, validation_result)
         
         finally:
+            # Save results to output directory
+            try:
+                output_manager = get_output_manager()
+                output_dir = output_manager.create_experiment_dir(
+                    metric="action_decomposition",
+                    task=task_name,
+                    method=method_name,
+                    model=model_name
+                )
+                
+                # Prepare result data
+                result_data = {
+                    "overall_success": eval_result.overall_success,
+                    "generation_successful": eval_result.generation_successful,
+                    "compilation_successful": eval_result.compilation_successful,
+                    "generation_time": eval_result.generation_time,
+                    "compilation_time": eval_result.compilation_time,
+                    "total_actions": getattr(eval_result, 'total_actions', 0),
+                    "successful_actions": getattr(eval_result, 'successful_actions', 0),
+                    "action_success_rate": getattr(eval_result, 'action_success_rate', 0.0),
+                    "total_variables_added": getattr(eval_result, 'total_variables_added', 0),
+                    "total_functions_added": getattr(eval_result, 'total_functions_added', 0),
+                    "total_recovery_attempts": getattr(eval_result, 'total_recovery_attempts', 0),
+                    "syntax_errors": eval_result.syntax_errors,
+                    "semantic_errors": eval_result.semantic_errors,
+                    "action_results": [
+                        {
+                            "action_name": ar.action_name,
+                            "success": ar.validation_result.success,
+                            "compilation_time": ar.validation_result.compilation_time,
+                            "syntax_errors": ar.validation_result.syntax_errors,
+                            "semantic_errors": ar.validation_result.semantic_errors,
+                            "variables_added": ar.variables_added,
+                            "functions_added": ar.functions_added,
+                            "recovery_attempts": ar.recovery_attempts
+                        } for ar in getattr(eval_result, 'action_results', [])
+                    ]
+                }
+                
+                metadata = {
+                    "task_name": task_name,
+                    "method_name": method_name,
+                    "model_name": model_name,
+                    "metric": "action_decomposition",
+                    "evaluation_timestamp": time.time(),
+                    "validation_timeout": self.timeout,
+                    "keep_temp_files": self.keep_temp_files
+                }
+                
+                # Save specification to output directory
+                if eval_result.generated_specification:
+                    spec_file_path = output_dir / f"{spec_module or 'specification'}.tla"
+                    with open(spec_file_path, 'w', encoding='utf-8') as f:
+                        f.write(eval_result.generated_specification)
+                    metadata["specification_file"] = str(spec_file_path)
+                
+                output_manager.save_result(output_dir, result_data, metadata)
+                logger.info(f"Results saved to: {output_dir}")
+                
+            except Exception as save_error:
+                logger.error(f"Failed to save results: {save_error}")
+            
             # Cleanup temporary files unless keeping them
             if self.temp_dir and not self.keep_temp_files:
                 try:
@@ -511,7 +575,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
         max_iterations = 5
         
         for iteration in range(max_iterations):
-            print(f"DEBUG: Starting iteration {iteration + 1}")
+            # print(f"DEBUG: Starting iteration {iteration + 1}")
             
             # Run SANY to get error output
             validation_result = self.validator.validate_file(file_path)
@@ -525,12 +589,12 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             unknown_pattern = r"Unknown operator: `([^']*)'."
             unknown_ops = re.findall(unknown_pattern, output)
             
-            print(f"DEBUG: Iteration {iteration + 1}: Found explicit function requirements: {matches}")
-            print(f"DEBUG: Iteration {iteration + 1}: Found unknown operators: {unknown_ops}")
+            # print(f"DEBUG: Iteration {iteration + 1}: Found explicit function requirements: {matches}")
+            # print(f"DEBUG: Iteration {iteration + 1}: Found unknown operators: {unknown_ops}")
             
             # If no new operators found, we're done
             if not matches and not unknown_ops:
-                print(f"DEBUG: No more unknown operators found after {iteration + 1} iterations")
+                # print(f"DEBUG: No more unknown operators found after {iteration + 1} iterations")
                 break
             
             # Read current file content
@@ -545,7 +609,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             for func_name, arg_count in matches:
                 # Skip if already added in previous iterations
                 if func_name in all_added_funcs:
-                    print(f"DEBUG: Skipping {func_name} (already added in previous iteration)")
+                    # print(f"DEBUG: Skipping {func_name} (already added in previous iteration)")
                     continue
                     
                 arg_count = int(arg_count)
@@ -566,34 +630,34 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                     params = ", ".join([f"x{i+1}" for i in range(actual_arg_count)])
                     func_def = f"{func_name}({params}) == TRUE"
                 
-                print(f"DEBUG: Iteration {iteration + 1}: Will add function: {func_def}")
+                # print(f"DEBUG: Iteration {iteration + 1}: Will add function: {func_def}")
                 functions_to_add.append(func_def)
                 iteration_added_funcs.append(func_name)
                 
                 # If this operator was previously added as a variable, mark it for removal
                 if func_name in added_variables:
                     variables_to_remove.append(func_name)
-                    print(f"DEBUG: Marking {func_name} for removal from VARIABLES (it's actually a function)")
+                    # print(f"DEBUG: Marking {func_name} for removal from VARIABLES (it's actually a function)")
             
             # Process all unknown operators - always add them if not already added
             for op in set(unknown_ops):
-                print(f"DEBUG: Iteration {iteration + 1}: Processing unknown operator: {op}")
+                # print(f"DEBUG: Iteration {iteration + 1}: Processing unknown operator: {op}")
                 
                 # Skip if already processed in previous iterations
                 if op in all_added_funcs:
-                    print(f"DEBUG: Skipping {op} (already added in previous iteration)")
+                    # print(f"DEBUG: Skipping {op} (already added in previous iteration)")
                     continue
                     
                 # Check if this is used as a function
                 function_usage = re.findall(rf'\b{re.escape(op)}\s*\([^)]*\)', file_content)
-                print(f"DEBUG: Function usage found for {op}: {function_usage}")
+                # print(f"DEBUG: Function usage found for {op}: {function_usage}")
                 
                 if function_usage:
                     # Add as function
                     first_usage = function_usage[0]
                     args_part = first_usage[first_usage.find('(')+1:first_usage.rfind(')')]
                     arg_count = self._count_function_arguments(args_part)
-                    print(f"DEBUG: Determined arg_count={arg_count} for {op} from '{args_part}'")
+                    # print(f"DEBUG: Determined arg_count={arg_count} for {op} from '{args_part}'")
                     
                     if arg_count == 0:
                         func_def = f"{op} == TRUE"
@@ -601,19 +665,19 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                         params = ", ".join([f"x{i+1}" for i in range(arg_count)])
                         func_def = f"{op}({params}) == TRUE"
                     
-                    print(f"DEBUG: Iteration {iteration + 1}: Will add function: {func_def}")
+                    # print(f"DEBUG: Iteration {iteration + 1}: Will add function: {func_def}")
                     functions_to_add.append(func_def)
                     iteration_added_funcs.append(op)
                     
                     # If this operator was previously added as a variable, mark it for removal
                     if op in added_variables:
                         variables_to_remove.append(op)
-                        print(f"DEBUG: Marking {op} for removal from VARIABLES (it's actually a function)")
+                        # print(f"DEBUG: Marking {op} for removal from VARIABLES (it's actually a function)")
                 else:
                     # Add as constant
-                    print(f"DEBUG: {op} not used as function, treating as constant")
+                    # print(f"DEBUG: {op} not used as function, treating as constant")
                     const_def = f"{op} == TRUE"
-                    print(f"DEBUG: Iteration {iteration + 1}: Will add constant: {const_def}")
+                    # print(f"DEBUG: Iteration {iteration + 1}: Will add constant: {const_def}")
                     functions_to_add.append(const_def)
                     iteration_added_funcs.append(op)
             
@@ -633,21 +697,22 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                         break
                 
                 # Find where the specific action starts and insert BEFORE it
-                print(f"DEBUG: Looking for action '{action_name}' starting from line 2")
+                # print(f"DEBUG: Looking for action '{action_name}' starting from line 2")
                 for i in range(2, len(lines)):  # Start from line 2
                     line = lines[i].strip()
-                    print(f"DEBUG: Line {i}: '{line[:50]}...'")
+                    # print(f"DEBUG: Line {i}: '{line[:50]}...'")
                     # Look for the specific action definition by name
                     if line.startswith(f"{action_name}(") or line.startswith(f"{action_name} =="):
                         insert_idx = i  # Insert before the action definition
-                        print(f"DEBUG: Found action '{action_name}' at line {i}: '{line[:50]}...'")
+                        # print(f"DEBUG: Found action '{action_name}' at line {i}: '{line[:50]}...'")
                         break
                 else:
-                    print(f"DEBUG: Action '{action_name}' not found, using default position {insert_idx}")
+                    # print(f"DEBUG: Action '{action_name}' not found, using default position {insert_idx}")
+                    pass
                 
                 # Remove variables that are actually functions from VARIABLES declaration
                 if variables_to_remove:
-                    print(f"DEBUG: Removing variables that are actually functions: {variables_to_remove}")
+                    # print(f"DEBUG: Removing variables that are actually functions: {variables_to_remove}")
                     for i, line in enumerate(lines):
                         if line.startswith("VARIABLES"):
                             # Parse existing variables
@@ -661,11 +726,11 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                                 else:
                                     # Remove the entire VARIABLES line if no variables left
                                     lines[i] = ""
-                                print(f"DEBUG: Updated VARIABLES line: {lines[i]}")
+                                # print(f"DEBUG: Updated VARIABLES line: {lines[i]}")
                             break
                 
-                print(f"DEBUG: Will insert {len(functions_to_add)} functions at position {insert_idx}")
-                print(f"DEBUG: Functions to add: {functions_to_add}")
+                # print(f"DEBUG: Will insert {len(functions_to_add)} functions at position {insert_idx}")
+                # print(f"DEBUG: Functions to add: {functions_to_add}")
                 
                 # Insert function definitions
                 for i, func_def in enumerate(functions_to_add):
@@ -680,11 +745,11 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                 logger.debug(f"Iteration {iteration + 1}: Added {len(functions_to_add)} function definitions and removed {len(variables_to_remove)} incorrect variables")
                 all_added_funcs.extend(iteration_added_funcs)
             else:
-                print(f"DEBUG: Iteration {iteration + 1}: No new functions to add")
+                # print(f"DEBUG: Iteration {iteration + 1}: No new functions to add")
                 break
         
-        print(f"DEBUG: Completed iterative modification after {iteration + 1} iterations")
-        print(f"DEBUG: Total functions added across all iterations: {all_added_funcs}")
+        # print(f"DEBUG: Completed iterative modification after {iteration + 1} iterations")
+        # print(f"DEBUG: Total functions added across all iterations: {all_added_funcs}")
         return all_added_funcs
     
     def _aggregate_action_results(self, eval_result: SyntaxEvaluationResult, action_results: List[ActionValidationResult]):
