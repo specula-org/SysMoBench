@@ -1,0 +1,37 @@
+# mutex task configuration
+name: "mutex"
+description: "Mutex implementation for mutual exclusion in Asterinas OS"
+system_type: "concurrent"
+language: "rust"
+
+# Source code repository information
+repository:
+  url: "https://github.com/asterinas/asterinas.git"
+  branch: "main"
+  
+# Files to extract from the repository
+source_files:
+  - path: "ostd/src/sync/mutex.rs"
+    description: "Mutex implementation providing exclusive access to critical sections"
+
+# Default file to use if not specified
+default_source_file: "ostd/src/sync/mutex.rs"
+
+# TLA+ specification module name
+specModule: "mutex"
+
+# Metadata
+metadata:
+  original_project: "asterinas"
+  complexity: "medium"
+  focus_areas:
+    - "mutual exclusion"
+    - "critical sections"
+    - "thread synchronization"
+    - "deadlock prevention"
+  
+# Phase 3 specific configuration
+phase3:
+  trace_generation: false
+  patch_required: false
+  description: "Mutex synchronization primitive correctness verification"

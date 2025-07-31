@@ -1,0 +1,37 @@
+# rwmutex task configuration
+name: "rwmutex"
+description: "Read-write mutex implementation for concurrent read/exclusive write access in Asterinas OS"
+system_type: "concurrent"
+language: "rust"
+
+# Source code repository information
+repository:
+  url: "https://github.com/asterinas/asterinas.git"
+  branch: "main"
+  
+# Files to extract from the repository
+source_files:
+  - path: "ostd/src/sync/rwmutex.rs"
+    description: "Read-write mutex allowing multiple readers or single writer"
+
+# Default file to use if not specified
+default_source_file: "ostd/src/sync/rwmutex.rs"
+
+# TLA+ specification module name
+specModule: "rwmutex"
+
+# Metadata
+metadata:
+  original_project: "asterinas"
+  complexity: "high"
+  focus_areas:
+    - "read-write mutex"
+    - "multiple readers single writer"
+    - "concurrent access control"
+    - "reader-writer problem"
+  
+# Phase 3 specific configuration
+phase3:
+  trace_generation: false
+  patch_required: false
+  description: "Read-write mutex synchronization correctness verification"

@@ -1,0 +1,139 @@
+You are an expert in trace generation and validation for read-write mutex synchronization primitives.
+
+Given the following TLA+ specification for read-write mutex synchronization, generate configuration for trace generation and validation.
+
+TLA+ Specification:
+{tla_spec}
+
+For read-write mutex synchronization primitives, trace generation focuses on:
+
+1. **Reader-Writer Operation Traces:**
+   - read_lock() acquisition attempts and outcomes
+   - write_lock() acquisition attempts and outcomes
+   - read_unlock() and write_unlock() operations
+   - Lock upgrade/downgrade operations (if supported)
+
+2. **RWMutex State Transition Traces:**
+   - State changes: FREE → READ_LOCKED → FREE
+   - State changes: FREE → WRITE_LOCKED → FREE  
+   - Reader count increments and decrements
+   - Writer acquisition and release events
+
+3. **Concurrency Pattern Traces:**
+   - Multiple readers accessing simultaneously
+   - Reader-writer contention scenarios
+   - Writer-writer exclusion patterns
+   - Priority and fairness policy enforcement
+
+4. **Blocking and Wakeup Traces:**
+   - Reader blocking when writer is active
+   - Writer blocking when readers are active
+   - Thread wakeup events when lock becomes available
+   - Queue management for waiting readers/writers
+
+Generate a comprehensive trace configuration for read-write mutex verification:
+
+```yaml
+trace_config:
+  system: "asterinas_rwmutex"
+  focus: "reader_writer_synchronization"
+  
+  # Event types specific to read-write mutex operations
+  events:
+    reader_operations:
+      - event_type: "READ_LOCK_ATTEMPT"
+        format: "thread_id:{reader} rwlock_id:{lock} timestamp:{ts} reader_count:{count}"
+        description: "Reader thread attempts to acquire read lock"
+        
+      - event_type: "READ_LOCK_ACQUIRED"
+        format: "thread_id:{reader} rwlock_id:{lock} timestamp:{ts} new_reader_count:{count}"
+        description: "Reader successfully acquires read lock"
+        
+      - event_type: "READ_LOCK_RELEASED"
+        format: "thread_id:{reader} rwlock_id:{lock} timestamp:{ts} remaining_readers:{count}"
+        description: "Reader releases read lock"
+        
+      - event_type: "READ_LOCK_BLOCKED"
+        format: "thread_id:{reader} rwlock_id:{lock} timestamp:{ts} blocked_by_writer:{writer}"
+        description: "Reader blocks due to active writer"
+    
+    writer_operations:
+      - event_type: "WRITE_LOCK_ATTEMPT"
+        format: "thread_id:{writer} rwlock_id:{lock} timestamp:{ts} active_readers:{count}"
+        description: "Writer thread attempts to acquire write lock"
+        
+      - event_type: "WRITE_LOCK_ACQUIRED"
+        format: "thread_id:{writer} rwlock_id:{lock} timestamp:{ts} exclusive_access:true"
+        description: "Writer successfully acquires exclusive write lock"
+        
+      - event_type: "WRITE_LOCK_RELEASED"
+        format: "thread_id:{writer} rwlock_id:{lock} timestamp:{ts} hold_time:{duration}"
+        description: "Writer releases exclusive write lock"
+        
+      - event_type: "WRITE_LOCK_BLOCKED"
+        format: "thread_id:{writer} rwlock_id:{lock} timestamp:{ts} blocked_by_readers:{count}"
+        description: "Writer blocks due to active readers"
+    
+    state_transitions:
+      - event_type: "RWLOCK_STATE_CHANGE"
+        format: "rwlock_id:{lock} old_state:{old} new_state:{new} timestamp:{ts}"
+        description: "RWMutex state transition"
+        
+      - event_type: "READER_COUNT_CHANGE"
+        format: "rwlock_id:{lock} old_count:{old} new_count:{new} timestamp:{ts}"
+        description: "Active reader count change"
+  
+  # Validation rules for read-write mutex correctness
+  validation:
+    reader_writer_exclusion:
+      rule: "No simultaneous readers and writers"
+      check: "mutual_exclusion_rw"
+      
+    multiple_readers:
+      rule: "Multiple readers can hold lock simultaneously"
+      check: "concurrent_readers_allowed"
+      
+    writer_exclusivity:
+      rule: "At most one writer can hold lock at any time"
+      check: "single_writer_only"
+      
+    state_consistency:
+      rule: "Reader count must match actual active readers"
+      check: "reader_count_accuracy"
+      
+    fairness:
+      rule: "Both readers and writers make progress"
+      check: "reader_writer_fairness"
+  
+  # Trace generation parameters
+  generation:
+    reader_thread_count: 3
+    writer_thread_count: 2
+    rwlock_count: 1
+    max_read_time: 500
+    max_write_time: 200
+    contention_scenarios:
+      - "reader_heavy": "many readers, few writers"
+      - "writer_heavy": "few readers, many writers"
+      - "mixed_load": "balanced reader-writer activity"
+      - "starvation_test": "verify fairness under contention"
+    
+    priority_policies:
+      - "reader_preference"
+      - "writer_preference" 
+      - "fair_scheduling"
+    
+    instrumentation_points:
+      - "read_lock_entry"
+      - "write_lock_entry"
+      - "lock_state_change"
+      - "reader_count_update"
+      - "blocking_events"
+      - "wakeup_events"
+    
+    output_format: "NDJSON"
+    buffer_size: 10000
+    sampling_rate: 1.0
+```
+
+Generate the trace configuration now:

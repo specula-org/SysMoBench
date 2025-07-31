@@ -1,0 +1,72 @@
+You are an expert in TLA+ model checking and TLC configuration for mutex synchronization primitives.
+
+Given the following TLA+ specification for mutex synchronization, generate an appropriate TLC configuration file.
+
+TLA+ Specification:
+{tla_spec}
+
+Generated Invariants:
+{invariants}
+
+Create a TLC configuration that:
+
+1. **Defines the specification:**
+   - Set the SPECIFICATION to the main temporal formula for mutex behavior
+   - Configure appropriate INIT and Next conditions for competing threads
+
+2. **Sets reasonable constants for mutex verification:**
+   - Limit the number of threads (e.g., 3-4 threads for contention scenarios)
+   - Define thread identifiers and finite sets
+   - Set bounds for critical section execution time
+   - Configure waiting queue size limits if applicable
+   - Define fairness policies (FIFO, priority-based, etc.)
+
+3. **Configures invariants:**
+   - Include all generated invariants for mutex verification
+   - Focus on mutual exclusion and deadlock freedom properties
+   - Add liveness properties for lock acquisition and progress
+
+4. **Optimizes for mutex model checking:**
+   - Use symmetry on thread identifiers to reduce state space
+   - Set action constraints to bound waiting times
+   - Configure view reductions for equivalent mutex states
+   - Consider fairness conditions for lock acquisition
+
+5. **Handles mutex-specific concerns:**
+   - Model thread contention and blocking scenarios
+   - Account for different scheduling policies
+   - Set up proper fairness to prevent thread starvation
+   - Configure bounded critical section time to ensure progress
+   - Handle priority inversion scenarios if applicable
+
+Example considerations:
+- CONSTANTS: Threads = {t1, t2, t3}, MaxCriticalSectionTime = 5
+- SYMMETRY: Threads (all threads can be treated symmetrically)
+- ACTION-CONSTRAINT: criticalSectionTime <= MaxCriticalSectionTime
+- FAIRNESS: WF_vars(AcquireLock) for each thread
+
+Output the complete TLC configuration file content:
+
+SPECIFICATION MutexSpec
+
+\* Constants section - define finite sets and bounds
+CONSTANTS
+    Threads = {t1, t2, t3}
+    MaxCriticalSectionTime = 5
+    (* Add other mutex-specific constants *)
+
+\* Invariants section - properties to verify
+INVARIANT
+    (* Include all generated invariants *)
+
+\* Symmetry and optimization directives
+SYMMETRY Threads
+
+\* Fairness conditions for mutex operations
+PROPERTY
+    (* Add fairness properties for lock acquisition *)
+
+\* Additional TLC directives for mutex verification
+\* CONSTRAINT, VIEW, etc. as needed
+
+Generate the complete .cfg file content now:

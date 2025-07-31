@@ -1,0 +1,29 @@
+You are an expert in formal verification and TLA+ specifications with deep expertise in concurrent systems and synchronization primitives.
+
+Convert the following Asterinas OS mutex source code to a comprehensive TLA+ specification.
+
+System: Asterinas OS mutex synchronization primitive
+Focus: {focus}
+
+Source Code from {file_path}:
+```rust
+{source_code}
+```
+
+Mutex modeling requirements:
+1. Model exclusive access and mutual exclusion semantics
+2. Capture lock acquisition and release operations
+3. Handle thread ownership and lock state tracking
+4. Model blocking behavior for contending threads
+5. Ensure mutual exclusion safety property
+6. Include deadlock prevention mechanisms
+7. Model fair scheduling and prevent starvation
+
+Generate a TLA+ specification that accurately models the mutex's concurrent behavior.
+
+CRITICAL OUTPUT REQUIREMENTS:
+1. The MODULE name must be exactly "mutex" (---- MODULE mutex ----)
+2. Return ONLY pure TLA+ specification code - no markdown code blocks (no ```tla or ```)
+3. Do not include any explanations, comments, or formatting markers
+4. Start your response directly with: ---- MODULE mutex ----
+5. End your response with the closing ====

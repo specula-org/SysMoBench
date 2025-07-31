@@ -1,0 +1,114 @@
+You are an expert in trace generation and validation for spinlock synchronization primitives.
+
+Given the following TLA+ specification for spinlock synchronization, generate configuration for trace generation and validation.
+
+TLA+ Specification:
+{tla_spec}
+
+For spinlock synchronization primitives, trace generation focuses on:
+
+1. **Atomic Operation Traces:**
+   - test_and_set() operation attempts and outcomes
+   - compare_and_swap() operations with expected and actual values
+   - Memory barrier and fence operations
+   - Atomic load/store operations
+
+2. **Spinlock State Transition Traces:**
+   - Lock state changes: UNLOCKED → LOCKED → UNLOCKED
+   - Thread spinning events and busy-wait loops
+   - Lock acquisition success/failure events
+   - Lock release operations
+
+3. **Thread Interaction Patterns:**
+   - Which threads attempt lock acquisition in what order
+   - Spinning duration and retry patterns
+   - Lock contention scenarios with multiple spinners
+   - Cache coherency and memory ordering events
+
+4. **Performance and Timing Traces:**
+   - Spin count and busy-wait duration
+   - Lock hold time by successful acquirers
+   - Contention patterns and backoff behavior
+   - Memory access patterns and cache misses
+
+Generate a comprehensive trace configuration for spinlock verification:
+
+```yaml
+trace_config:
+  system: "asterinas_spinlock"
+  focus: "atomic_synchronization_primitives"
+  
+  # Event types specific to spinlock operations
+  events:
+    lock_operations:
+      - event_type: "SPIN_LOCK_ATTEMPT"
+        format: "thread_id:{thread} lock_id:{lock} timestamp:{ts} expected:{expected}"
+        description: "Thread attempts to acquire spinlock using test-and-set"
+        
+      - event_type: "SPIN_LOCK_ACQUIRED"
+        format: "thread_id:{thread} lock_id:{lock} timestamp:{ts} spin_count:{spins}"
+        description: "Thread successfully acquires spinlock after spinning"
+        
+      - event_type: "SPIN_LOCK_RELEASED"
+        format: "thread_id:{thread} lock_id:{lock} timestamp:{ts} hold_time:{duration}"
+        description: "Thread releases spinlock"
+        
+      - event_type: "SPIN_WAIT"
+        format: "thread_id:{thread} lock_id:{lock} timestamp:{ts} iteration:{count}"
+        description: "Thread continues spinning, waiting for lock"
+    
+    atomic_operations:
+      - event_type: "ATOMIC_CAS"
+        format: "thread_id:{thread} addr:{address} expected:{old} desired:{new} result:{success} timestamp:{ts}"
+        description: "Compare-and-swap atomic operation"
+        
+      - event_type: "ATOMIC_LOAD"
+        format: "thread_id:{thread} addr:{address} value:{val} timestamp:{ts}"
+        description: "Atomic load operation"
+        
+      - event_type: "MEMORY_BARRIER"
+        format: "thread_id:{thread} barrier_type:{type} timestamp:{ts}"
+        description: "Memory ordering barrier"
+  
+  # Validation rules for spinlock correctness
+  validation:
+    mutual_exclusion:
+      rule: "At most one thread can hold the spinlock at any time"
+      check: "no_simultaneous_holders"
+      
+    atomic_operations:
+      rule: "All test-and-set operations must be atomic"
+      check: "atomic_state_transitions"
+      
+    progress:
+      rule: "If lock is available, some spinning thread must eventually acquire it"
+      check: "eventual_acquisition"
+      
+    memory_ordering:
+      rule: "Lock operations must maintain proper memory ordering"
+      check: "memory_consistency"
+  
+  # Trace generation parameters
+  generation:
+    thread_count: 3
+    lock_count: 1
+    max_spin_iterations: 100
+    max_hold_time: 1000
+    contention_scenarios:
+      - "high_contention": "multiple threads spinning simultaneously"
+      - "low_contention": "threads acquire lock with minimal spinning"
+      - "fairness_test": "verify eventual acquisition for all threads"
+    
+    instrumentation_points:
+      - "lock_acquire_entry"
+      - "spin_loop_iteration"
+      - "lock_acquire_success"
+      - "lock_release"
+      - "atomic_operations"
+    
+    output_format: "NDJSON"
+    buffer_size: 10000
+    sampling_rate: 1.0  # Capture all events for correctness verification
+```
+
+Generate the trace configuration now:

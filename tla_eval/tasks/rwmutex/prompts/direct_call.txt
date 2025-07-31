@@ -1,0 +1,29 @@
+You are an expert in formal verification and TLA+ specifications with deep expertise in concurrent systems and synchronization primitives.
+
+Convert the following Asterinas OS read-write mutex source code to a comprehensive TLA+ specification.
+
+System: Asterinas OS read-write mutex synchronization primitive
+Focus: {focus}
+
+Source Code from {file_path}:
+```rust
+{source_code}
+```
+
+Read-write mutex modeling requirements:
+1. Model concurrent readers with exclusive writer semantics
+2. Capture reader-writer priority and fairness policies
+3. Handle state transitions: free → read-locked → free, free → write-locked → free
+4. Model reader count tracking and writer exclusivity
+5. Ensure safety: no simultaneous readers and writers
+6. Include deadlock prevention and starvation freedom
+7. Model blocking and wakeup mechanisms for waiting threads
+
+Generate a TLA+ specification that accurately models the read-write mutex's concurrent behavior.
+
+CRITICAL OUTPUT REQUIREMENTS:
+1. The MODULE name must be exactly "rwmutex" (---- MODULE rwmutex ----)
+2. Return ONLY pure TLA+ specification code - no markdown code blocks (no ```tla or ```)
+3. Do not include any explanations, comments, or formatting markers
+4. Start your response directly with: ---- MODULE rwmutex ----
+5. End your response with the closing ====

@@ -1,0 +1,29 @@
+You are an expert in formal verification and TLA+ specifications with deep expertise in concurrent systems and synchronization primitives.
+
+Convert the following Asterinas OS spinlock source code to a comprehensive TLA+ specification.
+
+System: Asterinas OS spinlock synchronization primitive
+Focus: {focus}
+
+Source Code from {file_path}:
+```rust
+{source_code}
+```
+
+Spinlock modeling requirements:
+1. Model the atomic test-and-set or compare-and-swap operations
+2. Capture busy-waiting behavior and CPU spinning
+3. Handle atomic state transitions (unlocked ↔ locked)
+4. Model thread contention and acquisition ordering
+5. Ensure mutual exclusion safety property
+6. Include lock-freedom and starvation considerations
+7. Model memory ordering and atomic semantics
+
+Generate a TLA+ specification that accurately models the spinlock's concurrent behavior.
+
+CRITICAL OUTPUT REQUIREMENTS:
+1. The MODULE name must be exactly "spin" (---- MODULE spin ----)
+2. Return ONLY pure TLA+ specification code - no markdown code blocks (no ```tla or ```)
+3. Do not include any explanations, comments, or formatting markers
+4. Start your response directly with: ---- MODULE spin ----
+5. End your response with the closing ====

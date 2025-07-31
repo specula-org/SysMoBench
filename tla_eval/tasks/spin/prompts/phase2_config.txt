@@ -1,0 +1,64 @@
+You are an expert in TLA+ model checking and TLC configuration for spinlock synchronization primitives.
+
+Given the following TLA+ specification for spinlock synchronization, generate an appropriate TLC configuration file.
+
+TLA+ Specification:
+{tla_spec}
+
+Generated Invariants:
+{invariants}
+
+Create a TLC configuration that:
+
+1. **Defines the specification:**
+   - Set the SPECIFICATION to the main temporal formula for spinlock behavior
+   - Configure appropriate INIT and Next conditions for concurrent threads
+
+2. **Sets reasonable constants for spinlock verification:**
+   - Limit the number of threads (e.g., 2-4 for spinlock contention scenarios)
+   - Define thread identifiers and finite sets
+   - Set bounds for spinning iterations or timeout values
+   - Configure any spinlock-specific parameters (backoff delays, etc.)
+
+3. **Configures invariants:**
+   - Include all generated invariants for spinlock verification
+   - Add TLA+ built-in invariants if applicable (Termination, etc.)
+   - Focus on mutual exclusion and atomicity properties
+
+4. **Optimizes for spinlock model checking:**
+   - Use symmetry on thread identifiers to reduce state space
+   - Set action constraints to bound spinning behavior
+   - Configure view reductions for equivalent lock states
+   - Consider fairness conditions for spinning threads
+
+5. **Handles spinlock-specific concerns:**
+   - Model thread interleaving during test-and-set operations
+   - Account for atomic operation semantics
+   - Set up proper fairness for eventual lock acquisition
+   - Configure bounded spinning to prevent infinite loops
+
+Example considerations:
+- CONSTANTS: Threads = {t1, t2, t3}, MaxSpinCount = 10
+- SYMMETRY: Threads (to treat threads symmetrically)
+- ACTION-CONSTRAINT: SpinCount < MaxSpinCount (to bound spinning)
+
+Output the complete TLC configuration file content:
+
+SPECIFICATION SpinlockSpec
+
+\* Constants section - define finite sets and bounds
+CONSTANTS
+    Threads = {t1, t2, t3}
+    (* Add other constants as needed *)
+
+\* Invariants section - properties to verify
+INVARIANT
+    (* Include all generated invariants *)
+
+\* Symmetry and optimization directives
+SYMMETRY Threads
+
+\* Additional TLC directives for spinlock verification
+\* VIEW, CONSTRAINT, etc. as needed
+
+Generate the complete .cfg file content now:

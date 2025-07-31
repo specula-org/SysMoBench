@@ -1,0 +1,163 @@
+You are an expert in trace generation and validation for mutex synchronization primitives.
+
+Given the following TLA+ specification for mutex synchronization, generate configuration for trace generation and validation.
+
+TLA+ Specification:
+{tla_spec}
+
+For mutex synchronization primitives, trace generation focuses on:
+
+1. **Mutex Operation Traces:**
+   - lock() acquisition attempts and outcomes
+   - unlock() operations and lock releases
+   - try_lock() non-blocking attempts
+   - Lock timeout operations (if supported)
+
+2. **Mutex State Transition Traces:**
+   - State changes: UNLOCKED → LOCKED → UNLOCKED
+   - Owner assignment and tracking
+   - Critical section entry and exit events
+   - Lock contention and waiting events
+
+3. **Thread Synchronization Traces:**
+   - Thread blocking and unblocking events
+   - Waiting queue management (FIFO, priority, etc.)
+   - Thread scheduling and context switches
+   - Deadlock detection and prevention events
+
+4. **Critical Section Traces:**
+   - Critical section entry and exit
+   - Protected resource access patterns
+   - Nested locking scenarios (if supported)
+   - Priority inversion handling
+
+Generate a comprehensive trace configuration for mutex verification:
+
+```yaml
+trace_config:
+  system: "asterinas_mutex"
+  focus: "mutual_exclusion_synchronization"
+  
+  # Event types specific to mutex operations
+  events:
+    lock_operations:
+      - event_type: "MUTEX_LOCK_ATTEMPT"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} current_owner:{owner}"
+        description: "Thread attempts to acquire mutex lock"
+        
+      - event_type: "MUTEX_LOCK_ACQUIRED"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} wait_time:{duration}"
+        description: "Thread successfully acquires mutex lock"
+        
+      - event_type: "MUTEX_LOCK_RELEASED"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} hold_time:{duration}"
+        description: "Thread releases mutex lock"
+        
+      - event_type: "MUTEX_LOCK_BLOCKED"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} blocked_by:{owner}"
+        description: "Thread blocks waiting for mutex"
+        
+      - event_type: "MUTEX_TRY_LOCK"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} success:{acquired}"
+        description: "Non-blocking lock attempt"
+    
+    critical_section:
+      - event_type: "CRITICAL_SECTION_ENTER"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} section_id:{section}"
+        description: "Thread enters critical section"
+        
+      - event_type: "CRITICAL_SECTION_EXIT"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} section_id:{section}"
+        description: "Thread exits critical section"
+        
+      - event_type: "RESOURCE_ACCESS"
+        format: "thread_id:{thread} resource_id:{resource} operation:{op} timestamp:{ts}"
+        description: "Access to mutex-protected resource"
+    
+    synchronization:
+      - event_type: "THREAD_BLOCKED"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} queue_position:{pos}"
+        description: "Thread added to waiting queue"
+        
+      - event_type: "THREAD_UNBLOCKED"
+        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} wakeup_reason:{reason}"
+        description: "Blocked thread is woken up"
+        
+      - event_type: "OWNERSHIP_CHANGE"
+        format: "mutex_id:{mutex} old_owner:{old} new_owner:{new} timestamp:{ts}"
+        description: "Mutex ownership transfer"
+    
+    state_transitions:
+      - event_type: "MUTEX_STATE_CHANGE"
+        format: "mutex_id:{mutex} old_state:{old} new_state:{new} timestamp:{ts}"
+        description: "Mutex state transition"
+  
+  # Validation rules for mutex correctness
+  validation:
+    mutual_exclusion:
+      rule: "At most one thread can hold mutex at any time"
+      check: "single_owner_only"
+      
+    ownership_consistency:
+      rule: "Only lock owner can release the mutex"
+      check: "owner_release_only"
+      
+    critical_section_safety:
+      rule: "Only mutex holder can be in critical section"
+      check: "protected_critical_section"
+      
+    deadlock_freedom:
+      rule: "System must be free from deadlocks"
+      check: "no_circular_waiting"
+      
+    progress:
+      rule: "Waiting threads eventually acquire the lock"
+      check: "eventual_acquisition"
+      
+    fairness:
+      rule: "Threads acquire lock in fair order"
+      check: "scheduling_fairness"
+  
+  # Trace generation parameters
+  generation:
+    thread_count: 4
+    mutex_count: 2
+    max_critical_section_time: 1000
+    max_wait_time: 5000
+    contention_scenarios:
+      - "high_contention": "many threads competing for single mutex"
+      - "low_contention": "threads rarely conflict"
+      - "nested_locking": "threads acquire multiple mutexes"
+      - "fairness_test": "verify FIFO ordering under contention"
+    
+    scheduling_policies:
+      - "fifo": "first-in-first-out scheduling"
+      - "priority": "priority-based scheduling"
+      - "fair": "fair scheduling algorithm"
+    
+    instrumentation_points:
+      - "lock_acquire_entry"
+      - "lock_acquire_success"
+      - "lock_release"
+      - "critical_section_boundaries"
+      - "blocking_operations"
+      - "thread_state_changes"
+    
+    deadlock_scenarios:
+      - "circular_wait": "threads wait in circular dependency"
+      - "hold_and_wait": "threads hold locks while requesting others"
+    
+    output_format: "NDJSON"
+    buffer_size: 10000
+    sampling_rate: 1.0
+    
+    # Performance metrics to capture
+    metrics:
+      - "lock_acquisition_time"
+      - "critical_section_duration"
+      - "contention_rate"
+      - "throughput"
+      - "fairness_index"
+```
+
+Generate the trace configuration now:

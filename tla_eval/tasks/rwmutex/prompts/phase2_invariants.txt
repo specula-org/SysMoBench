@@ -1,0 +1,47 @@
+You are an expert in TLA+ specifications and formal verification of concurrent systems, particularly read-write mutex synchronization primitives.
+
+Given the following TLA+ specification for read-write mutex synchronization, generate appropriate invariants for model checking.
+
+TLA+ Specification:
+{tla_spec}
+
+Generate invariants that verify the correctness of the read-write mutex primitive, focusing on:
+
+1. **Safety Properties:**
+   - Reader-writer exclusion: No simultaneous readers and writers
+   - Writer exclusion: At most one writer at any time
+   - Reader counting: Reader count is always non-negative and accurate
+   - State consistency: RWMutex state is always valid
+
+2. **Liveness Properties:**
+   - Reader progress: Readers eventually gain access when no writers
+   - Writer progress: Writers eventually gain exclusive access
+   - Starvation freedom: Neither readers nor writers are permanently blocked
+   - Fairness: Consider reader-writer fairness policies
+
+3. **RWMutex-Specific Properties:**
+   - Multiple reader semantics: Multiple threads can read simultaneously
+   - Exclusive writer semantics: Writers have exclusive access
+   - Priority policies: Respect reader/writer priority if specified
+   - Upgrade/downgrade correctness: If supported, lock upgrades are safe
+
+4. **State Invariants:**
+   - Valid states: rwState \in {"FREE", "READ_LOCKED", "WRITE_LOCKED"}
+   - Reader count consistency: readerCount >= 0
+   - Writer uniqueness: If write-locked, exactly one writer
+   - Reader-writer mutual exclusion: ~(HasReaders /\ HasWriter)
+
+Output format requirements:
+1. Return a list of invariant expressions, one per line
+2. Each invariant should be a valid TLA+ boolean expression
+3. Use meaningful names that describe what the invariant checks
+4. Format: InvariantName == boolean_expression
+5. Do not include explanatory text, only the invariant definitions
+
+Example format:
+ReaderWriterMutualExclusion == ~(readerCount > 0 /\ writerPresent = TRUE)
+ValidRWState == rwState \in {"FREE", "READ_LOCKED", "WRITE_LOCKED"}
+ReaderCountConsistency == readerCount >= 0
+WriterExclusivity == writerPresent = TRUE => readerCount = 0
+
+Generate the invariants now:

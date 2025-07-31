@@ -1,0 +1,43 @@
+You are an expert in TLA+ specifications and formal verification of concurrent systems, particularly spinlock synchronization primitives.
+
+Given the following TLA+ specification for spinlock synchronization, generate appropriate invariants for model checking.
+
+TLA+ Specification:
+{tla_spec}
+
+Generate invariants that verify the correctness of the spinlock primitive, focusing on:
+
+1. **Safety Properties:**
+   - Mutual exclusion: Only one thread can hold the spinlock at a time
+   - Lock state consistency: Lock state is always valid (locked/unlocked)
+   - Atomic operation correctness: Test-and-set operations are atomic
+
+2. **Liveness Properties:**
+   - Lock-freedom: The system as a whole makes progress
+   - Eventual acquisition: A spinning thread eventually acquires the lock
+   - No permanent blocking: No thread spins forever when lock becomes available
+
+3. **Spinlock-Specific Properties:**
+   - Busy-waiting correctness: Threads that fail to acquire continue spinning
+   - Atomic state transitions: Lock state changes are indivisible
+   - Memory ordering: Operations maintain proper memory semantics
+   - Fairness considerations: Consider starvation prevention (if applicable)
+
+4. **State Invariants:**
+   - Valid lock states only: lockState \in {"UNLOCKED", "LOCKED"}
+   - Owner consistency: If locked, exactly one thread owns it
+   - Spinning thread states: Threads are either running, spinning, or holding lock
+
+Output format requirements:
+1. Return a list of invariant expressions, one per line
+2. Each invariant should be a valid TLA+ boolean expression
+3. Use meaningful names that describe what the invariant checks
+4. Format: InvariantName == boolean_expression
+5. Do not include explanatory text, only the invariant definitions
+
+Example format:
+SpinlockMutualExclusion == \A t1, t2 \in Threads : (t1 # t2) => ~(OwnsLock[t1] /\ OwnsLock[t2])
+ValidLockState == lockState \in {"UNLOCKED", "LOCKED"}
+LockOwnershipConsistency == lockState = "LOCKED" => \E t \in Threads : OwnsLock[t]
+
+Generate the invariants now:

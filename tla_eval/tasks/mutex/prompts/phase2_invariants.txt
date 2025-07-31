@@ -1,0 +1,47 @@
+You are an expert in TLA+ specifications and formal verification of concurrent systems, particularly mutex synchronization primitives.
+
+Given the following TLA+ specification for mutex synchronization, generate appropriate invariants for model checking.
+
+TLA+ Specification:
+{tla_spec}
+
+Generate invariants that verify the correctness of the mutex primitive, focusing on:
+
+1. **Safety Properties:**
+   - Mutual exclusion: At most one thread can hold the mutex at any time
+   - Lock state consistency: Mutex state is always valid (locked/unlocked)
+   - Owner consistency: If locked, exactly one thread owns the mutex
+   - Critical section safety: Only lock holder can be in critical section
+
+2. **Liveness Properties:**
+   - Deadlock freedom: The system cannot reach a deadlocked state
+   - Lock acquisition: Threads requesting the lock eventually acquire it
+   - Progress guarantee: The system continues to make progress
+   - Starvation freedom: No thread waits forever for the mutex
+
+3. **Mutex-Specific Properties:**
+   - Exclusive access: Only one thread in critical section at a time
+   - Lock ownership: Thread that acquires lock is the only one that can release it
+   - Blocking semantics: Threads block when mutex is unavailable
+   - Fairness: Consider scheduling fairness and FIFO ordering if applicable
+
+4. **State Invariants:**
+   - Valid lock states: lockState \in {"UNLOCKED", "LOCKED"}
+   - Owner tracking: If locked, owner is a valid thread
+   - Waiting queue consistency: Blocked threads are properly queued
+   - Thread state consistency: Thread states are valid and consistent
+
+Output format requirements:
+1. Return a list of invariant expressions, one per line
+2. Each invariant should be a valid TLA+ boolean expression
+3. Use meaningful names that describe what the invariant checks
+4. Format: InvariantName == boolean_expression
+5. Do not include explanatory text, only the invariant definitions
+
+Example format:
+MutexMutualExclusion == \A t1, t2 \in Threads : (t1 # t2) => ~(InCriticalSection[t1] /\ InCriticalSection[t2])
+ValidMutexState == mutexState \in {"UNLOCKED", "LOCKED"}
+OwnershipConsistency == mutexState = "LOCKED" => owner \in Threads
+CriticalSectionSafety == \A t \in Threads : InCriticalSection[t] => OwnsLock[t]
+
+Generate the invariants now:
