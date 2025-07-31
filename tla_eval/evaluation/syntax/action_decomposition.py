@@ -201,6 +201,9 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                 output_manager.save_result(output_dir, result_data, metadata)
                 logger.info(f"Results saved to: {output_dir}")
                 
+                # Store output directory path in evaluation result for display
+                eval_result.output_directory = str(output_dir)
+                
             except Exception as save_error:
                 logger.error(f"Failed to save results: {save_error}")
             

@@ -64,6 +64,99 @@ logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 
+def _display_evaluation_results(eval_result, evaluation_type: str):
+    """Display evaluation results in a unified format."""
+    from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult
+    
+    if isinstance(eval_result, SyntaxEvaluationResult):
+        print(f"\nSyntax Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+        print(f"Generation time: {eval_result.generation_time:.2f}s")
+        print(f"Compilation time: {eval_result.compilation_time:.2f}s")
+        print(f"Syntax errors: {len(eval_result.syntax_errors)}")
+        print(f"Semantic errors: {len(eval_result.semantic_errors)}")
+        
+        # Display action decomposition specific metrics if available
+        if hasattr(eval_result, 'total_actions') and eval_result.total_actions:
+            success_rate = getattr(eval_result, 'action_success_rate', 0.0)
+            successful = getattr(eval_result, 'successful_actions', 0)
+            total = eval_result.total_actions
+            print(f"Action success rate: {successful}/{total} ({success_rate:.1%})")
+            
+            # Show recovery statistics if available
+            vars_added = getattr(eval_result, 'total_variables_added', 0)
+            funcs_added = getattr(eval_result, 'total_functions_added', 0)
+            recovery_attempts = getattr(eval_result, 'total_recovery_attempts', 0)
+            if vars_added or funcs_added or recovery_attempts:
+                print(f"Recovery statistics: {vars_added} variables, {funcs_added} functions added, {recovery_attempts} attempts")
+        
+        # Show file locations for syntax evaluation
+        if hasattr(eval_result, 'output_directory'):
+            print(f"Results saved to: {eval_result.output_directory}")
+        elif hasattr(eval_result, 'generated_specification') and eval_result.generated_specification:
+            # For other syntax evaluations without specific output directory
+            if hasattr(eval_result, 'total_actions'):
+                print(f"Results saved to output directory (check output/action_decomposition/...)")
+        
+        if not eval_result.overall_success:
+            if not eval_result.generation_successful:
+                print(f"Generation error: {eval_result.generation_error}")
+            if not eval_result.compilation_successful:
+                all_errors = eval_result.syntax_errors + eval_result.semantic_errors
+                if all_errors:
+                    print("Compilation errors:")
+                    for i, error in enumerate(all_errors, 1):
+                        print(f"  {i}. {error}")
+                        print()  # Add blank line between errors
+                        
+    elif isinstance(eval_result, SemanticEvaluationResult):
+        print(f"\nSemantics Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+        print(f"Invariant generation time: {eval_result.invariant_generation_time:.2f}s")
+        print(f"Config generation time: {eval_result.config_generation_time:.2f}s")
+        print(f"Model checking time: {eval_result.model_checking_time:.2f}s")
+        print(f"States explored: {eval_result.states_explored}")
+        print(f"Invariant violations: {len(eval_result.invariant_violations)}")
+        print(f"Deadlock found: {eval_result.deadlock_found}")
+        
+        if not eval_result.overall_success:
+            if not eval_result.invariant_generation_successful:
+                print(f"Invariant generation error: {eval_result.invariant_generation_error}")
+            if not eval_result.config_generation_successful:
+                print(f"Config generation error: {eval_result.config_generation_error}")
+            if not eval_result.model_checking_successful:
+                print(f"Model checking error: {eval_result.model_checking_error}")
+            if eval_result.invariant_violations:
+                print(f"Violations: {eval_result.invariant_violations}")
+                
+        # Show file locations
+        print(f"Specification: {eval_result.specification_file}")
+        if eval_result.config_file_path:
+            print(f"Config file: {eval_result.config_file_path}")
+            
+    elif evaluation_type == "consistency":
+        print(f"\nConsistency Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+        print(f"Trace generation time: {eval_result.trace_generation_time:.2f}s")
+        print(f"Trace conversion time: {eval_result.trace_conversion_time:.2f}s")
+        print(f"Trace validation time: {eval_result.trace_validation_time:.2f}s")
+        print(f"Generated trace count: {eval_result.generated_trace_count}")
+        print(f"Validated events: {eval_result.validated_events}")
+        
+        if not eval_result.overall_success:
+            if not eval_result.trace_generation_successful:
+                print(f"Trace generation error: {eval_result.trace_generation_error}")
+            if not eval_result.trace_conversion_successful:
+                print(f"Trace conversion error: {eval_result.trace_conversion_error}")
+            if not eval_result.trace_validation_successful:
+                print(f"Trace validation error: {eval_result.trace_validation_error}")
+                
+        # Show file locations
+        if hasattr(eval_result, 'raw_trace_files') and eval_result.raw_trace_files:
+            print(f"Raw traces: {', '.join(eval_result.raw_trace_files)}")
+        if hasattr(eval_result, 'converted_trace_files') and eval_result.converted_trace_files:
+            print(f"Converted traces: {', '.join(eval_result.converted_trace_files)}")
+        if hasattr(eval_result, 'specification_files') and eval_result.specification_files:
+            print(f"Specifications: {', '.join(eval_result.specification_files)}")
+
+
 def validate_prerequisites(phase: int = 1):
     """Validate that all prerequisites are met for running the benchmark."""
     logger.info("Validating prerequisites...")
@@ -519,70 +612,7 @@ Examples:
         
         if result["success"]:
             eval_result = result["evaluation_result"]
-            
-            # Determine evaluation type from the result object type instead of variable
-            from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult
-            
-            if isinstance(eval_result, SyntaxEvaluationResult):
-                print(f"\nSyntax Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
-                print(f"Generation time: {eval_result.generation_time:.2f}s")
-                print(f"Compilation time: {eval_result.compilation_time:.2f}s")
-                print(f"Syntax errors: {len(eval_result.syntax_errors)}")
-                print(f"Semantic errors: {len(eval_result.semantic_errors)}")
-                
-                if not eval_result.overall_success:
-                    if not eval_result.generation_successful:
-                        print(f"Generation error: {eval_result.generation_error}")
-                    if not eval_result.compilation_successful:
-                        print(f"Compilation errors: {eval_result.syntax_errors + eval_result.semantic_errors}")
-                        
-            elif isinstance(eval_result, SemanticEvaluationResult):
-                print(f"\nSemantics Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
-                print(f"Invariant generation time: {eval_result.invariant_generation_time:.2f}s")
-                print(f"Config generation time: {eval_result.config_generation_time:.2f}s")
-                print(f"Model checking time: {eval_result.model_checking_time:.2f}s")
-                print(f"States explored: {eval_result.states_explored}")
-                print(f"Invariant violations: {len(eval_result.invariant_violations)}")
-                print(f"Deadlock found: {eval_result.deadlock_found}")
-                
-                if not eval_result.overall_success:
-                    if not eval_result.invariant_generation_successful:
-                        print(f"Invariant generation error: {eval_result.invariant_generation_error}")
-                    if not eval_result.config_generation_successful:
-                        print(f"Config generation error: {eval_result.config_generation_error}")
-                    if not eval_result.model_checking_successful:
-                        print(f"Model checking error: {eval_result.model_checking_error}")
-                    if eval_result.invariant_violations:
-                        print(f"Violations: {eval_result.invariant_violations}")
-                        
-                # Show file locations
-                print(f"Specification: {eval_result.specification_file}")
-                if eval_result.config_file_path:
-                    print(f"Config file: {eval_result.config_file_path}")
-                    
-            elif evaluation_type == "consistency":
-                print(f"\nConsistency Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
-                print(f"Trace generation time: {eval_result.trace_generation_time:.2f}s")
-                print(f"Trace conversion time: {eval_result.trace_conversion_time:.2f}s")
-                print(f"Trace validation time: {eval_result.trace_validation_time:.2f}s")
-                print(f"Generated trace count: {eval_result.generated_trace_count}")
-                print(f"Validated events: {eval_result.validated_events}")
-                
-                if not eval_result.overall_success:
-                    if not eval_result.trace_generation_successful:
-                        print(f"Trace generation error: {eval_result.trace_generation_error}")
-                    if not eval_result.trace_conversion_successful:
-                        print(f"Trace conversion error: {eval_result.trace_conversion_error}")
-                    if not eval_result.trace_validation_successful:
-                        print(f"Trace validation error: {eval_result.trace_validation_error}")
-                        
-                # Show file locations
-                if eval_result.raw_trace_files:
-                    print(f"Raw traces: {', '.join(eval_result.raw_trace_files)}")
-                if eval_result.converted_trace_files:
-                    print(f"Converted traces: {', '.join(eval_result.converted_trace_files)}")
-                if eval_result.specification_files:
-                    print(f"Specifications: {', '.join(eval_result.specification_files)}")
+            _display_evaluation_results(eval_result, evaluation_type)
             
         else:
             print(f"Benchmark failed: {result['error']}")
