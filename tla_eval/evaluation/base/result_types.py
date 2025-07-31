@@ -242,3 +242,78 @@ class ConsistencyEvaluationResult(EvaluationResult):
                 "specifications": self.specification_files
             }
         }
+
+
+class CompositeEvaluationResult(EvaluationResult):
+    """Result of composite evaluation combining multiple metrics"""
+    
+    def __init__(self, task_name: str, method_name: str, model_name: str):
+        super().__init__(task_name, method_name, model_name)
+        
+        # Generation results (shared across all evaluations)
+        self.generation_successful = False
+        self.generation_time = 0.0
+        self.generation_error = None
+        self.generated_specification = None
+        
+        # Sub-evaluation results
+        self.action_decomposition_result: Optional[SyntaxEvaluationResult] = None
+        self.compilation_check_result: Optional[SyntaxEvaluationResult] = None
+        self.invariant_verification_results: List[SemanticEvaluationResult] = []
+        
+        # Summary statistics
+        self.total_iterations = 0
+        self.successful_iterations = 0
+        
+    def to_dict(self) -> Dict[str, Any]:
+        result = {
+            "task_name": self.task_name,
+            "method_name": self.method_name,
+            "model_name": self.model_name,
+            "timestamp": self.timestamp,
+            "generation": {
+                "successful": self.generation_successful,
+                "time_seconds": self.generation_time,
+                "error": self.generation_error,
+                "specification_length": len(self.generated_specification) if self.generated_specification else 0
+            },
+            "overall": {
+                "successful": self.overall_success,
+                "total_time_seconds": self._calculate_total_time()
+            }
+        }
+        
+        # Add action decomposition results
+        if self.action_decomposition_result:
+            result["action_decomposition"] = self.action_decomposition_result.to_dict()
+        
+        # Add compilation check results
+        if self.compilation_check_result:
+            result["compilation_check"] = self.compilation_check_result.to_dict()
+        
+        # Add invariant verification results
+        if self.invariant_verification_results:
+            result["invariant_verification"] = {
+                "total_iterations": len(self.invariant_verification_results),
+                "successful_iterations": sum(1 for r in self.invariant_verification_results if r.overall_success),
+                "iterations": [r.to_dict() for r in self.invariant_verification_results]
+            }
+        
+        return result
+    
+    def _calculate_total_time(self) -> float:
+        """Calculate total evaluation time across all sub-evaluations"""
+        total = self.generation_time
+        
+        if self.action_decomposition_result:
+            total += self.action_decomposition_result.compilation_time
+        
+        if self.compilation_check_result:
+            total += self.compilation_check_result.compilation_time
+        
+        for inv_result in self.invariant_verification_results:
+            total += (inv_result.invariant_generation_time + 
+                     inv_result.config_generation_time + 
+                     inv_result.model_checking_time)
+        
+        return total

@@ -12,6 +12,7 @@ from .syntax.compilation_check import CompilationCheckEvaluator
 from .syntax.action_decomposition import ActionDecompositionEvaluator
 from .semantics.invariant_verification import InvariantVerificationEvaluator
 from .consistency.trace_validation import TraceValidationEvaluator
+from .composite.composite_evaluation import CompositeEvaluator
 
 # Base classes and result types
 from .base.evaluator import BaseEvaluator
@@ -19,7 +20,8 @@ from .base.result_types import (
     EvaluationResult, 
     SyntaxEvaluationResult, 
     SemanticEvaluationResult, 
-    ConsistencyEvaluationResult
+    ConsistencyEvaluationResult,
+    CompositeEvaluationResult
 )
 
 # Backward compatibility aliases (deprecated)
@@ -31,6 +33,7 @@ __all__ = [
     "ActionDecompositionEvaluator",
     "InvariantVerificationEvaluator", 
     "TraceValidationEvaluator",
+    "CompositeEvaluator",
     
     # Base classes and result types
     "BaseEvaluator",
@@ -38,6 +41,7 @@ __all__ = [
     "SyntaxEvaluationResult",
     "SemanticEvaluationResult", 
     "ConsistencyEvaluationResult",
+    "CompositeEvaluationResult",
     
     # Legacy compatibility removed - use new structured evaluators
 ]

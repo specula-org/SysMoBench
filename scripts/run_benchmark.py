@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 def _display_evaluation_results(eval_result, evaluation_type: str):
     """Display evaluation results in a unified format."""
-    from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult
+    from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult, CompositeEvaluationResult
     
     if isinstance(eval_result, SyntaxEvaluationResult):
         print(f"\nSyntax Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
@@ -155,6 +155,73 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
             print(f"Converted traces: {', '.join(eval_result.converted_trace_files)}")
         if hasattr(eval_result, 'specification_files') and eval_result.specification_files:
             print(f"Specifications: {', '.join(eval_result.specification_files)}")
+    
+    elif isinstance(eval_result, CompositeEvaluationResult):
+        print(f"\nComposite Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+        print(f"Generation time: {eval_result.generation_time:.2f}s")
+        print(f"Total evaluation time: {eval_result._calculate_total_time():.2f}s")
+        
+        # Show generation results
+        if not eval_result.generation_successful:
+            print(f"❌ Generation failed: {eval_result.generation_error}")
+            return
+        
+        # Show action decomposition results
+        if eval_result.action_decomposition_result:
+            action_result = eval_result.action_decomposition_result
+            action_status = "✓ PASS" if action_result.overall_success else "✗ FAIL"
+            print(f"\n📝 Action Decomposition: {action_status}")
+            if hasattr(action_result, 'total_actions') and action_result.total_actions:
+                success_rate = getattr(action_result, 'action_success_rate', 0.0)
+                successful = getattr(action_result, 'successful_actions', 0)
+                total = action_result.total_actions
+                print(f"   Actions: {successful}/{total} ({success_rate:.1%})")
+        
+        # Show compilation check results
+        if eval_result.compilation_check_result:
+            comp_result = eval_result.compilation_check_result
+            comp_status = "✓ PASS" if comp_result.overall_success else "✗ FAIL"
+            print(f"\n🔧 Compilation Check: {comp_status}")
+            if comp_result.syntax_errors or comp_result.semantic_errors:
+                error_count = len(comp_result.syntax_errors) + len(comp_result.semantic_errors)
+                print(f"   Errors: {error_count} total")
+        
+        # Show invariant verification results
+        if eval_result.invariant_verification_results:
+            inv_results = eval_result.invariant_verification_results
+            successful_iterations = sum(1 for r in inv_results if r.overall_success)
+            total_iterations = len(inv_results)
+            
+            inv_status = "✓ PASS" if successful_iterations > 0 else "✗ FAIL"
+            print(f"\n🔍 Invariant Verification: {inv_status}")
+            print(f"   Iterations: {successful_iterations}/{total_iterations} successful")
+            
+            # Show details for each iteration
+            for i, inv_result in enumerate(inv_results, 1):
+                iter_status = "✓" if inv_result.overall_success else "✗"
+                print(f"   Iteration {i}: {iter_status} ({inv_result.states_explored} states)")
+                if inv_result.invariant_violations:
+                    print(f"      Violations: {len(inv_result.invariant_violations)}")
+        else:
+            print(f"\n🔍 Invariant Verification: SKIPPED (compilation failed)")
+        
+        # Show file locations
+        if hasattr(eval_result, 'output_directory'):
+            print(f"\nResults saved to: {eval_result.output_directory}")
+        
+        # Show summary
+        print(f"\n📊 Summary:")
+        summary = eval_result.to_dict().get('summary', {})
+        if summary:
+            print(f"   Generation: {'✓' if summary.get('generation_successful') else '✗'}")
+            print(f"   Action Decomposition: {'✓' if summary.get('action_decomposition_successful') else '✗'}")
+            print(f"   Compilation: {'✓' if summary.get('compilation_successful') else '✗'}")
+            inv_iterations = summary.get('invariant_verification_iterations', 0)
+            inv_successful = summary.get('invariant_verification_successful_iterations', 0)
+            if inv_iterations > 0:
+                print(f"   Invariant Verification: {inv_successful}/{inv_iterations} iterations")
+            else:
+                print(f"   Invariant Verification: SKIPPED")
 
 
 def validate_prerequisites(phase: int = 1):
@@ -338,6 +405,13 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                     elif metric_info.dimension == "consistency":
                         consistency_config = evaluator.get_default_config() if hasattr(evaluator, 'get_default_config') else {}
                         evaluation_result = evaluator.evaluate(task_name, consistency_config)
+                    elif metric_info.dimension == "composite":
+                        # Composite metrics need generation result and evaluate like syntax/semantics
+                        if not generation_result.success:
+                            return {"success": False, "error": "TLA+ generation failed"}
+                        evaluation_result = evaluator.evaluate(
+                            generation_result, task_name, method_name, model_name, task.spec_module
+                        )
                     else:
                         raise ValueError(f"Unknown dimension: {metric_info.dimension}")
                 else:

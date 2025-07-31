@@ -69,6 +69,7 @@ class MetricRegistry:
         from ..syntax.action_decomposition import ActionDecompositionEvaluator
         from ..semantics.invariant_verification import InvariantVerificationEvaluator
         from ..consistency.trace_validation import TraceValidationEvaluator
+        from ..composite.composite_evaluation import CompositeEvaluator
         
         # Syntax dimension metrics
         self.register_metric(MetricInfo(
@@ -122,6 +123,15 @@ class MetricRegistry:
             dimension="consistency", 
             description="Full trace generation and validation pipeline",
             evaluator_class=TraceValidationEvaluator
+        ))
+        
+        # Composite dimension metrics
+        self.register_metric(MetricInfo(
+            name="composite",
+            dimension="composite",
+            description="Integrated evaluation combining action decomposition, compilation check, and invariant verification",
+            evaluator_class=CompositeEvaluator,
+            default_params={"invariant_iterations": 3}
         ))
         
         # Future consistency metrics (placeholders)
