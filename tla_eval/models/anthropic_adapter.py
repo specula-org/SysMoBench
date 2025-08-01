@@ -114,8 +114,12 @@ class AnthropicAdapter(ModelAdapter):
         if generation_config is None:
             generation_config = GenerationConfig()
         
-        # Format prompt
-        user_prompt = prompt_template.format(source_code=source_code)
+        # Format prompt - check if prompt_template already contains the content
+        if "{source_code}" in prompt_template:
+            user_prompt = prompt_template.format(source_code=source_code)
+        else:
+            # Prompt is already formatted, use as-is
+            user_prompt = prompt_template
         
         # Prepare API call parameters
         api_params = {
@@ -184,6 +188,82 @@ class AnthropicAdapter(ModelAdapter):
         except Exception as e:
             logger.error(f"Streaming generation failed: {e}")
             raise GenerationError(f"Unexpected error during streaming generation: {e}")
+    
+    def _generate_direct_impl(
+        self, 
+        complete_prompt: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Generate content using a complete, pre-formatted prompt.
+        
+        Args:
+            complete_prompt: Complete, ready-to-use prompt text
+            generation_config: Generation parameters
+            
+        Returns:
+            GenerationResult containing the generated content
+        """
+        # Use default config if not provided
+        if generation_config is None:
+            generation_config = GenerationConfig()
+        
+        # Prepare API call parameters - use complete_prompt directly
+        api_params = {
+            "model": self.model_name,
+            "max_tokens": generation_config.max_tokens,
+            "temperature": generation_config.temperature,
+            "top_p": generation_config.top_p,
+            "messages": [
+                {
+                    "role": "user", 
+                    "content": complete_prompt  # Use the complete prompt as-is
+                }
+            ]
+        }
+        
+        # Filter out None values
+        api_params = {k: v for k, v in api_params.items() if v is not None}
+        
+        try:
+            logger.info("Starting direct generation...")
+            start_time = time.time()
+            
+            # Make API call with streaming
+            response = self.client.messages.create(**api_params, stream=True)
+            
+            # Collect streaming response
+            generated_text = ""
+            for chunk in response:
+                if hasattr(chunk, 'delta') and hasattr(chunk.delta, 'text'):
+                    generated_text += chunk.delta.text
+            
+            end_time = time.time()
+            
+            # Log successful generation
+            logger.info(f"Direct generation completed in {end_time - start_time:.2f}s")
+            logger.info(f"Generated text length: {len(generated_text)} characters")
+            
+            return GenerationResult(
+                generated_text=generated_text,
+                metadata={
+                    "model": self.model_name,
+                    "latency_seconds": end_time - start_time,
+                    "generation_type": "direct",
+                    "prompt_length": len(complete_prompt),
+                    "response_length": len(generated_text)
+                },
+                timestamp=end_time,
+                success=True
+            )
+            
+        except anthropic.RateLimitError as e:
+            raise RateLimitError(f"Anthropic rate limit exceeded: {e}")
+        except anthropic.APIError as e:
+            raise GenerationError(f"Anthropic API error: {e}")
+        except Exception as e:
+            logger.error(f"Direct generation failed: {e}")
+            raise GenerationError(f"Unexpected error during direct generation: {e}")
     
     def is_available(self) -> bool:
         """

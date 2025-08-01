@@ -162,6 +162,54 @@ class ModelAdapter(ABC):
             generation_config
         )
     
+    def generate_direct(
+        self, 
+        complete_prompt: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Generate content using a complete, pre-formatted prompt.
+        
+        This method is for cases where the prompt has already been fully formatted
+        (e.g., using Template.substitute()) and doesn't need further processing.
+        
+        Args:
+            complete_prompt: Complete, ready-to-use prompt text
+            generation_config: Generation parameters
+            
+        Returns:
+            GenerationResult containing the generated content
+            
+        Raises:
+            ModelError: If generation fails after all retries
+        """
+        return self._retry_on_service_unavailable(
+            self._generate_direct_impl,
+            complete_prompt,
+            generation_config
+        )
+    
+    @abstractmethod
+    def _generate_direct_impl(
+        self, 
+        complete_prompt: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Internal implementation of direct generation from complete prompt.
+        
+        This method should be implemented by each adapter and contains
+        the actual API call logic for pre-formatted prompts.
+        
+        Args:
+            complete_prompt: Complete, ready-to-use prompt text
+            generation_config: Generation parameters
+            
+        Returns:
+            GenerationResult containing the generated content
+        """
+        pass
+    
     @abstractmethod
     def is_available(self) -> bool:
         """

@@ -198,6 +198,96 @@ class OpenAIAdapter(ModelAdapter):
         except Exception as e:
             raise GenerationError(f"Unexpected error during generation: {e}")
     
+    def _generate_direct_impl(
+        self, 
+        complete_prompt: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Generate content using a complete, pre-formatted prompt.
+        
+        Args:
+            complete_prompt: Complete, ready-to-use prompt text
+            generation_config: Generation parameters
+            
+        Returns:
+            GenerationResult containing the generated content
+        """
+        # Use default config if not provided
+        if generation_config is None:
+            generation_config = GenerationConfig()
+        
+        # Prepare API call parameters - use complete_prompt directly
+        api_params = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "user", "content": complete_prompt}  # Use complete prompt as-is
+            ],
+            "max_tokens": generation_config.max_tokens,
+            "temperature": generation_config.temperature,
+            "stream": True  # Use streaming for better responsiveness
+        }
+        
+        # Add top_p if specified
+        if generation_config.top_p is not None:
+            api_params["top_p"] = generation_config.top_p
+        
+        try:
+            logger.info("Starting direct generation...")
+            start_time = time.time()
+            
+            # Make streaming API call
+            response = self.client.chat.completions.create(**api_params)
+            
+            # Collect streaming response
+            generated_text = ""
+            for chunk in response:
+                # Handle different chunk formats
+                if hasattr(chunk, 'choices') and chunk.choices:
+                    choice = chunk.choices[0]
+                    if hasattr(choice, 'delta') and hasattr(choice.delta, 'content'):
+                        if choice.delta.content is not None:
+                            generated_text += choice.delta.content
+            
+            end_time = time.time()
+            
+            if not generated_text:
+                raise GenerationError("Empty response from OpenAI streaming API")
+            
+            # Estimate token usage based on text length (rough approximation)
+            estimated_completion_tokens = len(generated_text) // 4
+            
+            # Prepare metadata
+            metadata = {
+                "model": self.model_name,
+                "usage": {
+                    "prompt_tokens": 0,  # Not available in streaming
+                    "completion_tokens": estimated_completion_tokens,
+                    "total_tokens": estimated_completion_tokens,
+                },
+                "latency_seconds": end_time - start_time,
+                "generation_type": "direct",
+                "prompt_length": len(complete_prompt),
+                "response_length": len(generated_text)
+            }
+            
+            logger.info(f"Direct generation completed in {end_time - start_time:.2f}s")
+            logger.info(f"Generated text length: {len(generated_text)} characters")
+            
+            return GenerationResult(
+                generated_text=generated_text,
+                metadata=metadata,
+                timestamp=end_time,
+                success=True
+            )
+            
+        except openai.RateLimitError as e:
+            raise RateLimitError(f"OpenAI rate limit exceeded: {e}")
+        except openai.APIError as e:
+            raise GenerationError(f"OpenAI API error: {e}")
+        except Exception as e:
+            raise GenerationError(f"Unexpected error during direct generation: {e}")
+    
     def is_available(self) -> bool:
         """
         Check if OpenAI adapter is available and properly configured.

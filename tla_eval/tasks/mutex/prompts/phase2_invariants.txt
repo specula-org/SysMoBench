@@ -1,47 +1,22 @@
-You are an expert in TLA+ specifications and formal verification of concurrent systems, particularly mutex synchronization primitives.
+You are a TLA+ expert. Analyze the following mutex TLA+ specification and generate meaningful invariants for model checking.
 
-Given the following TLA+ specification for mutex synchronization, generate appropriate invariants for model checking.
+## Input Specification:
 
-TLA+ Specification:
-{tla_spec}
+$tla_spec
 
-Generate invariants that verify the correctness of the mutex primitive, focusing on:
+## Requirements:
 
-1. **Safety Properties:**
-   - Mutual exclusion: At most one thread can hold the mutex at any time
-   - Lock state consistency: Mutex state is always valid (locked/unlocked)
-   - Owner consistency: If locked, exactly one thread owns the mutex
-   - Critical section safety: Only lock holder can be in critical section
+1. **Analyze the specification** to understand the mutex synchronization behavior and state variables
+2. **Check existing invariants** - DO NOT generate invariants with names that already exist in the specification
+3. **Generate 2-3 NEW key invariants** that capture important safety properties for mutex synchronization
+4. **Use proper TLA+ syntax** for each invariant definition (Name == Expression)
+5. **Focus on mutual exclusion and deadlock prevention properties not already covered**
+6. **Output ONLY the raw invariant definitions** - no explanations, no markdown, no code blocks, no quotes
 
-2. **Liveness Properties:**
-   - Deadlock freedom: The system cannot reach a deadlocked state
-   - Lock acquisition: Threads requesting the lock eventually acquire it
-   - Progress guarantee: The system continues to make progress
-   - Starvation freedom: No thread waits forever for the mutex
+## Expected Output Format:
 
-3. **Mutex-Specific Properties:**
-   - Exclusive access: Only one thread in critical section at a time
-   - Lock ownership: Thread that acquires lock is the only one that can release it
-   - Blocking semantics: Threads block when mutex is unavailable
-   - Fairness: Consider scheduling fairness and FIFO ordering if applicable
+MutexMutualExclusion == condition1
+OwnershipConsistency == condition2
+DeadlockFreedom == condition3
 
-4. **State Invariants:**
-   - Valid lock states: lockState \in {"UNLOCKED", "LOCKED"}
-   - Owner tracking: If locked, owner is a valid thread
-   - Waiting queue consistency: Blocked threads are properly queued
-   - Thread state consistency: Thread states are valid and consistent
-
-Output format requirements:
-1. Return a list of invariant expressions, one per line
-2. Each invariant should be a valid TLA+ boolean expression
-3. Use meaningful names that describe what the invariant checks
-4. Format: InvariantName == boolean_expression
-5. Do not include explanatory text, only the invariant definitions
-
-Example format:
-MutexMutualExclusion == \A t1, t2 \in Threads : (t1 # t2) => ~(InCriticalSection[t1] /\ InCriticalSection[t2])
-ValidMutexState == mutexState \in {"UNLOCKED", "LOCKED"}
-OwnershipConsistency == mutexState = "LOCKED" => owner \in Threads
-CriticalSectionSafety == \A t \in Threads : InCriticalSection[t] => OwnsLock[t]
-
-Generate the invariants now:
+**IMPORTANT: Your response must contain only valid TLA+ invariant definitions that do NOT already exist in the specification. Start immediately with the first NEW invariant definition and include nothing else. Do not wrap in quotes or code blocks.**

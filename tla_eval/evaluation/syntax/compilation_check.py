@@ -95,12 +95,22 @@ class CompilationCheckEvaluator(BaseEvaluator):
             
             # Validate using the saved file path
             validation_result = self.validator.validate_file(str(spec_file_path))
+            
+            # DEBUG: Print detailed validation info
+            logger.info(f"DEBUG: validation_result.success = {validation_result.success}")
+            logger.info(f"DEBUG: validation_result.errors count = {len(validation_result.errors)}")
+            logger.info(f"DEBUG: validation_result.output = {validation_result.output[:500]}...")
+            
             self._set_validation_result(eval_result, validation_result)
             
             if validation_result.success:
                 logger.info("✓ Specification compiled successfully")
             else:
-                logger.warning(f"✗ Compilation failed with {len(validation_result.errors)} errors")
+                error_count = len(validation_result.errors)
+                if error_count == 0:
+                    logger.warning(f"Compilation success BUT validation_result.success={validation_result.success}")
+                else:
+                    logger.warning(f"Compilation failed with {error_count} errors")
                 
         except Exception as e:
             logger.error(f"Validation error: {e}")

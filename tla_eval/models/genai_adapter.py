@@ -254,6 +254,95 @@ class GenAIAdapter(ModelAdapter):
                 logger.error(f"Full traceback: {traceback.format_exc()}")
                 raise GenerationError(f"GenAI API error: {e}")
     
+    def _generate_direct_impl(
+        self, 
+        complete_prompt: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Generate content using a complete, pre-formatted prompt.
+        
+        Args:
+            complete_prompt: Complete, ready-to-use prompt text
+            generation_config: Generation parameters
+            
+        Returns:
+            GenerationResult containing the generated content
+        """
+        # Use default config if not provided
+        if generation_config is None:
+            generation_config = GenerationConfig()
+        
+        # Prepare generation config
+        config_params = {
+            "temperature": generation_config.temperature,
+            "max_output_tokens": generation_config.max_tokens,
+        }
+        
+        # Add top_p if specified and supported
+        if generation_config.top_p is not None:
+            config_params["top_p"] = generation_config.top_p
+        
+        # Filter out None values
+        config_params = {k: v for k, v in config_params.items() if v is not None}
+        
+        try:
+            logger.info("Starting direct generation...")
+            start_time = time.time()
+            
+            # Create generation config
+            genai_config = genai.GenerationConfig(**config_params)
+            
+            # Generate content using complete prompt directly
+            response = self.model.generate_content(
+                complete_prompt,  # Use complete prompt as-is
+                generation_config=genai_config,
+                stream=False
+            )
+            
+            end_time = time.time()
+            
+            # Check if response is valid
+            if not response or not response.text:
+                raise GenerationError("Empty or invalid response from GenAI")
+            
+            generated_text = response.text.strip()
+            
+            # Prepare metadata
+            metadata = {
+                "model": self.model_name,
+                "latency_seconds": end_time - start_time,
+                "generation_type": "direct",
+                "prompt_length": len(complete_prompt),
+                "response_length": len(generated_text)
+            }
+            
+            # Add usage stats if available
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                metadata["usage"] = {
+                    "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                    "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                    "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0)
+                }
+            
+            logger.info(f"Direct generation completed in {end_time - start_time:.2f}s")
+            logger.info(f"Generated text length: {len(generated_text)} characters")
+            
+            return GenerationResult(
+                generated_text=generated_text,
+                metadata=metadata,
+                timestamp=end_time,
+                success=True
+            )
+            
+        except Exception as e:
+            logger.error(f"Direct generation failed: {e}")
+            # Handle authentication errors specifically
+            if "authentication" in str(e).lower() or "credentials" in str(e).lower():
+                raise ModelUnavailableError(f"GenAI authentication error: {e}")
+            else:
+                raise GenerationError(f"GenAI API error: {e}")
+    
     def is_available(self) -> bool:
         """
         Check if GenAI adapter is available and properly configured.

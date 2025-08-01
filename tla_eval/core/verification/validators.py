@@ -210,11 +210,14 @@ class TLAValidator:
         """
         try:
             # Run SANY with standard options
+            # Use absolute path and run from project root to avoid path issues
+            file_abs_path = Path(file_path).resolve()
+            
             cmd = [
                 "java",
                 "-cp", str(self.tla_tools_path),
                 "tla2sany.SANY",
-                file_path
+                str(file_abs_path)
             ]
             
             logger.debug(f"Running SANY validation: {' '.join(cmd)}")
@@ -224,20 +227,23 @@ class TLAValidator:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
-                cwd=Path(file_path).parent  # Run in file's directory
+                # Run from current working directory instead of file's parent
             )
             
             output = result.stdout + result.stderr
             
-            # SANY may return 0 even with semantic errors, so check output content
-            has_errors = (
-                result.returncode != 0 or
+            # Simple logic: if returncode is 0 and no explicit error indicators, it's successful
+            # SANY returns 0 for successful compilation and non-zero for failures
+            has_explicit_errors = (
                 "*** Errors:" in output or
                 "Fatal errors" in output or
                 "Semantic errors:" in output or
-                "Could not parse" in output
+                "Could not parse" in output or
+                "Error:" in output
             )
-            success = not has_errors
+            
+            # If returncode is 0 and no explicit error messages, consider it successful
+            success = result.returncode == 0 and not has_explicit_errors
             
             logger.debug(f"SANY validation result: success={success}, returncode={result.returncode}, output_length={len(output)}")
             

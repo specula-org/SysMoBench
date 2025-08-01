@@ -1,6 +1,6 @@
-# spin task configuration  
+# spin task configuration
 name: "spin"
-description: "Spinlock implementation for atomic synchronization in Asterinas OS"
+description: "Asterinas OS spinlock synchronization primitive"
 system_type: "concurrent"
 language: "rust"
 
@@ -12,7 +12,7 @@ repository:
 # Files to extract from the repository
 source_files:
   - path: "ostd/src/sync/spin.rs"
-    description: "Spinlock implementation with atomic operations and busy-waiting"
+    description: "Spinlock implementation with atomic operations"
 
 # Default file to use if not specified
 default_source_file: "ostd/src/sync/spin.rs"
@@ -25,13 +25,13 @@ metadata:
   original_project: "asterinas"
   complexity: "low"
   focus_areas:
-    - "spinlock"
+    - "spinlock synchronization"
     - "atomic operations"
     - "busy-waiting"
-    - "lock-free programming"
+    - "mutual exclusion"
   
 # Phase 3 specific configuration
 phase3:
   trace_generation: false
   patch_required: false
-  description: "Spinlock synchronization primitive correctness verification"
+  description: "Spinlock synchronization primitive verification"

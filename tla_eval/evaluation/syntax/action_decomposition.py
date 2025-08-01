@@ -111,10 +111,21 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             
             # Step 2: Create standalone TLA+ files for each action
             action_results = []
-            for action_name, action_content in actions.items():
-                logger.debug(f"Processing action: {action_name}")
+            successful_count = 0
+            
+            for i, (action_name, action_content) in enumerate(actions.items(), 1):
+                logger.info(f"Processing action {i}/{len(actions)}: {action_name}")
                 action_result = self._validate_action(action_name, action_content, spec_module or "ActionModule")
                 action_results.append(action_result)
+                
+                if action_result.validation_result.success:
+                    successful_count += 1
+                    logger.info(f"  ✓ Action '{action_name}' validated successfully")
+                else:
+                    error_count = len(action_result.validation_result.syntax_errors) + len(action_result.validation_result.semantic_errors)
+                    logger.warning(f"  ✗ Action '{action_name}' failed validation ({error_count} errors)")
+            
+            logger.info(f"Action validation progress: {successful_count}/{len(actions)} actions successful so far")
             
             # Step 3: Aggregate results
             self._aggregate_action_results(eval_result, action_results)

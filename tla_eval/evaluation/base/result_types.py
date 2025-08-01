@@ -261,9 +261,9 @@ class CompositeEvaluationResult(EvaluationResult):
         self.compilation_check_result: Optional[SyntaxEvaluationResult] = None
         self.invariant_verification_results: List[SemanticEvaluationResult] = []
         
-        # Summary statistics
-        self.total_iterations = 0
-        self.successful_iterations = 0
+        # Global correction tracking
+        self.total_corrections_attempted = 0
+        self.successful_corrections = 0
         
     def to_dict(self) -> Dict[str, Any]:
         result = {

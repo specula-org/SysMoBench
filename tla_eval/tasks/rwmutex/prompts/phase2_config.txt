@@ -1,70 +1,28 @@
-You are an expert in TLA+ model checking and TLC configuration for read-write mutex synchronization primitives.
+You are a TLA+ expert. Generate a complete TLC configuration file (.cfg) for the read-write mutex specification that can be directly saved and used for model checking.
 
-Given the following TLA+ specification for read-write mutex synchronization, generate an appropriate TLC configuration file.
+## Input Specification:
 
-TLA+ Specification:
-{tla_spec}
+$tla_spec
 
-Generated Invariants:
-{invariants}
+## Generated Invariants:
 
-Create a TLC configuration that:
+$invariants
 
-1. **Defines the specification:**
-   - Set the SPECIFICATION to the main temporal formula for read-write mutex behavior
-   - Configure appropriate INIT and Next conditions for reader and writer threads
+## Requirements:
 
-2. **Sets reasonable constants for RWMutex verification:**
-   - Limit the number of reader threads (e.g., 2-3 readers)
-   - Limit the number of writer threads (e.g., 1-2 writers)
-   - Define separate sets for readers and writers: Readers, Writers
-   - Set bounds for maximum concurrent readers
-   - Configure priority policies if applicable (reader-preference, writer-preference, fair)
+1. **Analyze the specification** to identify the main specification name and all declared constants
+2. **Generate complete .cfg file content** with SPECIFICATION, CONSTANTS, and INVARIANT sections
+3. **Use small values for constants** to ensure efficient model checking (2-3 readers, 1-2 writers, small integers)
+4. **Include ALL provided invariants** in the INVARIANT section
+5. **Output ONLY the raw .cfg file content** - no explanations, no markdown, no code blocks
 
-3. **Configures invariants:**
-   - Include all generated invariants for RWMutex verification
-   - Focus on reader-writer exclusion and counting properties
-   - Add liveness properties for reader and writer progress
+## Example Output Format:
 
-4. **Optimizes for RWMutex model checking:**
-   - Use symmetry on reader threads (writers may need individual treatment)
-   - Set action constraints to bound reader counts
-   - Configure view reductions for equivalent lock states
-   - Consider fairness conditions for both readers and writers
+SPECIFICATION SpecName
 
-5. **Handles RWMutex-specific concerns:**
-   - Model reader-writer contention scenarios
-   - Account for different priority policies
-   - Set up proper fairness to prevent reader/writer starvation
-   - Configure bounded reader counts to prevent state explosion
-   - Handle lock upgrade/downgrade scenarios if supported
-
-Example considerations:
-- CONSTANTS: Readers = {r1, r2}, Writers = {w1}, MaxReaders = 3
-- SYMMETRY: Readers (readers can be treated symmetrically)
-- ACTION-CONSTRAINT: readerCount <= MaxReaders
-- FAIRNESS: Both reader and writer operations should be fair
-
-Output the complete TLC configuration file content:
-
-SPECIFICATION RWMutexSpec
-
-\* Constants section - define finite sets and bounds
 CONSTANTS
-    Readers = {r1, r2}
-    Writers = {w1}
-    MaxReaders = 3
-    (* Add other RWMutex-specific constants *)
-
-\* Invariants section - properties to verify
+    ...
 INVARIANT
-    (* Include all generated invariants *)
+    ...
 
-\* Symmetry and optimization directives
-SYMMETRY Readers
-
-\* Additional TLC directives for RWMutex verification
-\* CONSTRAINT: readerCount <= MaxReaders
-\* PROPERTY: fairness properties for readers and writers
-
-Generate the complete .cfg file content now:
+**CRITICAL: Your response must contain exactly ONE complete .cfg file. Do not repeat any sections. Start your response immediately with "SPECIFICATION" and include nothing else. Each invariant name must be on its own line. Stop immediately after the last invariant name with no additional text.**

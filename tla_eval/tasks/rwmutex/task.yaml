@@ -1,6 +1,6 @@
 # rwmutex task configuration
 name: "rwmutex"
-description: "Read-write mutex implementation for concurrent read/exclusive write access in Asterinas OS"
+description: "Asterinas OS read-write mutex synchronization primitive"
 system_type: "concurrent"
 language: "rust"
 
@@ -25,13 +25,13 @@ metadata:
   original_project: "asterinas"
   complexity: "high"
   focus_areas:
-    - "read-write mutex"
+    - "read-write synchronization"
     - "multiple readers single writer"
     - "concurrent access control"
-    - "reader-writer problem"
+    - "reader-writer fairness"
   
 # Phase 3 specific configuration
 phase3:
   trace_generation: false
   patch_required: false
-  description: "Read-write mutex synchronization correctness verification"
+  description: "Read-write mutex synchronization primitive verification"

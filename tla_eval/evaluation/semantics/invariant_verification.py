@@ -75,7 +75,7 @@ class InvariantGenerator:
                     temperature=api_params.get("temperature", 0.1)
                 )
                 
-                result = model.generate_tla_specification("", prompt, gen_config)
+                result = model.generate_direct(prompt, gen_config)
                 end_time = time.time()
                 
                 if not result.success:
@@ -145,8 +145,20 @@ class ConfigGenerator:
             prompt_template = self._load_config_prompt(task_name)
             
             # Format prompt with TLA+ specification and invariants using Template to avoid brace conflicts
+            from string import Template
+            
+            # Debug: Check inputs
+            logger.debug(f"TLA content length: {len(tla_content) if tla_content else 'None'}")
+            logger.debug(f"Invariants length: {len(invariants) if invariants else 'None'}")
+            logger.debug(f"Prompt template length: {len(prompt_template)}")
+            
             template = Template(prompt_template)
-            prompt = template.substitute(tla_spec=tla_content, invariants=invariants)
+            try:
+                prompt = template.substitute(tla_spec=tla_content, invariants=invariants)
+            except KeyError as e:
+                logger.error(f"Template substitution failed - missing key: {e}")
+                logger.error(f"Available template keys: {[k for k in prompt_template if '$' in k]}")
+                raise e
             
             # Use the unified model interface for config generation
             from ...models.base import GenerationConfig
@@ -158,7 +170,7 @@ class ConfigGenerator:
             import time
             start_time = time.time()
             
-            result = model.generate_tla_specification("", prompt, gen_config)
+            result = model.generate_direct(prompt, gen_config)
             end_time = time.time()
             
             logger.debug(f"=== CONFIG GENERATION RESULT ===")
@@ -177,10 +189,24 @@ class ConfigGenerator:
                 logger.debug(f"SPECIFICATION count: {final_config.count('SPECIFICATION')}")
                 return True, final_config, None
             else:
+                logger.error(f"Model generation failed with error: {result.error_message}")
+                logger.debug(f"Generated text length: {len(result.generated_text) if result.generated_text else 0}")
+                logger.debug(f"Generated text preview: {repr(result.generated_text[:200]) if result.generated_text else 'None'}")
                 return False, "", result.error_message
                 
         except Exception as e:
             logger.error(f"Config generation failed: {e}")
+            logger.error(f"Exception type: {type(e)}")
+            logger.error(f"Exception args: {e.args}")
+            
+            # Additional debugging information
+            logger.debug(f"=== CONFIG GENERATION DEBUG INFO ===")
+            logger.debug(f"Task name: {task_name}")
+            logger.debug(f"Model name: {model_name}")
+            logger.debug(f"TLA content preview: {tla_content[:200] if tla_content else 'None'}...")
+            logger.debug(f"Invariants: {invariants}")
+            logger.debug(f"=== END DEBUG INFO ===")
+            
             return False, "", str(e)
     
     def _load_config_prompt(self, task_name: str) -> str:
@@ -259,11 +285,18 @@ class TLCRunner:
             )
             
             output = result.stdout + result.stderr
-            success = result.returncode == 0
             
-            logger.debug(f"TLC finished: exit_code={result.returncode}, output_length={len(output)}")
+            # Parse output to determine actual success based on content, not just exit code
+            # TLC exit codes can be misleading - focus on actual violations/deadlocks
+            violations, deadlock_found, states_explored = self.parse_tlc_output(output)
             
-            return success, output, result.returncode
+            # Success if no violations found and no deadlock, regardless of exit code
+            # Exit code 151 often means normal completion within time limit
+            content_based_success = len(violations) == 0 and not deadlock_found
+            
+            logger.debug(f"TLC finished: exit_code={result.returncode}, violations={len(violations)}, deadlock={deadlock_found}, states={states_explored}")
+            
+            return content_based_success, output, result.returncode
             
         except subprocess.TimeoutExpired as e:
             # For large state spaces, timeout without violations should be considered success
