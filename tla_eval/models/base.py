@@ -61,7 +61,7 @@ class ModelAdapter(ABC):
     
     def _retry_on_service_unavailable(self, func: Callable, *args, **kwargs):
         """
-        Retry wrapper for handling 503 Service Unavailable errors.
+        Retry wrapper for handling server errors (500, 503, etc.).
         
         Args:
             func: Function to retry
@@ -88,14 +88,30 @@ class ModelAdapter(ABC):
                 
             except Exception as e:
                 last_exception = e
+                error_str = str(e).lower()
                 
-                # Only retry on 503 Service Unavailable
-                if "503" in str(e) and attempt < max_retries:
-                    logger.warning(f"503 Service Unavailable (attempt {attempt + 1}/{max_retries + 1}). Retrying in {retry_delay}s...")
+                # Check for retryable server errors
+                is_retryable = (
+                    "500" in error_str or           # Internal Server Error
+                    "503" in error_str or           # Service Unavailable  
+                    "502" in error_str or           # Bad Gateway
+                    "504" in error_str or           # Gateway Timeout
+                    "internal" in error_str or      # Generic internal error
+                    "server error" in error_str or  # Generic server error
+                    "rate limit" in error_str or    # Rate limiting (temporary)
+                    "quota" in error_str            # Quota exceeded (may be temporary)
+                )
+                
+                if is_retryable and attempt < max_retries:
+                    error_code = "500/503" if any(code in error_str for code in ["500", "503"]) else "SERVER"
+                    logger.warning(f"{error_code} Server Error (attempt {attempt + 1}/{max_retries + 1}). Retrying in {retry_delay}s...")
+                    logger.debug(f"Error details: {e}")
                     time.sleep(retry_delay)
                     continue
                 else:
-                    # Any other error or max retries reached - stop immediately
+                    # Non-retryable error or max retries reached - stop immediately
+                    if attempt >= max_retries:
+                        logger.error(f"All {max_retries + 1} attempts failed. Last error: {e}")
                     break
         
         # All retries failed, raise the last exception

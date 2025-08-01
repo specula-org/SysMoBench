@@ -170,7 +170,7 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
         if eval_result.action_decomposition_result:
             action_result = eval_result.action_decomposition_result
             action_status = "✓ PASS" if action_result.overall_success else "✗ FAIL"
-            print(f"\n📝 Action Decomposition: {action_status}")
+            print(f"\nAction Decomposition: {action_status}")
             if hasattr(action_result, 'total_actions') and action_result.total_actions:
                 success_rate = getattr(action_result, 'action_success_rate', 0.0)
                 successful = getattr(action_result, 'successful_actions', 0)
@@ -181,7 +181,7 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
         if eval_result.compilation_check_result:
             comp_result = eval_result.compilation_check_result
             comp_status = "✓ PASS" if comp_result.overall_success else "✗ FAIL"
-            print(f"\n🔧 Compilation Check: {comp_status}")
+            print(f"\nCompilation Check: {comp_status}")
             if comp_result.syntax_errors or comp_result.semantic_errors:
                 error_count = len(comp_result.syntax_errors) + len(comp_result.semantic_errors)
                 print(f"   Errors: {error_count} total")
@@ -193,7 +193,7 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
             total_iterations = len(inv_results)
             
             inv_status = "✓ PASS" if successful_iterations > 0 else "✗ FAIL"
-            print(f"\n🔍 Invariant Verification: {inv_status}")
+            print(f"\nInvariant Verification: {inv_status}")
             print(f"   Iterations: {successful_iterations}/{total_iterations} successful")
             
             # Show details for each iteration
@@ -203,25 +203,79 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
                 if inv_result.invariant_violations:
                     print(f"      Violations: {len(inv_result.invariant_violations)}")
         else:
-            print(f"\n🔍 Invariant Verification: SKIPPED (compilation failed)")
+            print(f"\nInvariant Verification: SKIPPED (compilation failed)")
         
         # Show file locations
         if hasattr(eval_result, 'output_directory'):
             print(f"\nResults saved to: {eval_result.output_directory}")
         
-        # Show summary
-        print(f"\n📊 Summary:")
-        summary = eval_result.to_dict().get('summary', {})
-        if summary:
-            print(f"   Generation: {'✓' if summary.get('generation_successful') else '✗'}")
-            print(f"   Action Decomposition: {'✓' if summary.get('action_decomposition_successful') else '✗'}")
-            print(f"   Compilation: {'✓' if summary.get('compilation_successful') else '✗'}")
-            inv_iterations = summary.get('invariant_verification_iterations', 0)
-            inv_successful = summary.get('invariant_verification_successful_iterations', 0)
-            if inv_iterations > 0:
-                print(f"   Invariant Verification: {inv_successful}/{inv_iterations} iterations")
+        # Show detailed summary based on actual results
+        print(f"\nComposite Evaluation Summary:")
+        
+        # Generation summary
+        generation_data = eval_result.to_dict().get('generation', {})
+        generation_status = "PASS" if generation_data.get('successful', False) else "FAIL"
+        generation_time = generation_data.get('time_seconds', 0)
+        print(f"   Generation: {generation_status} ({generation_time:.1f}s)")
+        
+        # Action decomposition summary (single evaluation, no correction)
+        if hasattr(eval_result, 'action_decomposition_result') and eval_result.action_decomposition_result:
+            ad_result = eval_result.action_decomposition_result
+            ad_status = "PASS" if ad_result.overall_success else "FAIL"
+            
+            if hasattr(ad_result, 'successful_actions') and hasattr(ad_result, 'total_actions'):
+                actions_pass = ad_result.successful_actions
+                actions_total = ad_result.total_actions
+                print(f"   Action Decomposition: {ad_status} ({actions_pass}/{actions_total} actions)")
             else:
-                print(f"   Invariant Verification: SKIPPED")
+                print(f"   Action Decomposition: {ad_status}")
+        else:
+            print(f"   Action Decomposition: NOT RUN")
+        
+        # Compilation check summary (evaluation + potential correction)
+        if hasattr(eval_result, 'compilation_check_result') and eval_result.compilation_check_result:
+            cc_result = eval_result.compilation_check_result
+            cc_status = "PASS" if cc_result.overall_success else "FAIL"
+            
+            error_count = len(cc_result.syntax_errors) + len(cc_result.semantic_errors)
+            if error_count > 0:
+                print(f"   Compilation Check: {cc_status} ({error_count} errors)")
+            else:
+                print(f"   Compilation Check: {cc_status}")
+        else:
+            print(f"   Compilation Check: NOT RUN")
+        
+        # Invariant verification summary (conditional execution + potential correction)
+        if hasattr(eval_result, 'invariant_verification_results') and eval_result.invariant_verification_results:
+            # Get the final result (after potential corrections)
+            iv_result = eval_result.invariant_verification_results[-1]
+            iv_status = "PASS" if iv_result.overall_success else "FAIL"
+            
+            states = getattr(iv_result, 'states_explored', 0)
+            violations = len(getattr(iv_result, 'invariant_violations', []))
+            deadlock = getattr(iv_result, 'deadlock_found', False)
+            
+            status_details = []
+            if states > 0:
+                status_details.append(f"{states} states")
+            if violations > 0:
+                status_details.append(f"{violations} violations")
+            if deadlock:
+                status_details.append("deadlock")
+            
+            details_text = f" ({', '.join(status_details)})" if status_details else ""
+            print(f"   Invariant Verification: {iv_status}{details_text}")
+        else:
+            print(f"   Invariant Verification: SKIPPED")
+        
+        # Show correction summary if applicable
+        if hasattr(eval_result, 'total_corrections_attempted'):
+            print(f"   Global Corrections: {eval_result.successful_corrections}/{eval_result.total_corrections_attempted} successful")
+        
+        # Overall result
+        overall_status = "PASS" if eval_result.overall_success else "FAIL"
+        total_time = eval_result.to_dict().get('overall', {}).get('total_time_seconds', 0)
+        print(f"\n   Overall Result: {overall_status} (Total: {total_time:.1f}s)")
 
 
 def validate_prerequisites(phase: int = 1):
@@ -406,11 +460,11 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         consistency_config = evaluator.get_default_config() if hasattr(evaluator, 'get_default_config') else {}
                         evaluation_result = evaluator.evaluate(task_name, consistency_config)
                     elif metric_info.dimension == "composite":
-                        # Composite metrics need generation result and evaluate like syntax/semantics
-                        if not generation_result.success:
-                            return {"success": False, "error": "TLA+ generation failed"}
+                        # Composite metrics perform iterative evaluation and improvement
+                        # Pass task and method objects for potential specification fixing (future enhancement)
                         evaluation_result = evaluator.evaluate(
-                            generation_result, task_name, method_name, model_name, task.spec_module
+                            generation_result, task_name, method_name, model_name, task.spec_module,
+                            task=task, method=method
                         )
                     else:
                         raise ValueError(f"Unknown dimension: {metric_info.dimension}")

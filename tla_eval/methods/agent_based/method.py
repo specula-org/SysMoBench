@@ -74,33 +74,36 @@ class AgentBasedMethod(TLAGenerationMethod):
                     error_message=initial_result.error_message
                 )
             
-            # Step 2: Validation and correction loop
-            logger.info("Step 2: Starting validation and correction loop")
-            final_result = self._correction_loop(
-                task, initial_result.generated_text, model
-            )
+            # Step 2: Validation and correction loop - COMMENTED OUT for composite evaluator
+            # NOTE: Correction logic now handled by composite evaluator to avoid double-correction
+            # This change allows composite evaluator to have full control over the correction process
+            # logger.info("Step 2: Starting validation and correction loop")
+            # final_result = self._correction_loop(
+            #     task, initial_result.generated_text, model
+            # )
             
-            # Compile metadata
-            total_generation_time = initial_result.metadata.get('latency_seconds', 0) + \
-                                  final_result.get('total_correction_time', 0)
+            # Skip correction loop - return initial specification directly
+            logger.info("Step 2: Skipping internal correction loop (composite evaluator will handle corrections)")
+            
+            # Compile metadata (no correction metadata)
+            total_generation_time = initial_result.metadata.get('latency_seconds', 0)
             
             metadata = {
                 "model_info": model.get_model_info(),
                 "initial_generation_metadata": initial_result.metadata,
-                "correction_metadata": final_result,
                 "total_generation_time": total_generation_time,
-                "method_type": "agent_based_with_correction"
+                "method_type": "agent_based_no_internal_correction",
+                "internal_correction_skipped": True
             }
             
-            # Always return the final specification, even if correction failed
-            # This allows users to inspect the generated content and understand what went wrong
+            # Return initial specification without internal correction
             return GenerationOutput(
-                tla_specification=final_result['final_specification'],
+                tla_specification=initial_result.generated_text,
                 method_name=self.name,
                 task_name=task.task_name,
                 metadata=metadata,
-                success=True,  # Consider as success since we have a specification to evaluate
-                error_message=final_result.get('error_message')
+                success=True,
+                error_message=None
             )
             
         except Exception as e:
@@ -112,6 +115,65 @@ class AgentBasedMethod(TLAGenerationMethod):
                 metadata={},
                 success=False,
                 error_message=str(e)
+            )
+    
+    def _generate_correction(self, task, current_spec: str, all_errors: list, model_obj):
+        """
+        Generate correction for specification with errors (for composite evaluator).
+        
+        Args:
+            task: Generation task
+            current_spec: Current specification with errors
+            all_errors: List of all errors to fix
+            model_obj: Model object for correction
+        
+        Returns:
+            GenerationResult with corrected specification
+        """
+        try:
+            from ...core.verification.validators import ValidationResult
+            
+            # Convert error list to ValidationResult format
+            validation_result = ValidationResult(
+                success=False,
+                output="Errors found by composite evaluator",
+                syntax_errors=all_errors,
+                semantic_errors=[],
+                compilation_time=0.0
+            )
+            
+            # Use existing correction method
+            correction_result = self._attempt_correction(
+                task, current_spec, validation_result, model_obj, 1
+            )
+            
+            if correction_result['success']:
+                from ...models.base import GenerationResult
+                return GenerationResult(
+                    generated_text=correction_result['corrected_specification'],
+                    metadata=correction_result.get('correction_metadata', {}),
+                    timestamp=time.time(),
+                    success=True
+                )
+            else:
+                from ...models.base import GenerationResult
+                return GenerationResult(
+                    generated_text=current_spec,
+                    metadata={"correction_failed": True},
+                    timestamp=time.time(),
+                    success=False,
+                    error_message=correction_result.get('error', 'Correction failed')
+                )
+                
+        except Exception as e:
+            logger.error(f"_generate_correction failed: {e}")
+            from ...models.base import GenerationResult
+            return GenerationResult(
+                generated_text=current_spec,
+                metadata={"correction_error": str(e)},
+                timestamp=time.time(),
+                success=False,
+                error_message=f"Correction failed: {e}"
             )
     
     def _initial_generation(self, task: GenerationTask, model) -> Any:

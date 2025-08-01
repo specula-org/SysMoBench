@@ -829,10 +829,10 @@ class ActionDecompositionEvaluator(BaseEvaluator):
         # Legacy compatibility
         eval_result.compilation_errors = eval_result.syntax_errors + eval_result.semantic_errors
         
-        # Overall success requires generation, overall validation, and action decomposition success
+        # Overall success for action decomposition should only depend on individual action success
+        # NOT on overall compilation success, since the whole point is to test actions separately
         eval_result.overall_success = (
             eval_result.generation_successful and 
-            eval_result.compilation_successful and
             getattr(eval_result, 'action_success_rate', 0.0) > 0.0
         )
     
