@@ -456,7 +456,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
                         result.overall_success = False
                         
                         # Still save the specification for inspection
-                        module_name = spec_module or 'etcdraft'
+                        module_name = spec_module or task_name
                         spec_file_path = output_dir / f"{module_name}.tla"
                         with open(spec_file_path, 'w', encoding='utf-8') as f:
                             f.write(tla_content)
@@ -465,7 +465,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
                         return result
             
             # Save specification to output directory for reference
-            module_name = spec_module or 'etcdraft'
+            module_name = spec_module or task_name
             spec_file_path = output_dir / f"{module_name}.tla"
             with open(spec_file_path, 'w', encoding='utf-8') as f:
                 f.write(tla_content)
