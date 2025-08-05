@@ -77,7 +77,8 @@ class RaftCluster:
                       duration_seconds: int = 60,
                       client_qps: float = 10.0,
                       fault_rate: float = 0.1,
-                      output_file: str = None) -> Dict[str, Any]:
+                      output_file: str = None,
+                      filter_type: str = "coarse") -> Dict[str, Any]:
         """
         Generate a runtime trace by running the cluster for specified duration.
         
@@ -86,6 +87,7 @@ class RaftCluster:
             client_qps: Client operations per second
             fault_rate: Rate of fault injection (0.0 to 1.0)
             output_file: Path for trace output (auto-generated if None)
+            filter_type: Trace filter type ("coarse", "fine", "election", "logsync")
             
         Returns:
             Dictionary with generation results
@@ -101,6 +103,7 @@ class RaftCluster:
             "-duration", str(duration_seconds), 
             "-qps", str(client_qps),
             "-fault-rate", str(fault_rate),
+            "-filter", filter_type,
             "-output", output_file
         ]
         

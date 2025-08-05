@@ -50,10 +50,12 @@ class RandomEventDriver:
         
         # The actual work is done by the Go trace generator
         # This Python driver just coordinates the overall process
+        filter_type = self.config.get("filter_type", "coarse")
         result = self.cluster.generate_trace(
             duration_seconds=duration_seconds,
             client_qps=self.client_qps,
-            fault_rate=self.fault_rate
+            fault_rate=self.fault_rate,
+            filter_type=filter_type
         )
         
         if result["success"]:

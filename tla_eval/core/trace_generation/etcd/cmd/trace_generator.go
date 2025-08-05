@@ -20,12 +20,13 @@ import (
 
 // Configuration for trace generation
 type TraceConfig struct {
-	NodeCount      int     `json:"node_count"`
-	DurationSec    int     `json:"duration_seconds"`
-	ClientQPS      float64 `json:"client_qps"`
-	FaultRate      float64 `json:"fault_rate"`
-	OutputFile     string  `json:"output_file"`
-	RandomSeed     int64   `json:"random_seed"`
+	NodeCount   int     `json:"node_count"`
+	DurationSec int     `json:"duration_seconds"`
+	ClientQPS   float64 `json:"client_qps"`
+	FaultRate   float64 `json:"fault_rate"`
+	OutputFile  string  `json:"output_file"`
+	RandomSeed  int64   `json:"random_seed"`
+	FilterType  string  `json:"filter_type"` // "coarse", "fine", "election", "logsync"
 }
 
 // FileTraceLogger implements raft.TraceLogger to write events to NDJSON file
@@ -54,7 +55,7 @@ func (f *FileTraceLogger) TraceEvent(event *raft.TracingEvent) {
 		"name": event.Name,
 		"nid":  event.NodeID,
 		"state": map[string]interface{}{
-			"term":   event.State.Term,  // Keep as number, not string
+			"term":   event.State.Term, // Keep as number, not string
 			"vote":   event.State.Vote,
 			"commit": event.State.Commit,
 		},
@@ -69,9 +70,9 @@ func (f *FileTraceLogger) TraceEvent(event *raft.TracingEvent) {
 			"type":    event.Message.Type,
 			"from":    event.Message.From,
 			"to":      event.Message.To,
-			"term":    event.Message.Term,  // Keep as number
+			"term":    event.Message.Term, // Keep as number
 			"entries": event.Message.EntryLength,
-			"logTerm": event.Message.LogTerm,  // Keep as number
+			"logTerm": event.Message.LogTerm, // Keep as number
 			"index":   event.Message.Index,
 			"commit":  event.Message.Commit,
 			"vote":    event.Message.Vote,
@@ -131,15 +132,15 @@ func NewSimpleRaftNode(id uint64, peers []raft.Peer, traceLogger raft.TraceLogge
 
 	// Create raft config
 	config := &raft.Config{
-		ID:                        id,
-		ElectionTick:             10,
-		HeartbeatTick:            1,
-		Storage:                  storage,
-		MaxSizePerMsg:            4096,
-		MaxInflightMsgs:          256,
-		CheckQuorum:              true,
-		PreVote:                  true,
-		TraceLogger:              traceLogger,
+		ID:              id,
+		ElectionTick:    10,
+		HeartbeatTick:   1,
+		Storage:         storage,
+		MaxSizePerMsg:   4096,
+		MaxInflightMsgs: 256,
+		CheckQuorum:     true,
+		PreVote:         true,
+		TraceLogger:     traceLogger,
 	}
 
 	// Create raft node - StartNode will handle initial configuration
@@ -337,10 +338,26 @@ type TraceGenerator struct {
 }
 
 func NewTraceGenerator(config TraceConfig) (*TraceGenerator, error) {
-	// Initialize trace logger
-	traceLogger, err := NewFileTraceLogger(config.OutputFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create trace logger: %v", err)
+	// Initialize trace logger with filtering
+	var traceLogger raft.TraceLogger
+
+	if config.FilterType != "" && config.FilterType != "fine" {
+		// Use filtered logger
+		filter := GetFilter(config.FilterType)
+		filteredLogger, err := NewFilteredTraceLogger(config.OutputFile, filter)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create filtered trace logger: %v", err)
+		}
+		traceLogger = filteredLogger
+		log.Printf("Using %s trace filter", filter.Name())
+	} else {
+		// Use regular logger (fine-grained)
+		baseLogger, err := NewFileTraceLogger(config.OutputFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create trace logger: %v", err)
+		}
+		traceLogger = baseLogger
+		log.Printf("Using fine-grained trace logging")
 	}
 
 	// Initialize random generator
@@ -353,12 +370,21 @@ func NewTraceGenerator(config TraceConfig) (*TraceGenerator, error) {
 	rng := rand.New(rand.NewSource(seed))
 
 	// Create simple raft cluster
-	cluster := NewSimpleRaftCluster(config.NodeCount, traceLogger, seed)
+	// Convert traceLogger to *FileTraceLogger if needed
+	var fileLogger *FileTraceLogger
+	if fl, ok := traceLogger.(*FileTraceLogger); ok {
+		fileLogger = fl
+	} else if filteredLogger, ok := traceLogger.(*FilteredTraceLogger); ok {
+		fileLogger = filteredLogger.baseLogger
+	} else {
+		return nil, fmt.Errorf("unsupported trace logger type")
+	}
+	cluster := NewSimpleRaftCluster(config.NodeCount, fileLogger, seed)
 
 	return &TraceGenerator{
 		config:      config,
 		cluster:     cluster,
-		traceLogger: traceLogger,
+		traceLogger: nil, // Will be set based on filter type
 		rand:        rng,
 	}, nil
 }
@@ -421,9 +447,7 @@ func (tg *TraceGenerator) Close() error {
 	if tg.cluster != nil {
 		tg.cluster.Stop()
 	}
-	if tg.traceLogger != nil {
-		return tg.traceLogger.Close()
-	}
+	// Note: traceLogger is closed by the cluster
 	return nil
 }
 
@@ -436,6 +460,7 @@ func main() {
 		faultRate  = flag.Float64("fault-rate", 0.1, "Fault injection rate")
 		outputFile = flag.String("output", "", "Output trace file (required)")
 		seed       = flag.Int64("seed", 0, "Random seed (0 for current time)")
+		filterType = flag.String("filter", "coarse", "Trace filter type (coarse, fine, election, logsync)")
 	)
 	flag.Parse()
 
@@ -469,6 +494,7 @@ func main() {
 			FaultRate:   *faultRate,
 			OutputFile:  *outputFile,
 			RandomSeed:  *seed,
+			FilterType:  *filterType,
 		}
 	}
 
