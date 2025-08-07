@@ -1,10 +1,9 @@
 """
-Invariant Verification Evaluator: Semantic-level evaluation for TLA+ specifications.
+Runtime Check Evaluator: Semantic-level evaluation for TLA+ specifications.
 
-This evaluator implements semantic evaluation which includes:
-1. Invariant generation from TLA+ specifications
-2. TLC configuration file (.cfg) generation  
-3. TLC model checking execution and result analysis
+This evaluator implements runtime checking which includes:
+1. TLC configuration file (.cfg) generation from existing TLA+ specifications
+2. TLC model checking execution and result analysis using specification's own invariants
 """
 
 import os
@@ -25,98 +24,6 @@ from ..base.result_types import SemanticEvaluationResult
 
 logger = logging.getLogger(__name__)
 
-
-class InvariantGenerator:
-    """Generates invariants from TLA+ specifications using LLM"""
-    
-    def __init__(self):
-        self.name = "invariant_generator"
-    
-    def generate_invariants(self, tla_content: str, task_name: str, model_name: str) -> Tuple[bool, str, str]:
-        """
-        Generate invariants from TLA+ specification.
-        
-        Args:
-            tla_content: TLA+ specification content
-            task_name: Name of the task (for loading prompt)
-            model_name: Model to use for generation
-            
-        Returns:
-            Tuple of (success, generated_invariants, error_message)
-        """
-        try:
-            model = get_configured_model(model_name)
-            
-            # Load task-specific prompt for invariant generation
-            prompt_template = self._load_invariant_prompt(task_name)
-            
-            # Format prompt with TLA+ specification using Template to avoid brace conflicts
-            template = Template(prompt_template)
-            prompt = template.substitute(tla_spec=tla_content)
-            
-            # Generate invariants by calling the model directly (not source-to-TLA generation)
-            # We bypass generate_tla_specification to avoid double formatting
-            if hasattr(model, 'client'):
-                # For OpenAI-compatible models, call directly
-                api_params = {
-                    "model": model.model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 4096,
-                    "temperature": 0.1,
-                }
-                
-                import time
-                start_time = time.time()
-                
-                # Use the unified model interface instead of direct API calls
-                from ...models.base import GenerationConfig
-                gen_config = GenerationConfig(
-                    max_tokens=api_params.get("max_tokens", 4096),
-                    temperature=api_params.get("temperature", 0.1)
-                )
-                
-                result = model.generate_direct(prompt, gen_config)
-                end_time = time.time()
-                
-                if not result.success:
-                    raise Exception(f"Model generation failed: {result.error_message}")
-                
-                generated_text = result.generated_text
-                metadata = result.metadata.copy()
-                metadata.update({
-                    "latency_seconds": end_time - start_time,
-                })
-                
-                # Update the result with timing information
-                result.metadata.update(metadata)
-                result.timestamp = end_time
-            else:
-                # Fallback for other model types
-                result = model.generate_tla_specification("", prompt)
-            
-            if result.success:
-                return True, result.generated_text.strip(), None
-            else:
-                return False, "", result.error_message
-                
-        except Exception as e:
-            logger.error(f"Invariant generation failed: {e}")
-            return False, "", str(e)
-    
-    def _load_invariant_prompt(self, task_name: str) -> str:
-        """Load task-specific prompt for invariant generation"""
-        from ...tasks.loader import get_task_loader
-        task_loader = get_task_loader()
-        
-        # Get task directory path
-        tasks_dir = task_loader.tasks_dir
-        prompt_file = tasks_dir / task_name / "prompts" / "phase2_invariants.txt"
-        
-        if not prompt_file.exists():
-            raise FileNotFoundError(f"Phase 2 invariant prompt not found: {prompt_file}")
-        
-        with open(prompt_file, 'r', encoding='utf-8') as f:
-            return f.read()
 
 
 class ConfigGenerator:
@@ -363,25 +270,23 @@ class TLCRunner:
         return violations, deadlock_found, states_explored
 
 
-class InvariantVerificationEvaluator(BaseEvaluator):
+class RuntimeCheckEvaluator(BaseEvaluator):
     """
-    Invariant Verification Evaluator: Semantic evaluation for TLA+ specifications.
+    Runtime Check Evaluator: Semantic evaluation for TLA+ specifications.
     
     This evaluator takes TLA+ specifications and performs:
-    1. Invariant generation
-    2. TLC configuration generation  
-    3. Model checking with TLC
+    1. TLC configuration generation from existing specifications
+    2. Model checking with TLC using specification's own invariants
     """
     
     def __init__(self, tlc_timeout: int = 60):
         """
-        Initialize invariant verification evaluator.
+        Initialize runtime check evaluator.
         
         Args:
             tlc_timeout: Timeout for TLC execution in seconds
         """
         super().__init__(timeout=tlc_timeout)
-        self.invariant_generator = InvariantGenerator()
         self.config_generator = ConfigGenerator()
         self.tlc_runner = TLCRunner(timeout=tlc_timeout)
     
@@ -404,12 +309,12 @@ class InvariantVerificationEvaluator(BaseEvaluator):
         Returns:
             SemanticEvaluationResult with model checking results
         """
-        logger.info(f"Semantic evaluation: {task_name}/{method_name}/{model_name}")
+        logger.info(f"Runtime check evaluation: {task_name}/{method_name}/{model_name}")
         
         # Create structured output directory
         output_manager = get_output_manager()
         output_dir = output_manager.create_experiment_dir(
-            metric="invariant_verification",
+            metric="runtime_check",
             task=task_name,
             method=method_name,
             model=model_name
@@ -572,7 +477,7 @@ class InvariantVerificationEvaluator(BaseEvaluator):
                 "task_name": task_name,
                 "method_name": method_name,
                 "model_name": model_name,
-                "metric": "invariant_verification",
+                "metric": "runtime_check",
                 "specification_file": result.specification_file,
                 "config_file_path": result.config_file_path,
                 "tlc_timeout": self.timeout,
@@ -625,18 +530,18 @@ class InvariantVerificationEvaluator(BaseEvaluator):
     
     def _get_evaluation_type(self) -> str:
         """Return the evaluation type identifier"""
-        return "semantic_invariant_verification"
+        return "semantic_runtime_check"
 
 
 # Convenience function for backward compatibility
-def create_invariant_verification_evaluator(tlc_timeout: int = 60) -> InvariantVerificationEvaluator:
+def create_runtime_check_evaluator(tlc_timeout: int = 60) -> RuntimeCheckEvaluator:
     """
-    Factory function to create an invariant verification evaluator.
+    Factory function to create a runtime check evaluator.
     
     Args:
         tlc_timeout: Timeout for TLC execution in seconds
         
     Returns:
-        InvariantVerificationEvaluator instance
+        RuntimeCheckEvaluator instance
     """
-    return InvariantVerificationEvaluator(tlc_timeout=tlc_timeout)
+    return RuntimeCheckEvaluator(tlc_timeout=tlc_timeout)

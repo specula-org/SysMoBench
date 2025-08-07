@@ -39,7 +39,7 @@ class OutputManager:
         Create experiment directory with timestamp-based structure.
         
         Args:
-            metric: Metric name (e.g., "compilation_check", "invariant_verification")
+            metric: Metric name (e.g., "compilation_check", "runtime_check")
             task: Task name (e.g., "etcd", "raft")
             method: Method name (e.g., "agent_based", "direct_call")
             model: Model name (e.g., "my_claude", "my_yunwu")

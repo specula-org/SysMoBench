@@ -67,7 +67,7 @@ class MetricRegistry:
         # Import evaluator classes (avoiding circular imports)
         from ..syntax.compilation_check import CompilationCheckEvaluator
         from ..syntax.action_decomposition import ActionDecompositionEvaluator
-        from ..semantics.invariant_verification import InvariantVerificationEvaluator
+        from ..semantics.runtime_check import RuntimeCheckEvaluator
         from ..consistency.trace_validation import TraceValidationEvaluator
         from ..composite.composite_evaluation import CompositeEvaluator
         
@@ -96,10 +96,10 @@ class MetricRegistry:
         
         # Semantics dimension metrics
         self.register_metric(MetricInfo(
-            name="invariant_verification",
+            name="runtime_check",
             dimension="semantics",
-            description="Model checking with TLC using generated invariants",
-            evaluator_class=InvariantVerificationEvaluator
+            description="Model checking with TLC using specification's own invariants",
+            evaluator_class=RuntimeCheckEvaluator
         ))
         
         # Future semantics metrics (placeholders)
@@ -129,7 +129,7 @@ class MetricRegistry:
         self.register_metric(MetricInfo(
             name="composite",
             dimension="composite",
-            description="Integrated evaluation combining action decomposition, compilation check, and invariant verification",
+            description="Integrated evaluation combining action decomposition, compilation check, and runtime check",
             evaluator_class=CompositeEvaluator,
             default_params={"invariant_iterations": 3}
         ))

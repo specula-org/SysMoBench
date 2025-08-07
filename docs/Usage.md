@@ -69,7 +69,7 @@ export OPENAI_API_KEY="your-key"
 python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --evaluation-type semantics
 
 # Or specify the metric explicitly
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric invariant_verification
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric runtime_check
 ```
 
 ### Consistency Evaluation: Trace Validation

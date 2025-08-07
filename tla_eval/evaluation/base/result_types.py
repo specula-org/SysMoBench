@@ -259,7 +259,7 @@ class CompositeEvaluationResult(EvaluationResult):
         # Sub-evaluation results
         self.action_decomposition_result: Optional[SyntaxEvaluationResult] = None
         self.compilation_check_result: Optional[SyntaxEvaluationResult] = None
-        self.invariant_verification_results: List[SemanticEvaluationResult] = []
+        self.runtime_check_results: List[SemanticEvaluationResult] = []
         
         # Global correction tracking
         self.total_corrections_attempted = 0
@@ -291,12 +291,12 @@ class CompositeEvaluationResult(EvaluationResult):
         if self.compilation_check_result:
             result["compilation_check"] = self.compilation_check_result.to_dict()
         
-        # Add invariant verification results
-        if self.invariant_verification_results:
-            result["invariant_verification"] = {
-                "total_iterations": len(self.invariant_verification_results),
-                "successful_iterations": sum(1 for r in self.invariant_verification_results if r.overall_success),
-                "iterations": [r.to_dict() for r in self.invariant_verification_results]
+        # Add runtime check results
+        if self.runtime_check_results:
+            result["runtime_check"] = {
+                "total_iterations": len(self.runtime_check_results),
+                "successful_iterations": sum(1 for r in self.runtime_check_results if r.overall_success),
+                "iterations": [r.to_dict() for r in self.runtime_check_results]
             }
         
         return result
@@ -311,7 +311,7 @@ class CompositeEvaluationResult(EvaluationResult):
         if self.compilation_check_result:
             total += self.compilation_check_result.compilation_time
         
-        for inv_result in self.invariant_verification_results:
+        for inv_result in self.runtime_check_results:
             total += (inv_result.invariant_generation_time + 
                      inv_result.config_generation_time + 
                      inv_result.model_checking_time)

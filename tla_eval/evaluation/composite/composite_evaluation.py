@@ -5,7 +5,7 @@ This evaluator implements a comprehensive evaluation pipeline that:
 1. Generates TLA+ specification once using agent-based method
 2. Performs action decomposition evaluation
 3. Performs compilation check evaluation 
-4. If compilation succeeds, performs invariant verification (3 iterations)
+4. If compilation succeeds, performs runtime check (3 iterations)
 5. Aggregates all results into a unified composite result
 """
 
@@ -19,7 +19,7 @@ from ..base.evaluator import BaseEvaluator
 from ..base.result_types import CompositeEvaluationResult
 from ..syntax.action_decomposition import ActionDecompositionEvaluator
 from ..syntax.compilation_check import CompilationCheckEvaluator
-from ..semantics.invariant_verification import InvariantVerificationEvaluator
+from ..semantics.runtime_check import RuntimeCheckEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class CompositeEvaluator(BaseEvaluator):
         self.compilation_evaluator = CompilationCheckEvaluator(
             validation_timeout=validation_timeout
         )
-        self.invariant_evaluator = InvariantVerificationEvaluator(
+        self.runtime_check_evaluator = RuntimeCheckEvaluator(
             tlc_timeout=validation_timeout
         )
     
@@ -292,10 +292,10 @@ class CompositeEvaluator(BaseEvaluator):
                 
                 try:
                     # Evaluate current specification
-                    inv_result = self.invariant_evaluator.evaluate(
+                    inv_result = self.runtime_check_evaluator.evaluate(
                         current_generation_result, task_name, method_name, model_name, spec_module
                     )
-                    composite_result.invariant_verification_results.append(inv_result)
+                    composite_result.runtime_check_results.append(inv_result)
                     
                     success_status = "✓ PASS" if inv_result.overall_success else "✗ FAIL"
                     logger.info(f"Invariant verification result: {success_status}")
@@ -345,10 +345,10 @@ class CompositeEvaluator(BaseEvaluator):
                                         logger.info(f"✓ Specification corrected (attempt {global_correction_attempts})")
                                         
                                         # Re-evaluate with corrected spec
-                                        inv_result = self.invariant_evaluator.evaluate(
+                                        inv_result = self.runtime_check_evaluator.evaluate(
                                             current_generation_result, task_name, method_name, model_name, spec_module
                                         )
-                                        composite_result.invariant_verification_results[-1] = inv_result
+                                        composite_result.runtime_check_results[-1] = inv_result
                                         
                                         if inv_result.overall_success:
                                             invariant_success_round = global_correction_attempts
@@ -373,7 +373,7 @@ class CompositeEvaluator(BaseEvaluator):
                     inv_result = SemanticEvaluationResult(task_name, method_name, model_name)
                     inv_result.overall_success = False
                     inv_result.error_message = str(e)
-                    composite_result.invariant_verification_results.append(inv_result)
+                    composite_result.runtime_check_results.append(inv_result)
             else:
                 logger.info(f"Step 3/3: Skipping invariant verification (prerequisites not met: action={action_passed}, compilation={compilation_passed})")
                 
@@ -481,8 +481,8 @@ class CompositeEvaluator(BaseEvaluator):
         syntax_success = action_success or compilation_success
         
         # Check invariant verification if it ran
-        if composite_result.invariant_verification_results:
-            inv_success = any(r.overall_success for r in composite_result.invariant_verification_results)
+        if composite_result.runtime_check_results:
+            inv_success = any(r.overall_success for r in composite_result.runtime_check_results)
             return syntax_success and inv_success
         
         return syntax_success
@@ -512,9 +512,9 @@ class CompositeEvaluator(BaseEvaluator):
                 composite_result.compilation_check_result.overall_success 
                 if composite_result.compilation_check_result else False
             ),
-            "invariant_verification_iterations": len(composite_result.invariant_verification_results),
-            "invariant_verification_successful_iterations": sum(
-                1 for r in composite_result.invariant_verification_results if r.overall_success
+            "runtime_check_iterations": len(composite_result.runtime_check_results),
+            "runtime_check_successful_iterations": sum(
+                1 for r in composite_result.runtime_check_results if r.overall_success
             ),
             "overall_successful": composite_result.overall_success
         }
@@ -548,7 +548,7 @@ class CompositeEvaluator(BaseEvaluator):
         # Count total evaluations performed
         total_evaluations = 1  # Action decomposition
         total_evaluations += 1  # Compilation check
-        if composite_result.invariant_verification_results:
+        if composite_result.runtime_check_results:
             total_evaluations += 1  # Invariant verification (if executed)
         
         # Count successful evaluations
@@ -557,8 +557,8 @@ class CompositeEvaluator(BaseEvaluator):
             successful_evaluations += 1
         if composite_result.compilation_check_result and composite_result.compilation_check_result.overall_success:
             successful_evaluations += 1
-        if composite_result.invariant_verification_results:
-            if any(r.overall_success for r in composite_result.invariant_verification_results):
+        if composite_result.runtime_check_results:
+            if any(r.overall_success for r in composite_result.runtime_check_results):
                 successful_evaluations += 1
         
         logger.info(f"Composite evaluation summary: {successful_evaluations}/{total_evaluations} phases successful")

@@ -47,7 +47,7 @@ from tla_eval.utils.repository_manager import setup_task_repository
 # Import evaluators and metric registry
 from tla_eval.evaluation import (
     CompilationCheckEvaluator, 
-    InvariantVerificationEvaluator, 
+    RuntimeCheckEvaluator, 
     TraceValidationEvaluator
 )
 from tla_eval.evaluation.base import (
@@ -187,8 +187,8 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
                 print(f"   Errors: {error_count} total")
         
         # Show invariant verification results
-        if eval_result.invariant_verification_results:
-            inv_results = eval_result.invariant_verification_results
+        if eval_result.runtime_check_results:
+            inv_results = eval_result.runtime_check_results
             successful_iterations = sum(1 for r in inv_results if r.overall_success)
             total_iterations = len(inv_results)
             
@@ -246,9 +246,9 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
             print(f"   Compilation Check: NOT RUN")
         
         # Invariant verification summary (conditional execution + potential correction)
-        if hasattr(eval_result, 'invariant_verification_results') and eval_result.invariant_verification_results:
+        if hasattr(eval_result, 'runtime_check_results') and eval_result.runtime_check_results:
             # Get the final result (after potential corrections)
-            iv_result = eval_result.invariant_verification_results[-1]
+            iv_result = eval_result.runtime_check_results[-1]
             iv_status = "PASS" if iv_result.overall_success else "FAIL"
             
             states = getattr(iv_result, 'states_explored', 0)
@@ -336,7 +336,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         # Use default metric for each dimension
         default_metrics = {
             "syntax": "compilation_check",
-            "semantics": "invariant_verification", 
+            "semantics": "runtime_check", 
             "consistency": "trace_validation"
         }
         metric = default_metrics.get(evaluation_type)
@@ -422,17 +422,17 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             )
             logger.info(f"Compilation check: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
-        elif metric == "invariant_verification":
+        elif metric == "runtime_check":
             # Semantics evaluation: Model checking with TLC
             # Use the generated specification from generation_result
             if not generation_result.success:
-                logger.error("Cannot perform invariant verification: TLA+ generation failed")
+                logger.error("Cannot perform runtime check: TLA+ generation failed")
                 return {"success": False, "error": "TLA+ generation failed"}
             
             evaluation_result = evaluator.evaluate(
                 generation_result, task_name, method_name, model_name, task.spec_module
             )
-            logger.info(f"Invariant verification: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
+            logger.info(f"Runtime check: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
         elif metric == "trace_validation":
             # Consistency evaluation: Trace generation and validation
@@ -554,7 +554,7 @@ def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
         evaluator = CompilationCheckEvaluator()
         evaluator.save_results(results, str(results_file), include_specifications=True)
     elif evaluation_type == "semantics" and results:
-        evaluator = InvariantVerificationEvaluator()
+        evaluator = RuntimeCheckEvaluator()
         evaluator.save_results(results, str(results_file))
     elif evaluation_type == "consistency" and results:
         evaluator = TraceValidationEvaluator()
@@ -591,7 +591,7 @@ Examples:
   python3 scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu
   
   # Specify specific metric
-  python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric invariant_verification
+  python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric runtime_check
   
   # Use metric-specific parameters
   python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric pass_at_k --k 5

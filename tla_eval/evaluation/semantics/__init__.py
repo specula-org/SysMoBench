@@ -5,6 +5,6 @@ This module contains evaluators for checking the semantic correctness
 and model checking capabilities of generated TLA+ specifications.
 """
 
-from .invariant_verification import InvariantVerificationEvaluator
+from .runtime_check import RuntimeCheckEvaluator
 
-__all__ = ['InvariantVerificationEvaluator']
+__all__ = ['RuntimeCheckEvaluator']
