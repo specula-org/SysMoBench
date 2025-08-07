@@ -11,12 +11,28 @@ Source Code from {file_path}:
 ```
 
 etcd-specific modeling requirements:
-1. Model the key-value store state and operations (Put, Get, Delete)
-2. Capture the Raft consensus protocol for leader election and log replication
-3. Handle client request processing and response generation
-4. Model network partitions and node failures
-5. Ensure linearizability and consistency guarantees
-6. Include proper invariants for distributed consensus
+
+MANDATORY CORE ACTIONS (must include all):
+1. 【Message Types】MsgHup (election timeout), MsgVote/MsgVoteResp (voting), MsgApp/MsgAppResp (log replication)  
+2. 【Node States】Four states: StateFollower, StateCandidate, StateLeader, StatePreCandidate (prevote enabled)
+3. 【Leader Election】Complete prevote + vote phases: PreCandidate → Candidate → Leader transitions
+4. 【Log Operations】Log entry appending, consistency checks, commitment with majority quorum
+5. 【Heartbeat/Timeout】Election timeouts triggering campaigns, heartbeat prevention of elections
+6. 【Client Proposals】MsgProp message handling and log entry creation by leaders
+
+EXPLICITLY EXCLUDED (do not model):
+- Configuration changes and joint consensus (ConfChange messages)  
+- Log compaction and snapshots (MsgSnap)
+- ReadIndex optimizations (MsgReadIndex) 
+- Async storage operations (LocalAppendThread, LocalApplyThread)
+- Advanced flow control and progress tracking details
+
+REQUIRED BEHAVIORAL SCOPE:
+- Prevote phase (StatePreCandidate) must be modeled as it's enabled by default in etcd
+- Message routing and processing in different node states
+- Term advancement and voting restrictions (one vote per term)
+- Majority-based leader election and log commitment
+- Basic network message delays and losses
 
 Generate a TLA+ specification that accurately models etcd's distributed behavior.
 

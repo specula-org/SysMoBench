@@ -11,13 +11,29 @@ Source Code from {file_path}:
 ```
 
 Spinlock modeling requirements:
-1. Model the atomic test-and-set or compare-and-swap operations
-2. Capture busy-waiting behavior and CPU spinning
-3. Handle atomic state transitions (unlocked ↔ locked)
-4. Model thread contention and acquisition ordering
-5. Ensure mutual exclusion safety property
-6. Include lock-freedom and starvation considerations
-7. Model memory ordering and atomic semantics
+
+MANDATORY CORE ACTIONS (must include all):
+1. 【Lock/Unlock Operations】lock(), try_lock(), unlock() methods with proper semantics
+2. 【Atomic CAS】compare_exchange operation on AtomicBool (false→true acquire, store false release)
+3. 【Busy-Wait Loop】spin_loop() hint during contention, continuous polling until acquisition  
+4. 【Guard Lifecycle】SpinLockGuard creation on lock(), automatic unlock on Drop
+5. 【Thread Interleaving】Multiple threads competing for same lock with different orderings
+6. 【Memory Ordering】Acquire ordering for lock acquisition, Release ordering for unlock
+
+EXPLICITLY EXCLUDED (do not model):
+- PreemptDisabled vs LocalIrqDisabled guard behaviors (G type parameter)
+- Arc-based locking (lock_arc method)
+- UnsafeCell implementation details
+- get_mut() zero-cost access
+- Debug formatting and trait implementations  
+- RAII guard type variations (lifetime management complexities)
+
+REQUIRED BEHAVIORAL SCOPE:
+- Simple AtomicBool state: false (unlocked) ↔ true (locked)  
+- Basic fairness under fair thread scheduling (no permanent starvation)
+- Critical section mutual exclusion enforcement
+- Compare-and-exchange retry loop for contention handling
+- Thread can acquire lock multiple times only if it releases between acquisitions
 
 Generate a TLA+ specification that accurately models the spinlock's concurrent behavior.
 
