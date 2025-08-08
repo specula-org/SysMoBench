@@ -68,6 +68,7 @@ class MetricRegistry:
         from ..syntax.compilation_check import CompilationCheckEvaluator
         from ..syntax.action_decomposition import ActionDecompositionEvaluator
         from ..semantics.runtime_check import RuntimeCheckEvaluator
+        from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
         from ..consistency.trace_validation import TraceValidationEvaluator
         from ..composite.composite_evaluation import CompositeEvaluator
         
@@ -100,6 +101,13 @@ class MetricRegistry:
             dimension="semantics",
             description="Model checking with TLC using specification's own invariants",
             evaluator_class=RuntimeCheckEvaluator
+        ))
+        
+        self.register_metric(MetricInfo(
+            name="invariant_verification",
+            dimension="semantics", 
+            description="Phase 3: Testing with expert-written invariants translated to the specification",
+            evaluator_class=ManualInvariantEvaluator
         ))
         
         # Future semantics metrics (placeholders)

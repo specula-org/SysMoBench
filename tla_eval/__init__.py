@@ -14,7 +14,8 @@ from .config import get_configured_model
 from .core.verification.validators import *
 from .evaluation import (
     CompilationCheckEvaluator, 
-    RuntimeCheckEvaluator, 
+    RuntimeCheckEvaluator,
+    ManualInvariantEvaluator, 
     TraceValidationEvaluator
 )
 
@@ -22,6 +23,7 @@ __all__ = [
     "ModelAdapter", 
     "get_configured_model",
     "CompilationCheckEvaluator",
-    "RuntimeCheckEvaluator", 
+    "RuntimeCheckEvaluator",
+    "ManualInvariantEvaluator", 
     "TraceValidationEvaluator"
 ]

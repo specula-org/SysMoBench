@@ -1,0 +1,50 @@
+You are a TLA+ expert specializing in concurrent systems and synchronization primitives. Your task is to implement a set of expert-written invariants for the given spinlock TLA+ specification.
+
+## Target Specification
+
+{tla_specification}
+
+## Invariants to Implement
+
+{invariant_templates}
+
+## Implementation Requirements
+
+1. **Analyze the specification** to understand the actual variable names, data structures, and constants used
+2. **For each invariant**, adapt the generic template to use the specification's actual:
+   - Variable names (e.g., `lockState` → actual lock variable)
+   - Thread representations (e.g., `Threads` → actual thread set)
+   - State values (e.g., `InCriticalSection` → actual state constant)
+   - Atomic operations and program counters
+
+3. **Generate complete TLA+ invariant definitions** using proper syntax:
+   - Each invariant must be a complete definition: `InvariantName == <expression>`
+   - Use the specification's actual variable names and structures
+   - Ensure all referenced variables and constants exist in the specification
+   - Maintain the semantic meaning of the original invariant
+
+4. **Handle concurrency-specific adaptations**:
+   - If using atomic boolean: adapt to `atomicLock = TRUE/FALSE`
+   - If using thread states: match actual state values (`"waiting"`, `"critical"`, etc.)
+   - If using program counters: use actual PC labels from the specification
+   - If using ownership tracking: adapt to the spec's ownership representation
+
+5. **Output format**: Return only the TLA+ invariant definitions, one per line, no explanations or markdown
+
+6. **EXACT naming requirement**: You MUST use the exact invariant names specified in the templates above. Do not create your own names.
+
+## Example Output Format
+
+```
+MutualExclusion == Cardinality({t \in ThreadSet : pc[t] = "cs"}) <= 1
+LockConsistency == (lock = TRUE) <=> (\E t \in ThreadSet : owner[t])
+DeadlockFreedom == \A t \in ThreadSet : (pc[t] = "waiting") => (lock = TRUE)
+```
+
+**CRITICAL**: 
+- Use ONLY variables, constants, and operators that exist in the provided specification
+- Use EXACTLY the invariant names from the templates (MutualExclusion, LockConsistency, DeadlockFreedom, AtomicityProperty, EventualAcquisition)
+- Do not add explanatory text or comments
+- Each invariant must be syntactically correct TLA+
+- If you cannot implement an invariant due to missing variables, skip it but still use the exact template name for implemented ones
+- Start your response immediately with the first invariant definition

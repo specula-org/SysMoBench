@@ -11,6 +11,7 @@ This package contains different dimensions of evaluation:
 from .syntax.compilation_check import CompilationCheckEvaluator
 from .syntax.action_decomposition import ActionDecompositionEvaluator
 from .semantics.runtime_check import RuntimeCheckEvaluator
+from .semantics.manual_invariant_evaluator import ManualInvariantEvaluator
 from .consistency.trace_validation import TraceValidationEvaluator
 from .composite.composite_evaluation import CompositeEvaluator
 
@@ -31,7 +32,8 @@ __all__ = [
     # New structured evaluators
     "CompilationCheckEvaluator",
     "ActionDecompositionEvaluator",
-    "RuntimeCheckEvaluator", 
+    "RuntimeCheckEvaluator",
+    "ManualInvariantEvaluator", 
     "TraceValidationEvaluator",
     "CompositeEvaluator",
     

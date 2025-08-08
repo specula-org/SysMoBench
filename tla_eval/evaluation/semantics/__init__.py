@@ -6,5 +6,6 @@ and model checking capabilities of generated TLA+ specifications.
 """
 
 from .runtime_check import RuntimeCheckEvaluator
+from .manual_invariant_evaluator import ManualInvariantEvaluator
 
-__all__ = ['RuntimeCheckEvaluator']
+__all__ = ['RuntimeCheckEvaluator', 'ManualInvariantEvaluator']

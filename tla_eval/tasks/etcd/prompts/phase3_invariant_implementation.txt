@@ -1,0 +1,45 @@
+You are a TLA+ expert specializing in distributed systems and Raft consensus. Your task is to implement a set of expert-written invariants for the given etcd TLA+ specification.
+
+## Target Specification
+
+{tla_specification}
+
+## Invariants to Implement
+
+{invariant_templates}
+
+## Implementation Requirements
+
+1. **Analyze the specification** to understand the actual variable names, data structures, and constants used
+2. **For each invariant**, adapt the generic template to use the specification's actual:
+   - Variable names (e.g., `serverState` → actual state variable)
+   - Data structures (e.g., `log[n]` → actual log representation)  
+   - Constants (e.g., `Leader` → actual leader constant)
+   - Sets and domains (e.g., `Nodes` → actual node set)
+
+3. **Generate complete TLA+ invariant definitions** using proper syntax:
+   - Each invariant must be a complete definition: `InvariantName == <expression>`
+   - Use the specification's actual variable names and structures
+   - Ensure all referenced variables and constants exist in the specification
+   - Maintain the semantic meaning of the original invariant
+
+4. **Handle data structure adaptations**:
+   - If logs are sequences: use `Len(log[n])`, `log[n][i]`
+   - If logs are functions: use `DOMAIN log[n]`, `log[n][index]`
+   - If states are records: use field access syntax like `state[n].role`
+   - If states are simple values: use direct comparison
+
+5. **Output format**: Return only the TLA+ invariant definitions, one per line, no explanations or markdown
+
+## Example Output Format
+
+```
+LeaderUniqueness == \A term \in 1..MaxTerm : Cardinality({n \in Servers : state[n].role = "leader" /\ state[n].currentTerm = term}) <= 1
+LogConsistency == \A n1, n2 \in Servers : \A i \in DOMAIN log[n1] : (i \in DOMAIN log[n2] /\ log[n1][i].term = log[n2][i].term) => (\A j \in 1..i : log[n1][j] = log[n2][j])
+```
+
+**CRITICAL**: 
+- Use ONLY variables, constants, and operators that exist in the provided specification
+- Do not add explanatory text or comments
+- Each invariant must be syntactically correct TLA+
+- Start your response immediately with the first invariant definition

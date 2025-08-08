@@ -47,7 +47,8 @@ from tla_eval.utils.repository_manager import setup_task_repository
 # Import evaluators and metric registry
 from tla_eval.evaluation import (
     CompilationCheckEvaluator, 
-    RuntimeCheckEvaluator, 
+    RuntimeCheckEvaluator,
+    ManualInvariantEvaluator, 
     TraceValidationEvaluator
 )
 from tla_eval.evaluation.base import (

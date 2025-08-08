@@ -1,0 +1,169 @@
+# High-Quality Invariants for Spinlock Systems
+# These are expert-written invariants that capture critical safety and liveness properties
+# of spinlock-based concurrent synchronization primitives.
+
+description: "Safety and liveness invariants for spinlock concurrency control"
+expert_verified: true
+difficulty: "medium"
+
+invariants:
+  # SAFETY PROPERTIES
+  - name: "MutualExclusion"
+    type: "safety"
+    natural_language: "At most one thread can hold the lock at any given time"
+    
+    formal_description: |
+      The fundamental safety property of any mutual exclusion primitive:
+      no two threads can be in their critical section simultaneously.
+    
+    tla_example: |
+      MutualExclusion ==
+        Cardinality({t \in Threads : threadState[t] = InCriticalSection}) <= 1
+    
+    adaptation_guidance:
+      variables_needed:
+        - "Thread states or critical section tracking"
+        - "Set of all threads"
+      
+      adaptation_notes: |
+        - Replace 'Threads', 'threadState' with actual variable names
+        - Adapt InCriticalSection to match the spec's state representation
+        - May use lock ownership tracking instead of thread states
+      
+    priority: "critical"
+    
+  - name: "LockConsistency" 
+    type: "safety"
+    natural_language: "The lock state is consistent with thread ownership - if lock is held, exactly one thread owns it"
+    
+    formal_description: |
+      Lock state consistency: the atomic boolean lock state must be consistent
+      with which thread (if any) currently owns the lock.
+    
+    tla_example: |
+      LockConsistency ==
+        /\ (lockState = TRUE) => (\E t \in Threads : owner[t] = TRUE)
+        /\ (lockState = FALSE) => (\A t \in Threads : owner[t] = FALSE)
+        /\ Cardinality({t \in Threads : owner[t] = TRUE}) <= 1
+    
+    adaptation_guidance:
+      variables_needed:
+        - "Lock state (boolean or equivalent)"
+        - "Thread ownership tracking"
+        - "Set of all threads"
+      
+      adaptation_notes: |
+        - Replace 'lockState' with actual lock variable name
+        - Adapt ownership tracking to match the spec's representation
+        - Handle different lock state representations (AtomicBool, integers, etc.)
+        
+    priority: "critical"
+
+  - name: "DeadlockFreedom"
+    type: "safety"
+    natural_language: "No deadlock can occur - the system can always make progress"
+    
+    formal_description: |
+      Deadlock freedom for spinlocks: if threads are waiting for the lock,
+      eventually the lock holder will release it, preventing permanent blocking.
+    
+    tla_example: |
+      DeadlockFreedom ==
+        \A t \in Threads :
+          (threadState[t] = Waiting) => (lockState = TRUE)
+    
+    adaptation_guidance:
+      variables_needed:
+        - "Thread waiting states"
+        - "Lock state" 
+        - "Set of all threads"
+        
+      adaptation_notes: |
+        - Adapt Waiting state to match the spec's thread state representation
+        - May need to model spinning/busy-waiting behavior
+        - Consider how thread scheduling is represented
+        
+    priority: "critical"
+
+  - name: "AtomicityProperty"
+    type: "safety"
+    natural_language: "Lock acquisition and release operations are atomic - no intermediate states are visible"
+    
+    formal_description: |
+      The compare-and-swap or test-and-set operations used for lock acquisition
+      must be atomic, with no observable intermediate states.
+    
+    tla_example: |
+      AtomicityProperty ==
+        \A t \in Threads :
+          /\ (pc[t] = "acquiring") => (lockState \in {TRUE, FALSE})
+          /\ (pc[t] = "releasing") => (owner[t] = TRUE)
+    
+    adaptation_guidance:
+      variables_needed:
+        - "Program counter or operation state for threads"
+        - "Lock state"
+        - "Thread ownership tracking"
+        
+      adaptation_notes: |
+        - Replace 'pc' with actual program counter/state variable
+        - Adapt operation names to match the spec's action names
+        - May need to model specific atomic operations (CAS, TAS)
+        
+    priority: "high"
+    
+  # LIVENESS PROPERTIES  
+  - name: "EventualAcquisition"
+    type: "liveness"
+    natural_language: "A thread attempting to acquire the lock will eventually succeed under fair scheduling"
+    
+    formal_description: |
+      Under fair scheduling assumptions, any thread that attempts to acquire
+      the lock will eventually succeed, ensuring the system makes progress.
+    
+    tla_example: |
+      EventualAcquisition ==
+        \A t \in Threads :
+          (threadState[t] = Waiting) ~> (threadState[t] = InCriticalSection)
+    
+    adaptation_guidance:
+      variables_needed:
+        - "Thread states (waiting, in critical section)"
+        - "Set of all threads"
+        - "Fairness assumptions"
+        
+      adaptation_notes: |
+        - Use ~> (leads-to) temporal operator
+        - May need to add fairness constraints for thread scheduling
+        - Adapt state names to match the spec's representation
+        - Consider starvation prevention mechanisms
+        
+    priority: "high"
+
+metadata:
+  total_invariants: 5
+  safety_invariants: 4
+  liveness_invariants: 1
+  critical_invariants: 3
+  
+  verification_notes: |
+    These invariants capture the essential properties of spinlock-based mutual exclusion.
+    Safety properties ensure correctness, while liveness properties ensure progress
+    under reasonable scheduling assumptions.
+    
+  implementation_strategy: |
+    1. Focus on safety properties first (mutual exclusion, consistency)
+    2. Adapt atomic operation representations to match the generated specification
+    3. Consider thread interleaving and scheduling in the model
+    4. Use bounded model checking with sufficient thread count (3-5 threads)
+    
+  common_adaptations:
+    variable_naming:
+      - "lockState vs lock vs atomicBool"
+      - "threadState vs state vs status"
+      - "owner vs holder vs currentThread"
+    
+    data_structures:
+      - "Boolean vs integer lock representations"
+      - "Thread sets vs arrays vs individual variables"
+      - "Program counter vs explicit state machines"

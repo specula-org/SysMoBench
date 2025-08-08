@@ -291,13 +291,13 @@ class GenAIAdapter(ModelAdapter):
             start_time = time.time()
             
             # Create generation config
-            genai_config = genai.GenerationConfig(**config_params)
+            genai_config = types.GenerateContentConfig(**config_params)
             
             # Generate content using complete prompt directly
-            response = self.model.generate_content(
-                complete_prompt,  # Use complete prompt as-is
-                generation_config=genai_config,
-                stream=False
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=complete_prompt,
+                config=genai_config
             )
             
             end_time = time.time()
