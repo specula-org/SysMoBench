@@ -2,11 +2,11 @@ You are a TLA+ expert specializing in concurrent systems and synchronization pri
 
 ## Target Specification
 
-{tla_specification}
+$tla_specification
 
 ## Invariants to Implement
 
-{invariant_templates}
+$invariant_templates
 
 ## Implementation Requirements
 
