@@ -37,9 +37,6 @@ class InvariantTemplate:
     natural_language: str
     formal_description: str
     tla_example: str
-    variables_needed: List[str]
-    adaptation_notes: str
-    priority: str
 
 
 @dataclass  
@@ -85,10 +82,7 @@ class InvariantTemplateLoader:
                 type=inv_data['type'],
                 natural_language=inv_data['natural_language'],
                 formal_description=inv_data['formal_description'],
-                tla_example=inv_data['tla_example'],
-                variables_needed=inv_data['adaptation_guidance']['variables_needed'],
-                adaptation_notes=inv_data['adaptation_guidance']['adaptation_notes'],
-                priority=inv_data['priority']
+                tla_example=inv_data['tla_example']
             )
             templates.append(template)
         
@@ -184,16 +178,12 @@ class InvariantTranslator:
 ### {template.name} ({template.type.upper()})
 **Description**: {template.natural_language}
 
-**Generic TLA+ Example**:
+**Formal**: {template.formal_description}
+
+**TLA+ Example**:
 ```
 {template.tla_example.strip()}
 ```
-
-**Variables Needed**: {', '.join(template.variables_needed)}
-
-**Adaptation Notes**: {template.adaptation_notes.strip()}
-
-**Priority**: {template.priority}
 """
             formatted_templates.append(formatted)
         
@@ -205,7 +195,50 @@ class InvariantTranslator:
         """Parse the generated text to extract individual invariant definitions"""
         translated_invariants = {}
         
-        # Split generated text into lines
+        try:
+            # Try to parse as JSON first
+            import json
+            
+            # Clean the text: remove markdown code blocks if present
+            clean_text = generated_text.strip()
+            if clean_text.startswith('```json'):
+                # Remove ```json from start and ``` from end
+                lines = clean_text.split('\n')
+                if lines[0].strip() == '```json' and lines[-1].strip() == '```':
+                    clean_text = '\n'.join(lines[1:-1])
+            elif clean_text.startswith('```'):
+                # Remove generic ``` blocks
+                lines = clean_text.split('\n')
+                if lines[0].strip() == '```' and lines[-1].strip() == '```':
+                    clean_text = '\n'.join(lines[1:-1])
+            
+            data = json.loads(clean_text)
+            
+            # Expect format: {"invariants": ["Name == Expression", ...]}
+            if isinstance(data, dict) and "invariants" in data:
+                invariant_list = data["invariants"]
+                if isinstance(invariant_list, list):
+                    logger.info("Parsing JSON format invariants")
+                    
+                    for invariant_definition in invariant_list:
+                        if isinstance(invariant_definition, str) and ' == ' in invariant_definition:
+                            parts = invariant_definition.split(' == ', 1)
+                            if len(parts) == 2:
+                                invariant_name = parts[0].strip()
+                                
+                                # Match to template names (case-insensitive)
+                                for template in templates:
+                                    if template.name.lower() == invariant_name.lower():
+                                        translated_invariants[template.name] = invariant_definition
+                                        logger.debug(f"Parsed JSON invariant: {template.name}")
+                                        break
+                    
+                    return translated_invariants
+            
+        except json.JSONDecodeError:
+            logger.info("JSON parsing failed, falling back to line-based parsing")
+        
+        # Fallback to original line-based parsing for backward compatibility
         lines = generated_text.strip().split('\n')
         
         for line in lines:
@@ -224,7 +257,7 @@ class InvariantTranslator:
                     for template in templates:
                         if template.name.lower() == invariant_name.lower():
                             translated_invariants[template.name] = invariant_definition
-                            logger.debug(f"Parsed invariant: {template.name}")
+                            logger.debug(f"Parsed line-based invariant: {template.name}")
                             break
         
         return translated_invariants
@@ -337,7 +370,8 @@ class ManualInvariantEvaluator(BaseEvaluator):
                 
                 invariant_test_result = self._test_single_invariant(
                     template, translated_invariants[template.name],
-                    generation_result.generated_text, output_dir, spec_module or task_name
+                    generation_result.generated_text, output_dir, spec_module or task_name,
+                    task_name, model_name
                 )
                 invariant_results.append(invariant_test_result)
             
@@ -388,7 +422,9 @@ class ManualInvariantEvaluator(BaseEvaluator):
                               translated_invariant: str, 
                               tla_content: str,
                               output_dir: Path,
-                              spec_module: str) -> InvariantTestResult:
+                              spec_module: str,
+                              task_name: str,
+                              model_name: str) -> InvariantTestResult:
         """Test a single invariant using TLC"""
         
         logger.debug(f"Testing invariant: {template.name}")
@@ -467,8 +503,9 @@ class ManualInvariantEvaluator(BaseEvaluator):
         invariant_inserted = False
         
         for i, line in enumerate(lines):
-            if line.strip() == '====' and i == len(lines) - 1:
-                # Insert invariant before final ====
+            # Check if this is the final separator line (could be ==== or longer ========...)  
+            if line.strip().startswith('====') and i == len(lines) - 1:
+                # Insert invariant before final separator
                 if not invariant_inserted:
                     result_lines.append('')
                     result_lines.append(f'\\* Manual invariant: {invariant_name}')

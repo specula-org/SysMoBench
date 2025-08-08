@@ -29,22 +29,31 @@ You are a TLA+ expert specializing in concurrent systems and synchronization pri
    - If using program counters: use actual PC labels from the specification
    - If using ownership tracking: adapt to the spec's ownership representation
 
-5. **Output format**: Return only the TLA+ invariant definitions, one per line, no explanations or markdown
+5. **Output format**: Return a JSON object containing an array of complete TLA+ invariant definitions
 
 6. **EXACT naming requirement**: You MUST use the exact invariant names specified in the templates above. Do not create your own names.
 
 ## Example Output Format
 
-```
-MutualExclusion == Cardinality({t \in ThreadSet : pc[t] = "cs"}) <= 1
-LockConsistency == (lock = TRUE) <=> (\E t \in ThreadSet : owner[t])
-DeadlockFreedom == \A t \in ThreadSet : (pc[t] = "waiting") => (lock = TRUE)
+```json
+{
+  "invariants": [
+    "MutualExclusion == Cardinality({t \\in Threads : pc[t] = \"cs\"}) <= 1",
+    "LockConsistency == (lock_state = TRUE) <=> (\\E t \\in Threads : pc[t] = \"cs\")",
+    "EventualAcquisition == 
+    \\A t \\in Threads : 
+        (pc[t] = \"locking\") ~> (pc[t] = \"cs\")"
+  ]
+}
 ```
 
 **CRITICAL**: 
 - Use ONLY variables, constants, and operators that exist in the provided specification
 - Use EXACTLY the invariant names from the templates (MutualExclusion, LockConsistency, DeadlockFreedom, AtomicityProperty, EventualAcquisition)
-- Do not add explanatory text or comments
-- Each invariant must be syntactically correct TLA+
-- If you cannot implement an invariant due to missing variables, skip it but still use the exact template name for implemented ones
-- Start your response immediately with the first invariant definition
+- Return ONLY valid JSON, no explanatory text before or after
+- Each array element must be a complete TLA+ invariant definition: "InvariantName == <expression>"
+- For complex invariants, you may use multiline format within the JSON string (use actual line breaks)
+- For simple invariants, single line format is preferred
+- If you cannot implement an invariant due to missing variables, omit it from the array
+- Properly escape backslashes in JSON strings (use \\ for TLA+ \)
+- Start your response immediately with the opening brace {
