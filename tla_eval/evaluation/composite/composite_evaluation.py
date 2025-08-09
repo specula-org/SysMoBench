@@ -20,6 +20,7 @@ from ..base.result_types import CompositeEvaluationResult
 from ..syntax.action_decomposition import ActionDecompositionEvaluator
 from ..syntax.compilation_check import CompilationCheckEvaluator
 from ..semantics.runtime_check import RuntimeCheckEvaluator
+from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,8 @@ class CompositeEvaluator(BaseEvaluator):
     def __init__(self, 
                  validation_timeout: int = 30,
                  invariant_iterations: int = 3,
-                 keep_temp_files: bool = False):
+                 keep_temp_files: bool = False,
+                 max_correction_attempts: int = 3):
         """
         Initialize composite evaluator.
         
@@ -45,10 +47,12 @@ class CompositeEvaluator(BaseEvaluator):
             validation_timeout: Timeout for TLA+ validation in seconds
             invariant_iterations: Number of invariant verification iterations
             keep_temp_files: Whether to keep temporary files for debugging
+            max_correction_attempts: Maximum number of global correction attempts
         """
         super().__init__(timeout=validation_timeout)
         self.invariant_iterations = invariant_iterations
         self.keep_temp_files = keep_temp_files
+        self.max_correction_attempts = max_correction_attempts
         
         # Initialize sub-evaluators
         self.action_evaluator = ActionDecompositionEvaluator(
@@ -59,6 +63,9 @@ class CompositeEvaluator(BaseEvaluator):
             validation_timeout=validation_timeout
         )
         self.runtime_check_evaluator = RuntimeCheckEvaluator(
+            tlc_timeout=validation_timeout
+        )
+        self.manual_invariant_evaluator = ManualInvariantEvaluator(
             tlc_timeout=validation_timeout
         )
     
@@ -116,7 +123,7 @@ class CompositeEvaluator(BaseEvaluator):
         
         # Global correction counter (shared across all phases)
         global_correction_attempts = 0
-        max_global_corrections = 3
+        max_global_corrections = self.max_correction_attempts
         
         # Track results for each iteration
         action_results_history = []
@@ -376,6 +383,36 @@ class CompositeEvaluator(BaseEvaluator):
                     composite_result.runtime_check_results.append(inv_result)
             else:
                 logger.info(f"Step 3/3: Skipping invariant verification (prerequisites not met: action={action_passed}, compilation={compilation_passed})")
+            
+            # Step 4: Manual Invariant Verification - Only if all previous phases passed
+            action_passed = composite_result.action_decomposition_result.overall_success
+            compilation_passed = composite_result.compilation_check_result.overall_success
+            runtime_passed = any(r.overall_success for r in composite_result.runtime_check_results)
+            
+            if action_passed and compilation_passed and runtime_passed:
+                logger.info(f"Step 4/4: Manual invariant verification (all previous phases passed)")
+                
+                try:
+                    # Evaluate current specification with manual invariants
+                    manual_inv_result = self.manual_invariant_evaluator.evaluate(
+                        current_generation_result, task_name, method_name, model_name, spec_module
+                    )
+                    composite_result.manual_invariant_result = manual_inv_result
+                    
+                    success_status = "✓ PASS" if manual_inv_result.overall_success else "✗ FAIL"
+                    total_invariants = manual_inv_result.custom_data.get('total_invariants', 0) if manual_inv_result.custom_data else 0
+                    passed_invariants = manual_inv_result.custom_data.get('passed_invariants', 0) if manual_inv_result.custom_data else 0
+                    logger.info(f"Manual invariant verification: {success_status} ({passed_invariants}/{total_invariants} invariants passed)")
+                    
+                except Exception as e:
+                    logger.error(f"Manual invariant verification failed: {e}")
+                    from ..base.result_types import SemanticEvaluationResult
+                    manual_inv_result = SemanticEvaluationResult(task_name, method_name, model_name)
+                    manual_inv_result.overall_success = False
+                    manual_inv_result.error_message = str(e)
+                    composite_result.manual_invariant_result = manual_inv_result
+            else:
+                logger.info(f"Step 4/4: Skipping manual invariant verification (prerequisites not met: action={action_passed}, compilation={compilation_passed}, runtime={runtime_passed})")
                 
             # Update the final specification in the composite result
             composite_result.generated_specification = current_spec
@@ -383,7 +420,7 @@ class CompositeEvaluator(BaseEvaluator):
             logger.info(f"Global correction attempts used: {global_correction_attempts}/{max_global_corrections}")
             
             # Print detailed summary report
-            self._print_evaluation_summary(action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts)
+            self._print_evaluation_summary(action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts, composite_result)
             
             # Calculate overall generation statistics across all iterations
             self._calculate_composite_generation_stats(composite_result)
@@ -408,7 +445,7 @@ class CompositeEvaluator(BaseEvaluator):
         
         return composite_result
     
-    def _print_evaluation_summary(self, action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts):
+    def _print_evaluation_summary(self, action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts, composite_result):
         """Print detailed evaluation summary with results from all rounds."""
         logger.info("=" * 60)
         logger.info("COMPOSITE EVALUATION DETAILED SUMMARY")
@@ -449,6 +486,18 @@ class CompositeEvaluator(BaseEvaluator):
         else:
             logger.info(f"  ✗ FAILED or SKIPPED")
         
+        # Manual Invariant Verification Results
+        logger.info("Manual Invariant Verification Results:")
+        if composite_result.manual_invariant_result:
+            if composite_result.manual_invariant_result.overall_success:
+                total_invariants = composite_result.manual_invariant_result.custom_data.get('total_invariants', 0) if composite_result.manual_invariant_result.custom_data else 0
+                passed_invariants = composite_result.manual_invariant_result.custom_data.get('passed_invariants', 0) if composite_result.manual_invariant_result.custom_data else 0
+                logger.info(f"  ✓ SUCCESS: {passed_invariants}/{total_invariants} expert invariants passed")
+            else:
+                logger.info(f"  ✗ FAILED: Expert invariant verification failed")
+        else:
+            logger.info(f"  ⚠ SKIPPED: Prerequisites not met")
+        
         logger.info("=" * 60)
     
     def _set_generation_result(self, composite_result: CompositeEvaluationResult, generation_result: GenerationResult):
@@ -483,6 +532,12 @@ class CompositeEvaluator(BaseEvaluator):
         # Check invariant verification if it ran
         if composite_result.runtime_check_results:
             inv_success = any(r.overall_success for r in composite_result.runtime_check_results)
+            
+            # If manual invariant also ran, consider it in success calculation
+            if composite_result.manual_invariant_result:
+                manual_inv_success = composite_result.manual_invariant_result.overall_success
+                return syntax_success and inv_success and manual_inv_success
+            
             return syntax_success and inv_success
         
         return syntax_success

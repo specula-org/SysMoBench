@@ -137,9 +137,9 @@ class MetricRegistry:
         self.register_metric(MetricInfo(
             name="composite",
             dimension="composite",
-            description="Integrated evaluation combining action decomposition, compilation check, and runtime check",
+            description="Integrated evaluation combining action decomposition, compilation check, runtime check, and manual invariant verification",
             evaluator_class=CompositeEvaluator,
-            default_params={"invariant_iterations": 3}
+            default_params={"invariant_iterations": 3, "max_correction_attempts": 3}
         ))
         
         # Future consistency metrics (placeholders)
