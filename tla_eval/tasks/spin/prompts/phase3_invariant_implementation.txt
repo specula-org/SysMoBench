@@ -10,24 +10,27 @@ $invariant_templates
 
 ## Implementation Requirements
 
-1. **Analyze the specification** to understand the actual variable names, data structures, and constants used
-2. **For each invariant**, adapt the generic template to use the specification's actual:
-   - Variable names (e.g., `lockState` → actual lock variable)
-   - Thread representations (e.g., `Threads` → actual thread set)
-   - State values (e.g., `InCriticalSection` → actual state constant)
-   - Atomic operations and program counters
+1. **Deep Analysis**: First, thoroughly understand both the invariant template's semantic intent and the specification's modeling approach:
+   - What safety/liveness property does each template aim to verify?
+   - How does the specification represent states, operations, and concurrency?
+   - What are the semantic equivalents between template concepts and specification implementation?
 
-3. **Generate complete TLA+ invariant definitions** using proper syntax:
-   - Each invariant must be a complete definition: `InvariantName == <expression>`
-   - Use the specification's actual variable names and structures
-   - Ensure all referenced variables and constants exist in the specification
-   - Maintain the semantic meaning of the original invariant
+2. **Semantic Mapping**: For each invariant, identify the conceptual mapping between template and specification:
+   - Template `"acquiring"` state → Specification's lock acquisition states (e.g., `"req_lock"`, `"spinning"`)
+   - Template `"releasing"` state → Specification's lock release states  
+   - Template ownership variables → Specification's ownership representation (explicit variables or implicit via state)
+   - Template thread sets → Specification's thread/process constants
 
-4. **Handle concurrency-specific adaptations**:
-   - If using atomic boolean: adapt to `atomicLock = TRUE/FALSE`
-   - If using thread states: match actual state values (`"waiting"`, `"critical"`, etc.)
-   - If using program counters: use actual PC labels from the specification
-   - If using ownership tracking: adapt to the spec's ownership representation
+3. **Creative Adaptation**: Translate the invariant while preserving its core semantic meaning:
+   - **DO NOT** simply replace variable names - understand the underlying logic
+   - **DO** redesign the predicate logic to fit the specification's modeling granularity
+   - **DO** use equivalent semantic concepts even if names/structures differ
+   - **PRESERVE** the original safety/liveness intent without weakening the property
+
+4. **Constraint Compliance**:
+   - Use ONLY variables, constants, and operators that exist in the specification
+   - Generate complete, syntactically valid TLA+ invariant definitions
+   - Maintain the exact invariant names from templates
 
 5. **Output format**: Return a JSON object containing an array of complete TLA+ invariant definitions
 
@@ -47,13 +50,16 @@ $invariant_templates
 }
 ```
 
-**CRITICAL**: 
+**CRITICAL REQUIREMENTS**: 
+- **SEMANTIC PRESERVATION**: Each translated invariant MUST verify the same safety/liveness property as the original template
+- **CREATIVE ADAPTATION**: Do NOT simply omit invariants - find creative ways to express the same property using available specification elements
+- **COMPLETENESS**: Aim to translate ALL invariants by understanding their semantic intent, not just their syntactic form
 - Use ONLY variables, constants, and operators that exist in the provided specification
 - Use EXACTLY the invariant names from the templates (MutualExclusion, LockConsistency, DeadlockFreedom, AtomicityProperty, EventualAcquisition)
 - Return ONLY valid JSON, no explanatory text before or after
 - Each array element must be a complete TLA+ invariant definition: "InvariantName == <expression>"
 - For complex invariants, you may use multiline format within the JSON string (use actual line breaks)
 - For simple invariants, single line format is preferred
-- If you cannot implement an invariant due to missing variables, omit it from the array
+- **LAST RESORT**: Only omit an invariant if its core concept is fundamentally incompatible with the specification's design
 - Properly escape backslashes in JSON strings (use \\ for TLA+ \)
 - Start your response immediately with the opening brace {

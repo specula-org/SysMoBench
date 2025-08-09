@@ -1,21 +1,10 @@
-# High-Quality Invariants for etcd/Raft Systems
-# These are expert-written invariants that capture critical safety and liveness properties
-# of distributed consensus systems based on the Raft algorithm.
-
-description: "Safety and liveness invariants for Raft consensus protocol in etcd systems"
-expert_verified: true
-difficulty: "high"
+# Simplified Invariants for etcd/Raft Systems
 
 invariants:
-  # SAFETY PROPERTIES
   - name: "LeaderUniqueness"
     type: "safety"
     natural_language: "At most one leader can exist in any given term across all nodes in the cluster"
-    
-    formal_description: |
-      For any given term T, there can be at most one node in the cluster that considers 
-      itself the leader for that term. This is fundamental to the safety of Raft.
-    
+    formal_description: "For any given term T, there can be at most one node in the cluster that considers itself the leader for that term. This is fundamental to the safety of Raft."
     tla_example: |
       LeaderUniqueness == 
         \A term \in Terms :
@@ -23,27 +12,10 @@ invariants:
             /\ serverState[n] = Leader
             /\ currentTerm[n] = term}) <= 1
     
-    adaptation_guidance:
-      variables_needed:
-        - "Node states (follower/candidate/leader)"
-        - "Current term for each node" 
-        - "Set of all nodes"
-      
-      adaptation_notes: |
-        - Replace 'Terms', 'Nodes', 'serverState', 'currentTerm' with actual variable names
-        - Ensure Leader/Follower/Candidate constants match the spec's state definitions
-        - May need to handle different representations of server states
-      
-    priority: "critical"
-    
   - name: "LogConsistency" 
     type: "safety"
     natural_language: "If two logs contain an entry with the same index and term, then the logs are identical up to that index"
-    
-    formal_description: |
-      The Raft log consistency property: if two different nodes have log entries 
-      with the same index and term, then their logs are identical in all preceding entries.
-    
+    formal_description: "The Raft log consistency property: if two different nodes have log entries with the same index and term, then their logs are identical in all preceding entries."
     tla_example: |
       LogConsistency ==
         \A n1, n2 \in Nodes :
@@ -52,29 +24,11 @@ invariants:
             /\ idx \in DOMAIN log[n2]
             /\ log[n1][idx].term = log[n2][idx].term
             => \A j \in 1..idx : log[n1][j] = log[n2][j]
-    
-    adaptation_guidance:
-      variables_needed:
-        - "Log entries for each node (indexed by position)"
-        - "Term number for each log entry"
-        - "Set of all nodes"
-      
-      adaptation_notes: |
-        - Replace 'log' with actual log variable name
-        - Adapt log entry structure (.term field) to match the spec
-        - Handle different log representations (sequences, functions, arrays)
-        - May need to check for log bounds/length explicitly
-        
-    priority: "critical"
 
   - name: "LeaderCompletenessProperty"
     type: "safety"
     natural_language: "If a log entry is committed in a given term, then that entry will be present in the logs of the leaders for all higher-numbered terms"
-    
-    formal_description: |
-      Once an entry is committed, it must appear in all future leader logs.
-      This ensures that committed entries are never lost or overwritten.
-    
+    formal_description: "Once an entry is committed, it must appear in all future leader logs. This ensures that committed entries are never lost or overwritten."
     tla_example: |
       LeaderCompletenessProperty ==
         \A commitTerm \in Terms, commitIdx \in Nat :
@@ -85,28 +39,11 @@ invariants:
             /\ IsCommitted(commitIdx, commitTerm)
             => /\ commitIdx \in DOMAIN log[leader]
                /\ log[leader][commitIdx].term = commitTerm
-    
-    adaptation_guidance:
-      variables_needed:
-        - "Committed entries tracking"
-        - "Leader states and terms" 
-        - "Log entries with terms"
-        
-      adaptation_notes: |
-        - Define or adapt IsCommitted predicate based on the spec's commit tracking
-        - May need to implement commit index/term tracking if not explicit
-        - Handle cases where commit tracking uses different mechanisms
-        
-    priority: "critical"
 
   - name: "StateMachineSafety"
     type: "safety"
     natural_language: "All nodes apply the same sequence of committed log entries to their state machines"
-    
-    formal_description: |
-      State machine safety ensures that all nodes that have applied log entries
-      up to the same index have applied exactly the same sequence of entries.
-    
+    formal_description: "State machine safety ensures that all nodes that have applied log entries up to the same index have applied exactly the same sequence of entries."
     tla_example: |
       StateMachineSafety ==
         \A n1, n2 \in Nodes :
@@ -115,70 +52,17 @@ invariants:
             /\ idx <= commitIndex[n2]  
             /\ idx > 0
             => log[n1][idx] = log[n2][idx]
-    
-    adaptation_guidance:
-      variables_needed:
-        - "Commit index for each node"
-        - "Log entries for each node"
-        
-      adaptation_notes: |
-        - Replace commitIndex with actual commit tracking variable
-        - Ensure log indexing matches (1-based vs 0-based)
-        - May need to handle different commit index representations
-        
-    priority: "critical"
-    
-  # LIVENESS PROPERTIES
+
   - name: "EventualLeaderElection"
     type: "liveness"
     natural_language: "Eventually, a leader will be elected if the majority of nodes are functioning"
-    
-    formal_description: |
-      Under fair scheduling and with a majority of nodes operational,
-      the system will eventually elect a leader and make progress.
-    
+    formal_description: "Under fair scheduling and with a majority of nodes operational, the system will eventually elect a leader and make progress."
     tla_example: |
       EventualLeaderElection ==
         /\ MajorityNodesUp
         => <>(\E n \in Nodes : serverState[n] = Leader)
-    
-    adaptation_guidance:
-      variables_needed:
-        - "Node states"
-        - "Node operational status"
-        - "Set of all nodes"
-        
-      adaptation_notes: |
-        - Define MajorityNodesUp based on node failure modeling in the spec
-        - Use <> (eventually) temporal operator
-        - May need to adapt based on how node failures are represented
-        
-    priority: "high"
 
 metadata:
   total_invariants: 5
   safety_invariants: 4
   liveness_invariants: 1
-  critical_invariants: 4
-  
-  verification_notes: |
-    These invariants are based on the Raft consensus algorithm as described in the
-    original paper by Ongaro and Ousterhout. They capture the essential safety and
-    liveness properties that any correct Raft implementation must maintain.
-    
-  implementation_strategy: |
-    1. Start with safety properties as they are easier to check with bounded model checking
-    2. Adapt variable names and data structures to match the generated specification
-    3. Test each invariant individually before combining
-    4. Use bounded model checking for large state spaces
-    
-  common_adaptations:
-    variable_naming:
-      - "serverState vs nodeState vs state"
-      - "currentTerm vs term vs termNumber"
-      - "log vs logs vs entries"
-    
-    data_structures:
-      - "Sequences vs Functions vs Records for logs"
-      - "Sets vs Arrays for node collections"
-      - "Different term/index representations (0-based vs 1-based)"
