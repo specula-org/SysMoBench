@@ -142,6 +142,8 @@ class InvariantTranslator:
             if not result.success:
                 return False, {}, result.error_message
             
+            logger.info(f"Generated text length: {len(result.generated_text)} characters")
+            
             # Parse the generated invariants
             translated_invariants = self._parse_generated_invariants(
                 result.generated_text, templates
@@ -220,18 +222,23 @@ class InvariantTranslator:
                 if isinstance(invariant_list, list):
                     logger.info("Parsing JSON format invariants")
                     
-                    for invariant_definition in invariant_list:
-                        if isinstance(invariant_definition, str) and ' == ' in invariant_definition:
-                            parts = invariant_definition.split(' == ', 1)
-                            if len(parts) == 2:
-                                invariant_name = parts[0].strip()
-                                
-                                # Match to template names (case-insensitive)
-                                for template in templates:
-                                    if template.name.lower() == invariant_name.lower():
-                                        translated_invariants[template.name] = invariant_definition
-                                        logger.debug(f"Parsed JSON invariant: {template.name}")
-                                        break
+                    for i, invariant_definition in enumerate(invariant_list):
+                        logger.info(f"Processing invariant {i+1}: {len(invariant_definition)} chars")
+                        
+                        if isinstance(invariant_definition, str) and invariant_definition.strip():
+                            # Extract invariant name from the definition (everything before '==')
+                            invariant_name = invariant_definition.split('==')[0].strip()
+                            
+                            # Find matching template by name
+                            for template in templates:
+                                if template.name.lower() == invariant_name.lower():
+                                    translated_invariants[template.name] = invariant_definition
+                                    logger.info(f"✓ Stored invariant: {template.name}")
+                                    break
+                            else:
+                                logger.warning(f"No matching template for: {invariant_name}")
+                        else:
+                            logger.warning(f"Skipped empty or invalid invariant: {repr(invariant_definition[:50])}")
                     
                     return translated_invariants
             

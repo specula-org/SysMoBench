@@ -138,6 +138,9 @@ class SemanticEvaluationResult(EvaluationResult):
         
         # File paths
         self.specification_file = None
+        
+        # Custom data for additional information
+        self.custom_data = {}
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -175,7 +178,8 @@ class SemanticEvaluationResult(EvaluationResult):
             "files": {
                 "specification": self.specification_file,
                 "config": self.config_file_path
-            }
+            },
+            "custom_data": self.custom_data
         }
 
 
