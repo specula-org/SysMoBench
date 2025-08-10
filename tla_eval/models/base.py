@@ -20,6 +20,7 @@ class GenerationConfig:
     top_p: float = 0.9
     stop_sequences: Optional[List[str]] = None
     seed: Optional[int] = None
+    use_json_mode: bool = False
 
 
 @dataclass

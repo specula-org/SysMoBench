@@ -115,10 +115,13 @@ class GenAIAdapter(ModelAdapter):
             prompt_content = prompt_template
         
         # Prepare generation config
+        # Use model's configured max_tokens if available, otherwise use GenerationConfig value
+        model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
+        
         config_params = {
             "temperature": generation_config.temperature,
             "top_p": generation_config.top_p,
-            "max_output_tokens": generation_config.max_tokens,
+            "max_output_tokens": model_max_tokens,
         }
         
         # Add thinking config
@@ -274,14 +277,21 @@ class GenAIAdapter(ModelAdapter):
             generation_config = GenerationConfig()
         
         # Prepare generation config
+        # Use model's configured max_tokens if available, otherwise use GenerationConfig value
+        model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
+        
         config_params = {
             "temperature": generation_config.temperature,
-            "max_output_tokens": generation_config.max_tokens,
+            "max_output_tokens": model_max_tokens,
         }
         
         # Add top_p if specified and supported
         if generation_config.top_p is not None:
             config_params["top_p"] = generation_config.top_p
+        
+        # Add JSON mode if requested
+        if generation_config.use_json_mode:
+            config_params["response_mime_type"] = "application/json"
         
         # Filter out None values
         config_params = {k: v for k, v in config_params.items() if v is not None}

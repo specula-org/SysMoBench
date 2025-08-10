@@ -1,53 +1,74 @@
-# Simplified Invariants for Spinlock Systems
+# Invariants for Asterinas Spinlock Systems
+# Includes both generic spinlock properties and Asterinas-specific features
 
 invariants:
+  # Generic Spinlock Invariants (applicable to all spinlock implementations)
   - name: "MutualExclusion"
     type: "safety"
-    natural_language: "At most one thread can hold the lock at any given time"
-    formal_description: "The fundamental safety property: no two threads can be in their critical section simultaneously"
+    natural_language: "At most one process can be in the critical section at any given time"
+    formal_description: "The fundamental safety property: no two processes can be in their critical section simultaneously"
     tla_example: |
       MutualExclusion ==
-        Cardinality({t \in Threads : threadState[t] = InCriticalSection}) <= 1
+        Cardinality({p \in Proc : pc[p] = "in_cs"}) <= 1
 
   - name: "LockConsistency"
     type: "safety"
-    natural_language: "The lock state is consistent with thread ownership - if lock is held, exactly one thread owns it"
-    formal_description: "Lock state consistency: the atomic boolean lock state must be consistent with which thread (if any) currently owns the lock"
+    natural_language: "The lock state is consistent with critical section occupancy"
+    formal_description: "Lock state consistency: the atomic boolean lock state must be consistent with whether any process is in the critical section"
     tla_example: |
       LockConsistency ==
-        /\ (lockState = TRUE) => (\E t \in Threads : owner[t] = TRUE)
-        /\ (lockState = FALSE) => (\A t \in Threads : owner[t] = FALSE)
-        /\ Cardinality({t \in Threads : owner[t] = TRUE}) <= 1
+        (lock_state = TRUE) <=> (\E p \in Proc : pc[p] = "in_cs")
 
-  - name: "DeadlockFreedom"
+  - name: "NoDeadlock"
     type: "safety"
-    natural_language: "No deadlock can occur - the system can always make progress"
-    formal_description: "Deadlock freedom for spinlocks: if threads are waiting for the lock, eventually the lock holder will release it"
+    natural_language: "No process can be stuck spinning forever when the lock is free"
+    formal_description: "Deadlock freedom: if a process is spinning, the lock must be currently held by someone"
     tla_example: |
-      DeadlockFreedom ==
-        \A t \in Threads :
-          (threadState[t] = Waiting) => (lockState = TRUE)
+      NoDeadlock ==
+        \A p \in Proc : (pc[p] = "spinning") => (lock_state = TRUE)
 
-  - name: "AtomicityProperty"
+  # Asterinas-Specific Invariants (unique to dual-interface design)
+  - name: "TryLockNoSpinning"
     type: "safety"
-    natural_language: "Lock acquisition and release operations are atomic - no intermediate states are visible"
-    formal_description: "The compare-and-swap or test-and-set operations used for lock acquisition must be atomic, with no observable intermediate states"
+    natural_language: "try_lock() operations never enter the spinning state - they succeed or fail immediately"
+    formal_description: "Asterinas-specific: try_lock() is non-blocking and should never cause a process to spin"
     tla_example: |
-      AtomicityProperty ==
-        \A t \in Threads :
-          /\ (pc[t] = "acquiring") => (lockState \in {TRUE, FALSE})
-          /\ (pc[t] = "releasing") => (owner[t] = TRUE)
+      TryLockNoSpinning ==
+        \A p \in Proc : 
+          pc[p] = "req_try_lock" => pc[p]' \in {"in_cs", "idle"}
 
+  - name: "BlockingVsNonBlockingSemantics"
+    type: "safety"
+    natural_language: "Only lock() requests can lead to spinning, try_lock() requests cannot"
+    formal_description: "Asterinas dual-interface semantics: spinning state can only be reached via lock(), not try_lock()"
+    tla_example: |
+      BlockingVsNonBlockingSemantics ==
+        \A p \in Proc :
+          pc[p] = "spinning" => 
+            \E q \in Proc : q = p /\ (pc[q] \in {"req_lock", "spinning"})
+
+  - name: "GuardLifecycle"
+    type: "safety"
+    natural_language: "Process in critical section will eventually return to idle state"
+    formal_description: "RAII Guard semantics: every lock acquisition must be paired with exactly one release"
+    tla_example: |
+      GuardLifecycle ==
+        \A p \in Proc :
+          pc[p] = "in_cs" => <>(pc[p] = "idle")
+
+  # Generic Liveness Property
   - name: "EventualAcquisition"
     type: "liveness"
-    natural_language: "A thread attempting to acquire the lock will eventually succeed under fair scheduling"
-    formal_description: "Under fair scheduling assumptions, any thread that attempts to acquire the lock will eventually succeed"
+    natural_language: "A process using blocking lock() will eventually acquire the lock under fair scheduling"
+    formal_description: "Under fair scheduling, any process requesting a blocking lock will eventually succeed"
     tla_example: |
       EventualAcquisition ==
-        \A t \in Threads :
-          (threadState[t] = Waiting) ~> (threadState[t] = InCriticalSection)
+        \A p \in Proc :
+          (pc[p] \in {"req_lock", "spinning"}) ~> (pc[p] = "in_cs")
 
 metadata:
-  total_invariants: 5
-  safety_invariants: 4
+  total_invariants: 7
+  safety_invariants: 6
   liveness_invariants: 1
+  generic_invariants: 4  # MutualExclusion, LockConsistency, NoDeadlock, EventualAcquisition
+  asterinas_specific_invariants: 3  # TryLockNoSpinning, BlockingVsNonBlockingSemantics, GuardLifecycle

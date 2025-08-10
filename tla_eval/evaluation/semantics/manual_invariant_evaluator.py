@@ -129,10 +129,12 @@ class InvariantTranslator:
                 invariant_templates=invariant_templates_text
             )
             
-            # Generate invariant implementations
+            # Generate invariant implementations - use model's configured max_tokens
+            # Don't override the model's max_tokens, let it use the configured value
             gen_config = GenerationConfig(
-                max_tokens=8192,
-                temperature=0.1
+                temperature=0.1,
+                use_json_mode=True  # Enable JSON mode for structured output
+                # Note: max_tokens not set - will use model's configured value (e.g., 64000 for Gemini)
             )
             
             start_time = time.time()
