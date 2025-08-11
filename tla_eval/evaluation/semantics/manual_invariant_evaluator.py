@@ -129,12 +129,11 @@ class InvariantTranslator:
                 invariant_templates=invariant_templates_text
             )
             
-            # Generate invariant implementations - use model's configured max_tokens
-            # Don't override the model's max_tokens, let it use the configured value
+            # Generate invariant implementations - use model's configured values
+            # Don't override the model's configuration, let it use configured temperature and max_tokens
             gen_config = GenerationConfig(
-                temperature=0.1,
                 use_json_mode=True  # Enable JSON mode for structured output
-                # Note: max_tokens not set - will use model's configured value (e.g., 64000 for Gemini)
+                # Note: temperature and max_tokens not set - will use model's configured values
             )
             
             start_time = time.time()
@@ -474,7 +473,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
             
             # Run TLC
             start_time = time.time()
-            tlc_success, tlc_output = self.tlc_runner.run_tlc(
+            tlc_success, tlc_output, tlc_exit_code = self.tlc_runner.run_model_checking(
                 str(modified_spec_file), str(config_file)
             )
             verification_time = time.time() - start_time

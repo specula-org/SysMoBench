@@ -69,10 +69,8 @@ class ConfigGenerator:
             
             # Use the unified model interface for config generation
             from ...models.base import GenerationConfig
-            gen_config = GenerationConfig(
-                max_tokens=64000,
-                temperature=0.1
-            )
+            # Don't override model configuration - let it use the model's configured values
+            gen_config = GenerationConfig()
             
             import time
             start_time = time.time()

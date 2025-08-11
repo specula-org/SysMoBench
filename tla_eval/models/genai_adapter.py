@@ -115,12 +115,14 @@ class GenAIAdapter(ModelAdapter):
             prompt_content = prompt_template
         
         # Prepare generation config
-        # Use model's configured max_tokens if available, otherwise use GenerationConfig value
+        # Use model's configured values if available, otherwise use GenerationConfig value
         model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
+        model_temperature = self.config.get("temperature", generation_config.temperature)
+        model_top_p = self.config.get("top_p", generation_config.top_p)
         
         config_params = {
-            "temperature": generation_config.temperature,
-            "top_p": generation_config.top_p,
+            "temperature": model_temperature,
+            "top_p": model_top_p,
             "max_output_tokens": model_max_tokens,
         }
         
@@ -182,16 +184,33 @@ class GenAIAdapter(ModelAdapter):
                         if hasattr(candidate, 'finish_reason'):
                             error_details.append(f"finish_reason: {candidate.finish_reason}")
                         if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
-                            error_details.append(f"safety_ratings: {candidate.safety_ratings}")
+                            safety_info = []
+                            for rating in candidate.safety_ratings:
+                                safety_info.append(f"{rating.category}:{rating.probability}")
+                            error_details.append(f"safety_ratings: [{', '.join(safety_info)}]")
+                        # Check for content filtering
+                        if hasattr(candidate, 'content') and candidate.content:
+                            if hasattr(candidate.content, 'parts'):
+                                error_details.append(f"content_parts_count: {len(candidate.content.parts) if candidate.content.parts else 0}")
                     
                     if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
-                        error_details.append(f"prompt_feedback: {response.prompt_feedback}")
+                        if hasattr(response.prompt_feedback, 'block_reason'):
+                            error_details.append(f"block_reason: {response.prompt_feedback.block_reason}")
+                        if hasattr(response.prompt_feedback, 'safety_ratings'):
+                            error_details.append(f"prompt_safety_ratings: {response.prompt_feedback.safety_ratings}")
+                    
+                    # Log the full response structure for debugging
+                    logger.error(f"Full response structure: {response}")
                     
                     error_msg = "Empty text response from GenAI API"
                     if error_details:
                         error_msg += f" ({'; '.join(error_details)})"
                     else:
                         error_msg += " (possible content filtering or model limitations)"
+                    
+                    # For STOP with empty response, this might be recoverable with retry
+                    if any("finish_reason: STOP" in detail for detail in error_details):
+                        logger.warning("Got STOP with empty response - this might be due to content filtering or temporary API issues")
                     
                     raise GenerationError(error_msg)
                     
@@ -277,17 +296,19 @@ class GenAIAdapter(ModelAdapter):
             generation_config = GenerationConfig()
         
         # Prepare generation config
-        # Use model's configured max_tokens if available, otherwise use GenerationConfig value
+        # Use model's configured values if available, otherwise use GenerationConfig value
         model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
+        model_temperature = self.config.get("temperature", generation_config.temperature)
         
         config_params = {
-            "temperature": generation_config.temperature,
+            "temperature": model_temperature,
             "max_output_tokens": model_max_tokens,
         }
         
         # Add top_p if specified and supported
-        if generation_config.top_p is not None:
-            config_params["top_p"] = generation_config.top_p
+        model_top_p = self.config.get("top_p", generation_config.top_p)
+        if model_top_p is not None:
+            config_params["top_p"] = model_top_p
         
         # Add JSON mode if requested
         if generation_config.use_json_mode:

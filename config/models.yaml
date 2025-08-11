@@ -3,13 +3,12 @@
 
 models:
   # User's OpenAI configuration
-  my_gpt4:
+  gpt5:
     provider: "openai"
-    model_name: "gpt-4"
+    model_name: "gpt-5"
     api_key_env: "OPENAI_API_KEY"  # or set api_key directly
-    temperature: 0.1
-    max_tokens: 4096
-    top_p: 0.9
+    temperature: 1
+    max_tokens: 64000
     
   # User's Anthropic configuration  
   my_claude:

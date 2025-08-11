@@ -11,9 +11,9 @@ $invariants
 ## Requirements:
 
 1. **Analyze the specification** to identify the main specification name and all declared constants
-2. **Generate complete .cfg file content** with SPECIFICATION, CONSTANTS, and INVARIANT sections
+2. **Generate complete .cfg file content** with SPECIFICATION, CONSTANTS, and INVARIANT/PROPERTY sections
 3. **Use small values for constants** to ensure efficient model checking (2-3 threads, small integers)
-4. **Include ALL provided invariants** in the INVARIANT section
+4. **Include ALL provided invariants** - but check if they use temporal operators (~>, <>) and put those in PROPERTY section instead of INVARIANT (temporal operators indicate liveness properties that should be checked with PROPERTY, not INVARIANT)
 5. **Output ONLY the raw .cfg file content** - no explanations, no markdown, no code blocks
 
 ## Example Output Format:
@@ -23,6 +23,8 @@ SPECIFICATION SpecName
 CONSTANTS
     ...
 INVARIANT
+    ...
+PROPERTY
     ...
 
 **CRITICAL: Your response must contain exactly ONE complete .cfg file. Do not repeat any sections. Start your response immediately with "SPECIFICATION" and include nothing else. Each invariant name must be on its own line. Stop immediately after the last invariant name with no additional text.**

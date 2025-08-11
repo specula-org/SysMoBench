@@ -125,6 +125,15 @@ class OpenAIAdapter(ModelAdapter):
             prompt = prompt_template
         
         # Prepare API call parameters
+        # Use max_completion_tokens for GPT-5+ models, max_tokens for older models and compatible APIs
+        is_gpt5_model = self.model_name.startswith("gpt-5")
+        max_tokens_param = "max_completion_tokens" if is_gpt5_model else "max_tokens"
+        
+        # Use model's configured values if available, otherwise use GenerationConfig value
+        model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
+        model_temperature = self.config.get("temperature", generation_config.temperature)
+        model_top_p = self.config.get("top_p", generation_config.top_p)
+        
         api_params = {
             "model": self.model_name,
             "messages": [
@@ -133,10 +142,13 @@ class OpenAIAdapter(ModelAdapter):
                     "content": prompt
                 }
             ],
-            "max_tokens": generation_config.max_tokens,
-            "temperature": generation_config.temperature,
-            "top_p": generation_config.top_p,
+            max_tokens_param: model_max_tokens,
+            "temperature": model_temperature,
         }
+        
+        # GPT-5 doesn't support top_p parameter
+        if not is_gpt5_model and model_top_p is not None:
+            api_params["top_p"] = model_top_p
         
         # Add optional parameters
         if generation_config.stop_sequences:
@@ -144,27 +156,32 @@ class OpenAIAdapter(ModelAdapter):
         if generation_config.seed is not None:
             api_params["seed"] = generation_config.seed
         
-        # Enable streaming for better timeout handling
-        api_params["stream"] = True
+        # Enable streaming for better timeout handling (but not for GPT-5 due to org verification requirement)
+        api_params["stream"] = not is_gpt5_model
         
-        # Make API call with streaming
+        # Make API call
         start_time = time.time()
         try:
-            logger.info("Starting streaming generation...")
-            generated_text = ""
-            
-            stream = self.client.chat.completions.create(**api_params)
-            for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
-                    generated_text += chunk.choices[0].delta.content
-                    # Optional: Add progress logging every 1000 chars
-                    if len(generated_text) % 1000 == 0:
-                        logger.debug(f"Generated {len(generated_text)} characters...")
+            if api_params["stream"]:
+                logger.info("Starting streaming generation...")
+                generated_text = ""
+                
+                stream = self.client.chat.completions.create(**api_params)
+                for chunk in stream:
+                    if chunk.choices[0].delta.content is not None:
+                        generated_text += chunk.choices[0].delta.content
+                        # Optional: Add progress logging every 1000 chars
+                        if len(generated_text) % 1000 == 0:
+                            logger.debug(f"Generated {len(generated_text)} characters...")
+            else:
+                logger.info("Starting non-streaming generation...")
+                response = self.client.chat.completions.create(**api_params)
+                generated_text = response.choices[0].message.content
             
             end_time = time.time()
             
             if not generated_text:
-                raise GenerationError("Empty response from OpenAI streaming API")
+                raise GenerationError("Empty response from OpenAI API")
             
             # For streaming, we don't get usage stats until the end
             # Estimate token usage based on text length (rough approximation)
@@ -218,41 +235,56 @@ class OpenAIAdapter(ModelAdapter):
             generation_config = GenerationConfig()
         
         # Prepare API call parameters - use complete_prompt directly
+        # Use max_completion_tokens for GPT-5+ models, max_tokens for older models and compatible APIs
+        is_gpt5_model = self.model_name.startswith("gpt-5")
+        max_tokens_param = "max_completion_tokens" if is_gpt5_model else "max_tokens"
+        
+        # Use model's configured values if available, otherwise use GenerationConfig value
+        model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
+        model_temperature = self.config.get("temperature", generation_config.temperature)
+        model_top_p = self.config.get("top_p", generation_config.top_p)
+        
         api_params = {
             "model": self.model_name,
             "messages": [
                 {"role": "user", "content": complete_prompt}  # Use complete prompt as-is
             ],
-            "max_tokens": generation_config.max_tokens,
-            "temperature": generation_config.temperature,
-            "stream": True  # Use streaming for better responsiveness
+            max_tokens_param: model_max_tokens,
+            "temperature": model_temperature,
+            "stream": not is_gpt5_model  # GPT-5 requires org verification for streaming
         }
         
-        # Add top_p if specified
-        if generation_config.top_p is not None:
-            api_params["top_p"] = generation_config.top_p
+        # GPT-5 doesn't support top_p parameter
+        if not is_gpt5_model and model_top_p is not None:
+            api_params["top_p"] = model_top_p
         
         try:
-            logger.info("Starting direct generation...")
             start_time = time.time()
             
-            # Make streaming API call
-            response = self.client.chat.completions.create(**api_params)
-            
-            # Collect streaming response
-            generated_text = ""
-            for chunk in response:
-                # Handle different chunk formats
-                if hasattr(chunk, 'choices') and chunk.choices:
-                    choice = chunk.choices[0]
-                    if hasattr(choice, 'delta') and hasattr(choice.delta, 'content'):
-                        if choice.delta.content is not None:
-                            generated_text += choice.delta.content
+            if api_params["stream"]:
+                logger.info("Starting direct streaming generation...")
+                # Make streaming API call
+                response = self.client.chat.completions.create(**api_params)
+                
+                # Collect streaming response
+                generated_text = ""
+                for chunk in response:
+                    # Handle different chunk formats
+                    if hasattr(chunk, 'choices') and chunk.choices:
+                        choice = chunk.choices[0]
+                        if hasattr(choice, 'delta') and hasattr(choice.delta, 'content'):
+                            if choice.delta.content is not None:
+                                generated_text += choice.delta.content
+            else:
+                logger.info("Starting direct non-streaming generation...")
+                # Make non-streaming API call
+                response = self.client.chat.completions.create(**api_params)
+                generated_text = response.choices[0].message.content
             
             end_time = time.time()
             
             if not generated_text:
-                raise GenerationError("Empty response from OpenAI streaming API")
+                raise GenerationError("Empty response from OpenAI API")
             
             # Estimate token usage based on text length (rough approximation)
             estimated_completion_tokens = len(generated_text) // 4
