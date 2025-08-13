@@ -195,9 +195,24 @@ class TLCRunner:
             # TLC exit codes can be misleading - focus on actual violations/deadlocks
             violations, deadlock_found, states_explored = self.parse_tlc_output(output)
             
-            # Success if no violations found and no deadlock, regardless of exit code
-            # Exit code 151 often means normal completion within time limit
-            content_based_success = len(violations) == 0 and not deadlock_found
+            # Check if TLC actually started model checking
+            started_model_checking = "Computing initial states" in output
+            
+            if not started_model_checking:
+                # TLC failed to start model checking (parse error, config error, etc.)
+                content_based_success = False
+            else:
+                # TLC started, check if it completed normally by looking for state statistics
+                has_state_stats = any(pattern in output for pattern in [
+                    "states generated", "distinct states found", "states left on queue"
+                ])
+                
+                if has_state_stats:
+                    # Normal completion, check for violations/deadlocks
+                    content_based_success = len(violations) == 0 and not deadlock_found
+                else:
+                    # Started but no state statistics - likely failed during execution
+                    content_based_success = False
             
             logger.debug(f"TLC finished: exit_code={result.returncode}, violations={len(violations)}, deadlock={deadlock_found}, states={states_explored}")
             

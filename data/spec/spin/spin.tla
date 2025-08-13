@@ -1,91 +1,117 @@
 ---- MODULE spin ----
-EXTENDS Integers, TLC, FiniteSets
+EXTENDS Naturals, Sequences
 
-CONSTANT Proc
+CONSTANTS THREADS, None
 
-VARIABLES lock_state, pc
+ASSUME None \notin THREADS
 
-vars == <<lock_state, pc>>
-
-States == {"idle", "req_lock", "req_try_lock", "spinning", "in_cs"}
+VARIABLES lock, owner, pc, guard, spins, epoch, view
 
 TypeOK ==
-    /\ lock_state \in BOOLEAN
-    /\ pc \in [Proc -> States]
+  /\ lock \in BOOLEAN
+  /\ owner \in THREADS \cup {None}
+  /\ pc \in [THREADS -> {"Ready", "Trying", "InCS"}]
+  /\ guard \in [THREADS -> BOOLEAN]
+  /\ spins \in [THREADS -> Nat]
+  /\ epoch \in Nat
+  /\ view \in [THREADS -> Nat]
 
 Init ==
-    /\ lock_state = FALSE
-    /\ pc = [p \in Proc |-> "idle"]
+  /\ lock = FALSE
+  /\ owner = None
+  /\ pc = [t \in THREADS |-> "Ready"]
+  /\ guard = [t \in THREADS |-> FALSE]
+  /\ spins = [t \in THREADS |-> 0]
+  /\ epoch = 0
+  /\ view = [t \in THREADS |-> 0]
 
-\* A process decides to call the blocking lock() method.
-RequestLock(p) ==
-    /\ pc[p] = "idle"
-    /\ pc' = [pc EXCEPT ![p] = "req_lock"]
-    /\ UNCHANGED <<lock_state>>
+LockBegin(t) ==
+  /\ t \in THREADS
+  /\ pc[t] = "Ready"
+  /\ guard' = [guard EXCEPT ![t] = TRUE]
+  /\ pc' = [pc EXCEPT ![t] = "Trying"]
+  /\ UNCHANGED <<lock, owner, spins, epoch, view>>
 
-\* A process decides to call the non-blocking try_lock() method.
-RequestTryLock(p) ==
-    /\ pc[p] = "idle"
-    /\ pc' = [pc EXCEPT ![p] = "req_try_lock"]
-    /\ UNCHANGED <<lock_state>>
+TryLockSuccess(t) ==
+  /\ t \in THREADS
+  /\ pc[t] = "Ready"
+  /\ lock = FALSE
+  /\ lock' = TRUE
+  /\ owner' = t
+  /\ pc' = [pc EXCEPT ![t] = "InCS"]
+  /\ guard' = [guard EXCEPT ![t] = TRUE]
+  /\ view' = [view EXCEPT ![t] = epoch]
+  /\ UNCHANGED <<spins, epoch>>
 
-\* Models a successful atomic compare-exchange(false, true).
-\* The process acquires the lock and enters the critical section.
-AcquireLock(p) ==
-    /\ pc[p] \in {"req_lock", "req_try_lock", "spinning"}
-    /\ lock_state = FALSE
-    /\ lock_state' = TRUE
-    /\ pc' = [pc EXCEPT ![p] = "in_cs"]
+TryLockFail(t) ==
+  /\ t \in THREADS
+  /\ pc[t] = "Ready"
+  /\ lock = TRUE
+  /\ guard' = [guard EXCEPT ![t] = FALSE]
+  /\ UNCHANGED <<lock, owner, pc, spins, epoch, view>>
 
-\* Models a failed compare-exchange within the blocking lock() loop.
-\* The process starts or continues to spin.
-Spin(p) ==
-    /\ pc[p] \in {"req_lock", "spinning"}
-    /\ lock_state = TRUE
-    /\ pc' = [pc EXCEPT ![p] = "spinning"]
-    /\ UNCHANGED <<lock_state>>
+Spin(t) ==
+  /\ t \in THREADS
+  /\ pc[t] = "Trying"
+  /\ lock = TRUE
+  /\ spins' = [spins EXCEPT ![t] = @ + 1]
+  /\ UNCHANGED <<lock, owner, pc, guard, epoch, view>>
 
-\* Models a failed compare-exchange for the non-blocking try_lock().
-\* The process gives up and returns to idle.
-TryLockFail(p) ==
-    /\ pc[p] = "req_try_lock"
-    /\ lock_state = TRUE
-    /\ pc' = [pc EXCEPT ![p] = "idle"]
-    /\ UNCHANGED <<lock_state>>
+AcquireCAS(t) ==
+  /\ t \in THREADS
+  /\ pc[t] = "Trying"
+  /\ guard[t] = TRUE
+  /\ lock = FALSE
+  /\ lock' = TRUE
+  /\ owner' = t
+  /\ pc' = [pc EXCEPT ![t] = "InCS"]
+  /\ view' = [view EXCEPT ![t] = epoch]
+  /\ UNCHANGED <<guard, spins, epoch>>
 
-\* Models the release of the lock when the SpinLockGuard is dropped.
-\* The process leaves the critical section.
-ReleaseLock(p) ==
-    /\ pc[p] = "in_cs"
-    /\ lock_state' = FALSE
-    /\ pc' = [pc EXCEPT ![p] = "idle"]
-
-\* The set of actions a single process can take.
-ProcAction(p) ==
-    \/ RequestLock(p)
-    \/ RequestTryLock(p)
-    \/ AcquireLock(p)
-    \/ Spin(p)
-    \/ TryLockFail(p)
-    \/ ReleaseLock(p)
+Unlock(t) ==
+  /\ t \in THREADS
+  /\ pc[t] = "InCS"
+  /\ owner = t
+  /\ lock' = FALSE
+  /\ owner' = None
+  /\ pc' = [pc EXCEPT ![t] = "Ready"]
+  /\ guard' = [guard EXCEPT ![t] = FALSE]
+  /\ epoch' = epoch + 1
+  /\ UNCHANGED <<spins, view>>
 
 Next ==
-    \E p \in Proc: ProcAction(p)
+  \E t \in THREADS:
+      LockBegin(t)
+    \/ TryLockSuccess(t)
+    \/ TryLockFail(t)
+    \/ Spin(t)
+    \/ AcquireCAS(t)
+    \/ Unlock(t)
 
-Spec == Init /\ [][Next]_vars
+Vars == <<lock, owner, pc, guard, spins, epoch, view>>
 
-\* Fairness assumption: No process is starved forever by the scheduler.
-\* If a process can take an action, it eventually will.
-Fairness == \A p \in Proc: WF_vars(ProcAction(p))
+Fairness ==
+  /\ \A t \in THREADS: WF_Vars(AcquireCAS(t))
+  /\ \A t \in THREADS: WF_Vars(Unlock(t))
 
-\* Safety property: At most one process can be in the critical section.
+Spec ==
+  Init /\ [][Next]_Vars /\ Fairness
+
+OwnerLockConsistency ==
+  /\ (owner \in THREADS) <=> lock
+  /\ (owner = None) <=> ~lock
+
 MutualExclusion ==
-    Cardinality({p \in Proc : pc[p] = "in_cs"}) <= 1
+  \A t1, t2 \in THREADS:
+    t1 # t2 => ~(pc[t1] = "InCS" /\ pc[t2] = "InCS")
 
-\* Liveness property: A process that requests a blocking lock will eventually
-\* acquire it, assuming the lock is eventually released by any holder.
-EventualAcquisition ==
-    \A p \in Proc:
-        (pc[p] \in {"req_lock", "spinning"}) ~> (pc[p] = "in_cs")
+RAII ==
+  \A t \in THREADS:
+    pc[t] = "InCS" => guard[t] = TRUE
 
-=============================================================================
+AcquireReleaseOrder ==
+  \A t \in THREADS: view[t] \leq epoch
+
+Invariant ==
+  TypeOK /\ OwnerLockConsistency /\ MutualExclusion /\ RAII /\ AcquireReleaseOrder
+====

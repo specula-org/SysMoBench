@@ -42,3 +42,4 @@ CRITICAL OUTPUT REQUIREMENTS:
 3. Do not include any explanations, comments, or formatting markers
 4. Start your response directly with: ---- MODULE etcdraft ----
 5. End your response with the closing ====
+6. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - focus on modeling the system behavior
