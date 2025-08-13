@@ -419,25 +419,28 @@ class CompositeEvaluator(BaseEvaluator):
             
             logger.info(f"Global correction attempts used: {global_correction_attempts}/{max_global_corrections}")
             
-            # Print detailed summary report
-            self._print_evaluation_summary(action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts, composite_result)
-            
             # Calculate overall generation statistics across all iterations
             self._calculate_composite_generation_stats(composite_result)
             
             # Calculate overall success
             composite_result.overall_success = self._calculate_overall_success(composite_result)
             
+            # Create output directory and save results first
+            output_dir = self._create_output_directory(task_name, method_name, model_name)
+            
+            # Print detailed summary report with output_dir for JSON export
+            self._print_evaluation_summary(action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts, composite_result, output_dir=output_dir)
+            
+            # Save composite results to the already created directory
+            self._save_composite_results(composite_result, output_dir)
+            
         except Exception as e:
             logger.error(f"Composite evaluation error: {e}")
             composite_result.overall_success = False
         
         finally:
-            # Save composite results to output directory
-            try:
-                self._save_composite_results(composite_result, task_name, method_name, model_name)
-            except Exception as save_error:
-                logger.error(f"Failed to save composite results: {save_error}")
+            # Results already saved in try block
+            pass
         
         end_time = time.time()
         total_time = end_time - start_time
@@ -445,60 +448,22 @@ class CompositeEvaluator(BaseEvaluator):
         
         return composite_result
     
-    def _print_evaluation_summary(self, action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts, composite_result):
+    def _print_evaluation_summary(self, action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts, composite_result, output_dir=None):
         """Print detailed evaluation summary with results from all rounds."""
-        logger.info("=" * 60)
-        logger.info("COMPOSITE EVALUATION DETAILED SUMMARY")
-        logger.info("=" * 60)
+        # Generate experiment data for JSON export
+        experiment_data = self._generate_experiment_data(
+            action_results_history, compilation_success_round, invariant_success_round, 
+            global_correction_attempts, composite_result
+        )
         
-        # Action Decomposition Results
-        logger.info("Action Decomposition Results (3 rounds):")
-        for i, action_result in enumerate(action_results_history):
-            round_num = action_result['round']
-            if 'error' in action_result:
-                logger.info(f"  Round {round_num}: ✗ ERROR - {action_result['error']}")
-            else:
-                success_rate = action_result['success_rate'] * 100
-                successful = action_result['successful_actions']
-                total = action_result['total_actions']
-                logger.info(f"  Round {round_num}: {successful}/{total} actions successful ({success_rate:.1f}%)")
+        # Save experiment data as JSON
+        if output_dir:
+            self._save_experiment_data(experiment_data, output_dir)
         
-        # Fill missing rounds
-        while len(action_results_history) < 3:
-            missing_round = len(action_results_history) + 1
-            logger.info(f"  Round {missing_round}: SKIPPED (insufficient corrections)")
-            action_results_history.append({'round': missing_round, 'skipped': True})
-        
-        # Compilation Check Results  
-        logger.info("Compilation Check Results:")
-        if compilation_success_round is not None:
-            logger.info(f"  ✓ SUCCESS in Round {compilation_success_round + 1} (after {compilation_success_round} corrections)")
-        else:
-            logger.info(f"  ✗ FAILED after {global_correction_attempts} correction attempts")
-        
-        # Invariant Verification Results
-        logger.info("Invariant Verification Results:")
-        if invariant_success_round is not None:
-            if invariant_success_round == 0:
-                logger.info(f"  ✓ SUCCESS in initial attempt (no corrections needed)")
-            else:
-                logger.info(f"  ✓ SUCCESS in Round {invariant_success_round + 1} (after {invariant_success_round} corrections)")
-        else:
-            logger.info(f"  ✗ FAILED or SKIPPED")
-        
-        # Manual Invariant Verification Results
-        logger.info("Manual Invariant Verification Results:")
-        if composite_result.manual_invariant_result:
-            if composite_result.manual_invariant_result.overall_success:
-                total_invariants = composite_result.manual_invariant_result.custom_data.get('total_invariants', 0) if composite_result.manual_invariant_result.custom_data else 0
-                passed_invariants = composite_result.manual_invariant_result.custom_data.get('passed_invariants', 0) if composite_result.manual_invariant_result.custom_data else 0
-                logger.info(f"  ✓ SUCCESS: {passed_invariants}/{total_invariants} expert invariants passed")
-            else:
-                logger.info(f"  ✗ FAILED: Expert invariant verification failed")
-        else:
-            logger.info(f"  ⚠ SKIPPED: Prerequisites not met")
-        
-        logger.info("=" * 60)
+        # Print improved summary
+        self._print_improved_summary(experiment_data, action_results_history, 
+                                   compilation_success_round, invariant_success_round,
+                                   global_correction_attempts, composite_result)
     
     def _set_generation_result(self, composite_result: CompositeEvaluationResult, generation_result: GenerationResult):
         """Set generation results on composite result"""
@@ -542,16 +507,8 @@ class CompositeEvaluator(BaseEvaluator):
         
         return syntax_success
     
-    def _save_composite_results(self, composite_result: CompositeEvaluationResult, 
-                               task_name: str, method_name: str, model_name: str):
+    def _save_composite_results(self, composite_result: CompositeEvaluationResult, output_dir):
         """Save composite evaluation results to output directory"""
-        output_manager = get_output_manager()
-        output_dir = output_manager.create_experiment_dir(
-            metric="composite",
-            task=task_name,
-            method=method_name,
-            model=model_name
-        )
         
         # Prepare comprehensive result data
         result_data = composite_result.to_dict()
@@ -575,9 +532,9 @@ class CompositeEvaluator(BaseEvaluator):
         }
         
         metadata = {
-            "task_name": task_name,
-            "method_name": method_name,
-            "model_name": model_name,
+            "task_name": composite_result.task_name,
+            "method_name": composite_result.method_name,
+            "model_name": composite_result.model_name,
             "metric": "composite",
             "evaluation_timestamp": time.time(),
             "validation_timeout": self.timeout,
@@ -587,11 +544,12 @@ class CompositeEvaluator(BaseEvaluator):
         
         # Save specification to output directory
         if composite_result.generated_specification:
-            spec_file_path = output_dir / f"{task_name}.tla"
+            spec_file_path = output_dir / f"{composite_result.task_name}.tla"
             with open(spec_file_path, 'w', encoding='utf-8') as f:
                 f.write(composite_result.generated_specification)
             metadata["specification_file"] = str(spec_file_path)
         
+        output_manager = get_output_manager()
         output_manager.save_result(output_dir, result_data, metadata)
         logger.info(f"Composite results saved to: {output_dir}")
         
@@ -624,6 +582,220 @@ class CompositeEvaluator(BaseEvaluator):
     def _get_evaluation_type(self) -> str:
         """Return the evaluation type identifier"""
         return "composite"
+    
+    def _create_output_directory(self, task_name: str, method_name: str, model_name: str):
+        """Create output directory for composite evaluation results."""
+        output_manager = get_output_manager()
+        output_dir = output_manager.create_experiment_dir(
+            metric="composite",
+            task=task_name,
+            method=method_name, 
+            model=model_name
+        )
+        return output_dir
+    
+    def _generate_experiment_data(self, action_results_history, compilation_success_round, 
+                                invariant_success_round, global_correction_attempts, composite_result):
+        """Generate structured experiment data for JSON export."""
+        
+        # Calculate iteration statistics - handle any number of iterations
+        total_iterations = len(action_results_history)
+        successful_iteration = None
+        if compilation_success_round is not None and invariant_success_round is not None:
+            successful_iteration = max(compilation_success_round, invariant_success_round) + 1
+        
+        # Phase results for each iteration
+        phase_results = []
+        phase4_passed = 0
+        phase4_total = 0
+        phase4_failed_invariants = []
+        
+        for i, action_result in enumerate(action_results_history):
+            iteration = i + 1
+            
+            # Phase 1: Action Decomposition
+            if 'error' in action_result:
+                phase1_success = False
+                phase1_ratio = 0.0
+            else:
+                phase1_success = action_result['success_rate'] >= 1.0
+                phase1_ratio = action_result['success_rate']
+            
+            # Phase 2: Compilation Check 
+            phase2_success = compilation_success_round is not None and compilation_success_round < iteration
+            
+            # Phase 3: Runtime Check
+            phase3_success = invariant_success_round is not None and invariant_success_round < iteration
+            
+            # Phase 4: Manual Invariant Verification (only if phases 1-3 passed)
+            phase4_success = False
+            iter_phase4_passed = 0
+            iter_phase4_total = 0
+            iter_phase4_failed_invariants = []
+            
+            if phase1_success and phase2_success and phase3_success and composite_result.manual_invariant_result:
+                phase4_success = composite_result.manual_invariant_result.overall_success
+                if composite_result.manual_invariant_result.custom_data:
+                    iter_phase4_passed = composite_result.manual_invariant_result.custom_data.get('passed_invariants', 0)
+                    iter_phase4_total = composite_result.manual_invariant_result.custom_data.get('total_invariants', 0)
+                    iter_phase4_failed_invariants = composite_result.manual_invariant_result.custom_data.get('failed_invariants', [])
+                    
+                    # Store for final statistics
+                    phase4_passed = iter_phase4_passed
+                    phase4_total = iter_phase4_total
+                    phase4_failed_invariants = iter_phase4_failed_invariants
+            
+            phase_results.append({
+                "iteration": iteration,
+                "phase1_action_decomposition": {
+                    "success": phase1_success,
+                    "success_ratio": phase1_ratio
+                },
+                "phase2_compilation": {
+                    "success": phase2_success
+                },
+                "phase3_runtime": {
+                    "success": phase3_success
+                },
+                "phase4_manual_invariant": {
+                    "success": phase4_success,
+                    "passed_invariants": iter_phase4_passed,
+                    "total_invariants": iter_phase4_total,
+                    "failed_invariants": iter_phase4_failed_invariants
+                }
+            })
+        
+        # Get final phase success states
+        final_phase1_success = phase_results[-1]["phase1_action_decomposition"]["success"] if phase_results else False
+        final_phase1_ratio = phase_results[-1]["phase1_action_decomposition"]["success_ratio"] if phase_results else 0.0
+        
+        return {
+            "summary": {
+                "total_iterations": total_iterations,
+                "successful_iteration": successful_iteration,
+                "final_success": composite_result.overall_success,
+                "generation_time_seconds": composite_result.generation_time,
+                "total_evaluation_time_seconds": getattr(composite_result, 'total_time', 0.0)
+            },
+            "phase_statistics": {
+                "phase1_action_decomposition": {
+                    "final_success": final_phase1_success,
+                    "final_success_ratio": final_phase1_ratio
+                },
+                "phase2_compilation": {
+                    "success": compilation_success_round is not None
+                },
+                "phase3_runtime": {
+                    "success": invariant_success_round is not None  
+                },
+                "phase4_manual_invariant": {
+                    "success": composite_result.manual_invariant_result.overall_success if composite_result.manual_invariant_result else False,
+                    "passed_invariants": phase4_passed,
+                    "total_invariants": phase4_total,
+                    "success_ratio": phase4_passed / phase4_total if phase4_total > 0 else 0.0,
+                    "failed_invariants": phase4_failed_invariants
+                }
+            },
+            "iteration_details": phase_results
+        }
+
+    def _save_experiment_data(self, experiment_data, output_dir):
+        """Save experiment data as JSON for automated analysis."""
+        import json
+        from pathlib import Path
+        
+        if not output_dir:
+            return
+        
+        output_path = Path(output_dir)
+        json_file = output_path / "experiment_data.json"
+        
+        try:
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(experiment_data, f, indent=2, ensure_ascii=False)
+            logger.info(f"Experiment data saved to: {json_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save experiment data: {e}")
+
+    def _print_improved_summary(self, experiment_data, action_results_history, 
+                              compilation_success_round, invariant_success_round,
+                              global_correction_attempts, composite_result):
+        """Print improved, clear summary of composite evaluation results."""
+        
+        logger.info("=" * 70)
+        logger.info("COMPOSITE EVALUATION SUMMARY")
+        logger.info("=" * 70)
+        
+        # Overall Results
+        summary = experiment_data["summary"]
+        logger.info(f"📊 OVERALL RESULT: {'✓ SUCCESS' if summary['final_success'] else '✗ FAILURE'}")
+        logger.info(f"📈 Total Iterations: {summary['total_iterations']}")
+        if summary['successful_iteration']:
+            logger.info(f"🎯 Success achieved in: Iteration {summary['successful_iteration']}")
+        logger.info(f"⏱️  Generation Time: {summary['generation_time_seconds']:.1f}s")
+        logger.info(f"⏱️  Total Time: {summary['total_evaluation_time_seconds']:.1f}s")
+        
+        logger.info("")
+        logger.info("🔄 ITERATION BREAKDOWN:")
+        
+        # Iteration Details - handle any number of iterations
+        for iteration_data in experiment_data["iteration_details"]:
+            iter_num = iteration_data["iteration"]
+            logger.info(f"  Iteration {iter_num}:")
+            
+            # Phase 1
+            p1 = iteration_data["phase1_action_decomposition"]
+            status1 = "✓ PASS" if p1["success"] else "✗ FAIL"
+            logger.info(f"    Phase 1 (Actions): {status1} ({p1['success_ratio']:.1%})")
+            
+            if p1["success"]:
+                # Phase 2
+                p2 = iteration_data["phase2_compilation"]  
+                status2 = "✓ PASS" if p2["success"] else "✗ FAIL"
+                logger.info(f"    Phase 2 (Compile): {status2}")
+                
+                if p2["success"]:
+                    # Phase 3  
+                    p3 = iteration_data["phase3_runtime"]
+                    status3 = "✓ PASS" if p3["success"] else "✗ FAIL"
+                    logger.info(f"    Phase 3 (Runtime): {status3}")
+                    
+                    if p3["success"]:
+                        # Phase 4
+                        p4 = iteration_data["phase4_manual_invariant"]
+                        if p4["total_invariants"] > 0:
+                            status4 = "✓ PASS" if p4["success"] else "✗ FAIL"
+                            logger.info(f"    Phase 4 (Invariants): {status4} ({p4['passed_invariants']}/{p4['total_invariants']})")
+                            if p4["failed_invariants"]:
+                                logger.info(f"      Failed: {', '.join(p4['failed_invariants'])}")
+                        else:
+                            logger.info(f"    Phase 4 (Invariants): ⚠ SKIPPED")
+                    else:
+                        logger.info(f"    Phase 4 (Invariants): ⚠ SKIPPED (Phase 3 failed)")
+                else:
+                    logger.info(f"    Phase 3 (Runtime): ⚠ SKIPPED (Phase 2 failed)")
+                    logger.info(f"    Phase 4 (Invariants): ⚠ SKIPPED (Phase 2 failed)")
+            else:
+                logger.info(f"    Phase 2 (Compile): ⚠ SKIPPED (Phase 1 failed)")
+                logger.info(f"    Phase 3 (Runtime): ⚠ SKIPPED (Phase 1 failed)")  
+                logger.info(f"    Phase 4 (Invariants): ⚠ SKIPPED (Phase 1 failed)")
+        
+        logger.info("")
+        logger.info("📈 FINAL PHASE STATISTICS:")
+        stats = experiment_data["phase_statistics"]
+        logger.info(f"  Phase 1 (Action Decomposition): {'✓' if stats['phase1_action_decomposition']['final_success'] else '✗'} ({stats['phase1_action_decomposition']['final_success_ratio']:.1%})")
+        logger.info(f"  Phase 2 (Compilation Check): {'✓' if stats['phase2_compilation']['success'] else '✗'}")
+        logger.info(f"  Phase 3 (Runtime Check): {'✓' if stats['phase3_runtime']['success'] else '✗'}")
+        
+        p4_stats = stats['phase4_manual_invariant']
+        if p4_stats['total_invariants'] > 0:
+            logger.info(f"  Phase 4 (Manual Invariants): {'✓' if p4_stats['success'] else '✗'} ({p4_stats['passed_invariants']}/{p4_stats['total_invariants']}, {p4_stats['success_ratio']:.1%})")
+            if p4_stats['failed_invariants']:
+                logger.info(f"    Failed Invariants: {', '.join(p4_stats['failed_invariants'])}")
+        else:
+            logger.info(f"  Phase 4 (Manual Invariants): ⚠ NOT EXECUTED")
+        
+        logger.info("=" * 70)
 
 
 # Convenience function for backward compatibility
@@ -646,3 +818,4 @@ def create_composite_evaluator(validation_timeout: int = 30,
         invariant_iterations=invariant_iterations,
         keep_temp_files=keep_temp_files
     )
+
