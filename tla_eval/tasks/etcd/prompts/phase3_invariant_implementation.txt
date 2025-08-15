@@ -58,5 +58,10 @@ $invariant_templates
 - For complex invariants, you may use multiline format within the JSON string (use actual line breaks)
 - For simple invariants, single line format is preferred
 - **LAST RESORT**: Only omit an invariant if its core concept is fundamentally incompatible with the specification's design
-- Properly escape backslashes in JSON strings (use \\ for TLA+ \)
+- **CRITICAL JSON ESCAPING RULES**: 
+  - TLA+ operators like `\A`, `\E`, `\in` contain ONE backslash in the final TLA+ code
+  - In JSON strings, use EXACTLY ONE backslash escape: write `"\\A"` to get `\A` in TLA+
+  - **DO NOT double-escape**: `"\\\\A"` is WRONG and will produce `\\A` in TLA+
+  - **CORRECT**: `"LeaderUniqueness == \\A term \\in 1..MaxTerm : state[term] = \"leader\""`
+  - **WRONG**: `"LeaderUniqueness == \\\\A term \\\\in 1..MaxTerm : state[term] = \"leader\""`
 - Start your response immediately with the opening brace {

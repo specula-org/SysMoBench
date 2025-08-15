@@ -45,3 +45,6 @@ CRITICAL OUTPUT REQUIREMENTS:
 5. End your response with the closing ====
 6. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
 7. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags
+8. **MANDATORY Spec Definition with Weak Fairness**: The Spec definition MUST include weak fairness for progress guarantees. Use the pattern:
+   Spec == Init /\ [][Next]_Vars /\ WF_Vars(Next)
+   (Replace "Vars" and "Next" with your actual variable tuple and next-state action names)

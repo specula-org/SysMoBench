@@ -27,7 +27,6 @@ invariants:
       NoDeadlock ==
         \A p \in Proc : (pc[p] = "spinning") => (lock_state = TRUE)
 
-  # Asterinas-Specific Invariants (unique to dual-interface design)
   - name: "TryLockNoSpinning"
     type: "safety"
     natural_language: "try_lock() operations never enter the spinning state - they succeed or fail immediately"
@@ -35,7 +34,7 @@ invariants:
     tla_example: |
       TryLockNoSpinning ==
         \A p \in Proc : 
-          pc[p] = "req_try_lock" => pc[p]' \in {"in_cs", "idle"}
+          pc[p] = "req_try_lock" => thread_state[p] \notin {"trying", "spinning"}
 
   - name: "BlockingVsNonBlockingSemantics"
     type: "safety"
@@ -57,18 +56,16 @@ invariants:
           pc[p] = "in_cs" => <>(pc[p] = "idle")
 
   # Generic Liveness Property
-  - name: "EventualAcquisition"
+  - name: "EventualRelease"
     type: "liveness"
-    natural_language: "A process using blocking lock() will eventually acquire the lock under fair scheduling"
-    formal_description: "Under fair scheduling, any process requesting a blocking lock will eventually succeed"
+    natural_language: "A process using blocking lock() will eventually release the lock under fair scheduling"
+    formal_description: "Under fair scheduling, any process that has acquired a lock will eventually release it"
     tla_example: |
-      EventualAcquisition ==
-        \A p \in Proc :
-          (pc[p] \in {"req_lock", "spinning"}) ~> (pc[p] = "in_cs")
+      EventualRelease == \A t \in Threads : (thread_state[t] = "locked") ~> (thread_state[t] = "idle")
 
 metadata:
   total_invariants: 7
   safety_invariants: 6
   liveness_invariants: 1
-  generic_invariants: 4  # MutualExclusion, LockConsistency, NoDeadlock, EventualAcquisition
+  generic_invariants: 4  # MutualExclusion, LockConsistency, NoDeadlock, EventualRelease
   asterinas_specific_invariants: 3  # TryLockNoSpinning, BlockingVsNonBlockingSemantics, GuardLifecycle

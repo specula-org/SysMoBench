@@ -36,6 +36,7 @@ Key considerations for spinlock correctness:
 3. Fix any syntax errors while preserving the spinlock logic
 4. Ensure all variables and operators are properly declared
 5. Preserve busy-waiting and lock-free semantics
+6. **MANDATORY**: Include weak fairness in Spec definition using pattern: Spec == Init /\ [][Next]_Vars /\ WF_Vars(Next)
 
 CRITICAL OUTPUT REQUIREMENTS:
 1. The MODULE name must remain exactly "spin" (---- MODULE spin ----)
