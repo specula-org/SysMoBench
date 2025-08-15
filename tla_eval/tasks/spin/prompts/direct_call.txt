@@ -44,3 +44,4 @@ CRITICAL OUTPUT REQUIREMENTS:
 4. Start your response directly with: ---- MODULE spin ----
 5. End your response with the closing ====
 6. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
+7. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags

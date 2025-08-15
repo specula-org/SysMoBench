@@ -371,27 +371,46 @@ class ManualInvariantEvaluator(BaseEvaluator):
             logger.info("Step 3: Testing invariants with TLC...")
             invariant_results = []
             
-            for template in templates:
+            for i, template in enumerate(templates, 1):
                 if template.name not in translated_invariants:
                     logger.warning(f"Invariant {template.name} was not translated, skipping")
                     continue
                 
+                logger.info(f"=== TESTING INVARIANT {i}/{len(templates)}: {template.name} ===")
                 invariant_test_result = self._test_single_invariant(
                     template, translated_invariants[template.name],
                     generation_result.generated_text, output_dir, spec_module or task_name,
                     task_name, model_name
                 )
+                
+                # Print detailed results for each invariant test
+                logger.info(f"INVARIANT {i} RESULT: {template.name}")
+                logger.info(f"  Success: {invariant_test_result.success}")
+                logger.info(f"  States explored: {invariant_test_result.states_explored}")
+                logger.info(f"  Verification time: {invariant_test_result.verification_time:.2f}s")
+                if invariant_test_result.error_message:
+                    logger.info(f"  Error: {invariant_test_result.error_message}")
+                logger.info(f"  Translated invariant: {invariant_test_result.translated_invariant}")
+                logger.info(f"  TLC OUTPUT START ===")
+                logger.info(invariant_test_result.tlc_output)
+                logger.info(f"  TLC OUTPUT END ===")
+                logger.info("")
+                
                 invariant_results.append(invariant_test_result)
             
             # Step 4: Aggregate results
             result.model_checking_successful = any(r.success for r in invariant_results)
             result.model_checking_time = sum(r.verification_time for r in invariant_results)
             
-            # Set overall success
+            # Set overall success - all invariants must pass
+            passed_count = sum(1 for r in invariant_results if r.success)
+            total_count = len(invariant_results)
+            
             result.overall_success = (
                 result.invariant_generation_successful and
                 result.model_checking_successful and
-                len(invariant_results) > 0
+                total_count > 0 and
+                passed_count == total_count  # All invariants must pass
             )
             
             # Store detailed results
@@ -412,9 +431,25 @@ class ManualInvariantEvaluator(BaseEvaluator):
                 "failed_invariants": sum(1 for r in invariant_results if not r.success)
             }
             
-            # Log summary
+            # Log detailed summary
             passed = result.custom_data["passed_invariants"] 
             total = len(invariant_results)
+            
+            logger.info("=== MANUAL INVARIANT VERIFICATION FINAL SUMMARY ===")
+            logger.info(f"Total invariants tested: {total}")
+            logger.info(f"Passed invariants: {passed}")
+            logger.info(f"Failed invariants: {total - passed}")
+            
+            # List all results by name
+            for i, inv_result in enumerate(invariant_results, 1):
+                status = "✓ PASS" if inv_result.success else "✗ FAIL"
+                logger.info(f"  {i}. {inv_result.name}: {status}")
+            
+            # Show final judgment logic
+            logger.info(f"Invariant generation successful: {result.invariant_generation_successful}")
+            logger.info(f"Model checking successful: {result.model_checking_successful}")
+            logger.info(f"All invariants passed: {passed == total}")
+            logger.info(f"Overall success: {result.overall_success}")
             logger.info(f"Manual invariant testing: {passed}/{total} invariants passed")
             
             return result

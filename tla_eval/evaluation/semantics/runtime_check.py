@@ -273,6 +273,18 @@ class TLCRunner:
             if "Deadlock reached" in line or "deadlock" in line.lower():
                 deadlock_found = True
             
+            # Check for TLA+ specification errors
+            if "Error:" in line:
+                violations.append(f"TLA+ Error: {line}")
+            
+            # Check for variable definition errors
+            if "not completely specified" in line or "variables are not defined" in line:
+                violations.append(f"Variable definition error: {line}")
+            
+            # Check for other semantic errors
+            if "The following variables are not defined" in line:
+                violations.append(f"Undefined variables: {line}")
+            
             # Extract states explored
             if "states generated" in line.lower():
                 import re

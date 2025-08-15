@@ -73,7 +73,7 @@ $invariant_templates
 - **CREATIVE ADAPTATION**: Do NOT simply omit invariants - find creative ways to express the same property using available specification elements
 - **COMPLETENESS**: Aim to translate ALL invariants by understanding their semantic intent, not just their syntactic form
 - Use ONLY variables, constants, and operators that exist in the provided specification
-- Use EXACTLY the invariant names from the templates (MutualExclusion, LockConsistency, DeadlockFreedom, AtomicityProperty, EventualAcquisition)
+- Use EXACTLY the invariant names from the templates (MutualExclusion, LockConsistency, NoDeadlock, TryLockNoSpinning, BlockingVsNonBlockingSemantics, GuardLifecycle, EventualAcquisition)
 - Return ONLY valid JSON, no explanatory text before or after
 - Each array element must be a complete TLA+ invariant definition: "InvariantName == <expression>"
 - For complex invariants, you may use multiline format within the JSON string (use actual line breaks)

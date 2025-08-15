@@ -117,8 +117,9 @@ class GenAIAdapter(ModelAdapter):
                 
                 # Check if this is a retryable empty response error
                 is_empty_response = (
-                    "empty text response" in error_str and 
-                    ("finish_reason: stop" in error_str or "stop" in error_str)
+                    ("empty text response" in error_str and 
+                     ("finish_reason: stop" in error_str or "stop" in error_str)) or
+                    "empty or invalid response from genai" in error_str
                 )
                 
                 if is_empty_response and attempt < max_retries:

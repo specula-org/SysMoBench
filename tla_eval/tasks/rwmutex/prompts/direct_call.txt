@@ -27,3 +27,4 @@ CRITICAL OUTPUT REQUIREMENTS:
 3. Do not include any explanations, comments, or formatting markers
 4. Start your response directly with: ---- MODULE rwmutex ----
 5. End your response with the closing ====
+6. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags

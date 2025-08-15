@@ -50,7 +50,7 @@ class CompositeEvaluator(BaseEvaluator):
             max_correction_attempts: Maximum number of global correction attempts
         """
         super().__init__(timeout=validation_timeout)
-        self.invariant_iterations = invariant_iterations
+        self.max_iterations = invariant_iterations
         self.keep_temp_files = keep_temp_files
         self.max_correction_attempts = max_correction_attempts
         
@@ -78,28 +78,30 @@ class CompositeEvaluator(BaseEvaluator):
                 task=None,
                 method=None) -> CompositeEvaluationResult:
         """
-        Perform comprehensive evaluation using multiple metrics with iterative improvement.
+        Perform comprehensive evaluation using 3-iteration approach.
         
-        Process:
-        1. Use provided initial TLA+ specification
-        2. Action decomposition: evaluate only (no correction)
-        3. Compilation check: evaluate → fix if failed (global max 3 corrections)
-        4. Invariant verification: evaluate → fix if failed (global max 3 corrections)
+        Workflow:
+        - Up to 3 complete iterations, each containing:
+          1. Action Decomposition
+          2. Compilation Check  
+          3. Runtime Check
+        - If any iteration succeeds (all 3 phases pass), run Manual Invariant Verification
+        - If iteration fails, collect errors and generate correction for next iteration
         
         Args:
-            generation_result: Initial generation result to use as starting point
-            task_name: Name of the task
+            generation_result: Initial TLA+ specification generation result
+            task_name: Name of the task being evaluated
             method_name: Name of the generation method
-            model_name: Name of the model used
-            spec_module: Optional TLA+ module name for the specification
-            task: Task object (for potential corrections)
-            method: Method object (for potential corrections)
+            model_name: Name of the language model
+            spec_module: Optional specification module name
+            task: Task object for corrections (required for correction functionality)
+            method: Method object for corrections (required for correction functionality)
             
         Returns:
-            CompositeEvaluationResult with iterative evaluation results
+            CompositeEvaluationResult: Comprehensive evaluation results
         """
         logger.info(f"Starting composite evaluation: {task_name}/{method_name}/{model_name}")
-        logger.info(f"Process: Initial specification → Action decomposition (eval only) → Compilation check (eval+fix) → Invariant verification (eval+fix)")
+        logger.info(f"Process: Up to {self.max_iterations} iterations of [Action Decomposition → Compilation Check → Runtime Check]")
         start_time = time.time()
         
         # Create composite result
@@ -121,90 +123,146 @@ class CompositeEvaluator(BaseEvaluator):
         current_spec = generation_result.generated_text
         current_generation_result = generation_result
         
-        # Global correction counter (shared across all phases)
-        global_correction_attempts = 0
-        max_global_corrections = self.max_correction_attempts
-        
         # Track results for each iteration
-        action_results_history = []
-        compilation_success_round = None
-        invariant_success_round = None
+        iteration_results = []
+        successful_iteration = None
         
         try:
-            # Step 1: Initial Action Decomposition evaluation
-            logger.info(f"Step 1/3: Action decomposition evaluation (Round 1/3)")
-            
-            try:
-                # Evaluate initial specification
-                action_result = self.action_evaluator.evaluate(
-                    current_generation_result, task_name, method_name, model_name, spec_module
-                )
+            # Run up to max_iterations complete evaluations
+            for iteration in range(1, self.max_iterations + 1):
+                logger.info(f"=== Iteration {iteration}/{self.max_iterations} ===")
                 
-                action_results_history.append({
-                    'round': 1,
-                    'result': action_result,
-                    'successful_actions': getattr(action_result, 'successful_actions', 0),
-                    'total_actions': getattr(action_result, 'total_actions', 0),
-                    'success_rate': getattr(action_result, 'action_success_rate', 0.0)
-                })
+                iteration_data = {
+                    'iteration': iteration,
+                    'action_result': None,
+                    'compilation_result': None,
+                    'runtime_result': None,
+                    'success': False,
+                    'errors': []
+                }
                 
-                success_rate = getattr(action_result, 'action_success_rate', 0.0) * 100
-                success_status = "✓ PASS" if action_result.overall_success else "✗ FAIL"
-                logger.info(f"Action decomposition Round 1: {success_status} ({success_rate:.1f}% actions successful)")
-                
-                # Store initial action decomposition result
-                composite_result.action_decomposition_result = action_result
-                
-            except Exception as e:
-                logger.error(f"Action decomposition evaluation failed: {e}")
-                # Create a failed result to continue with next phases
-                from ..base.result_types import SyntaxEvaluationResult
-                action_result = SyntaxEvaluationResult(task_name, method_name, model_name)
-                action_result.overall_success = False
-                action_result.generation_error = str(e)
-                action_results_history.append({
-                    'round': 1,
-                    'result': action_result,
-                    'successful_actions': 0,
-                    'total_actions': 0,
-                    'success_rate': 0.0,
-                    'error': str(e)
-                })
-                composite_result.action_decomposition_result = action_result
-            
-            # Step 2: Compilation Check - Evaluation and correction if needed
-            logger.info(f"Step 2/3: Compilation check evaluation")
-            
-            # Check for consistency: if Action failed but need to check Compilation
-            action_failed = not composite_result.action_decomposition_result.overall_success
-            
-            try:
-                # Evaluate current specification
-                compilation_result = self.compilation_evaluator.evaluate(
-                    current_generation_result, task_name, method_name, model_name, spec_module
-                )
-                
-                success_status = "✓ PASS" if compilation_result.overall_success else "✗ FAIL"
-                logger.info(f"Compilation check result: {success_status}")
-                
-                # Check for unexpected success case
-                if action_failed and compilation_result.overall_success:
-                    logger.error("✗ CONSISTENCY ERROR: Action decomposition failed but compilation succeeded - this violates expectations!")
-                    composite_result.overall_success = False
-                    composite_result.compilation_check_result = compilation_result
-                    return composite_result
-                
-                # Store initial compilation result
-                composite_result.compilation_check_result = compilation_result
-                
-                # If compilation failed, attempt corrections
-                if not compilation_result.overall_success:
-                    logger.info(f"Compilation failed, attempting corrections (max {max_global_corrections - global_correction_attempts} remaining)")
+                # Phase 1: Action Decomposition
+                logger.info(f"Iteration {iteration} - Phase 1/3: Action Decomposition")
+                try:
+                    action_result = self.action_evaluator.evaluate(
+                        current_generation_result, task_name, method_name, model_name, spec_module
+                    )
+                    iteration_data['action_result'] = action_result
                     
-                    while global_correction_attempts < max_global_corrections:
+                    success_rate = getattr(action_result, 'action_success_rate', 0.0) * 100
+                    success_status = "✓ PASS" if action_result.overall_success else "✗ FAIL"
+                    logger.info(f"  Action Decomposition: {success_status} ({success_rate:.1f}% actions successful)")
+                    
+                    if not action_result.overall_success:
+                        iteration_data['errors'].append(f"Action decomposition failed: {getattr(action_result, 'generation_error', 'Unknown error')}")
+                        
+                except Exception as e:
+                    logger.error(f"  Action Decomposition failed with exception: {e}")
+                    from ..base.result_types import SyntaxEvaluationResult
+                    action_result = SyntaxEvaluationResult(task_name, method_name, model_name)
+                    action_result.overall_success = False
+                    action_result.generation_error = str(e)
+                    iteration_data['action_result'] = action_result
+                    iteration_data['errors'].append(f"Action decomposition exception: {str(e)}")
+                
+                # Phase 2: Compilation Check
+                logger.info(f"Iteration {iteration} - Phase 2/3: Compilation Check")
+                try:
+                    compilation_result = self.compilation_evaluator.evaluate(
+                        current_generation_result, task_name, method_name, model_name, spec_module
+                    )
+                    iteration_data['compilation_result'] = compilation_result
+                    
+                    success_status = "✓ PASS" if compilation_result.overall_success else "✗ FAIL"
+                    logger.info(f"  Compilation Check: {success_status}")
+                    
+                    if not compilation_result.overall_success:
+                        errors = compilation_result.syntax_errors + compilation_result.semantic_errors
+                        iteration_data['errors'].extend([f"Compilation error: {err}" for err in errors])
+                        
+                except Exception as e:
+                    logger.error(f"  Compilation Check failed with exception: {e}")
+                    from ..base.result_types import SyntaxEvaluationResult
+                    compilation_result = SyntaxEvaluationResult(task_name, method_name, model_name)
+                    compilation_result.overall_success = False
+                    compilation_result.generation_error = str(e)
+                    iteration_data['compilation_result'] = compilation_result
+                    iteration_data['errors'].append(f"Compilation exception: {str(e)}")
+                
+                # Phase 3: Runtime Check (only if compilation passed)
+                if compilation_result.overall_success:
+                    logger.info(f"Iteration {iteration} - Phase 3/3: Runtime Check")
+                    try:
+                        runtime_result = self.runtime_check_evaluator.evaluate(
+                            current_generation_result, task_name, method_name, model_name, spec_module
+                        )
+                        iteration_data['runtime_result'] = runtime_result
+                        
+                        success_status = "✓ PASS" if runtime_result.overall_success else "✗ FAIL"
+                        logger.info(f"  Runtime Check: {success_status}")
+                        
+                        if not runtime_result.overall_success:
+                            error_msg = getattr(runtime_result, 'error_message', 'Runtime check failed')
+                            iteration_data['errors'].append(f"Runtime error: {error_msg}")
+                            
+                    except Exception as e:
+                        logger.error(f"  Runtime Check failed with exception: {e}")
+                        from ..base.result_types import SemanticEvaluationResult
+                        runtime_result = SemanticEvaluationResult(task_name, method_name, model_name)
+                        runtime_result.overall_success = False
+                        runtime_result.generation_error = str(e)
+                        iteration_data['runtime_result'] = runtime_result
+                        iteration_data['errors'].append(f"Runtime exception: {str(e)}")
+                else:
+                    logger.info(f"Iteration {iteration} - Phase 3/3: Runtime Check (SKIPPED - compilation failed)")
+                    runtime_result = None
+                    iteration_data['runtime_result'] = None
+                
+                # Check if this iteration succeeded
+                iteration_success = (
+                    action_result.overall_success and 
+                    compilation_result.overall_success and 
+                    runtime_result is not None and 
+                    runtime_result.overall_success
+                )
+                
+                iteration_data['success'] = iteration_success
+                iteration_results.append(iteration_data)
+                
+                # Log iteration summary
+                if iteration_success:
+                    logger.info(f"Iteration {iteration}: ✓ SUCCESS (all phases passed)")
+                    successful_iteration = iteration
+                    
+                    # Store the successful results
+                    composite_result.action_decomposition_result = action_result
+                    composite_result.compilation_check_result = compilation_result
+                    composite_result.runtime_check_result = runtime_result
+                    break
+                else:
+                    failed_phases = []
+                    if not action_result.overall_success:
+                        failed_phases.append("Action")
+                    if not compilation_result.overall_success:
+                        failed_phases.append("Compilation")
+                    if runtime_result is None:
+                        failed_phases.append("Runtime(SKIPPED)")
+                    elif not runtime_result.overall_success:
+                        failed_phases.append("Runtime")
+                    
+                    logger.info(f"Iteration {iteration}: ✗ FAILED ({', '.join(failed_phases)} failed)")
+                    
+                    # Store the latest results (even if failed)
+                    composite_result.action_decomposition_result = action_result
+                    composite_result.compilation_check_result = compilation_result
+                    if runtime_result is not None:
+                        composite_result.runtime_check_result = runtime_result
+                    
+                    # If not the last iteration, attempt correction
+                    if iteration < self.max_iterations:
                         if task is not None and method is not None and hasattr(method, '_generate_correction'):
-                            logger.info(f"Correction attempt {global_correction_attempts + 1}/{max_global_corrections}")
-                            all_errors = compilation_result.syntax_errors + compilation_result.semantic_errors
+                            logger.info(f"Generating correction for iteration {iteration + 1}...")
+                            all_errors = iteration_data['errors']
                             logger.info(f"Errors to fix: {len(all_errors)}")
                             
                             try:
@@ -214,7 +272,6 @@ class CompositeEvaluator(BaseEvaluator):
                                 
                                 # Use agent_based's correction method
                                 correction_result = method._generate_correction(task, current_spec, all_errors, model_obj)
-                                global_correction_attempts += 1
                                 
                                 if correction_result.success:
                                     current_spec = correction_result.generated_text
@@ -224,219 +281,78 @@ class CompositeEvaluator(BaseEvaluator):
                                         timestamp=time.time(),
                                         success=True
                                     )
-                                    logger.info(f"✓ Specification corrected (attempt {global_correction_attempts})")
-                                    
-                                    # Re-evaluate Action Decomposition with corrected spec
-                                    if global_correction_attempts <= 2:  # Only do this for first 2 corrections to get 3 rounds total
-                                        round_num = global_correction_attempts + 1
-                                        logger.info(f"Re-evaluating Action Decomposition (Round {round_num}/3)")
-                                        
-                                        try:
-                                            action_result_new = self.action_evaluator.evaluate(
-                                                current_generation_result, task_name, method_name, model_name, spec_module
-                                            )
-                                            
-                                            action_results_history.append({
-                                                'round': round_num,
-                                                'result': action_result_new,
-                                                'successful_actions': getattr(action_result_new, 'successful_actions', 0),
-                                                'total_actions': getattr(action_result_new, 'total_actions', 0),
-                                                'success_rate': getattr(action_result_new, 'action_success_rate', 0.0)
-                                            })
-                                            
-                                            success_rate = getattr(action_result_new, 'action_success_rate', 0.0) * 100
-                                            success_status = "✓ PASS" if action_result_new.overall_success else "✗ FAIL"
-                                            logger.info(f"Action decomposition Round {round_num}: {success_status} ({success_rate:.1f}% actions successful)")
-                                            
-                                        except Exception as action_error:
-                                            logger.error(f"Action decomposition re-evaluation failed: {action_error}")
-                                            action_results_history.append({
-                                                'round': round_num,
-                                                'result': None,
-                                                'successful_actions': 0,
-                                                'total_actions': 0,
-                                                'success_rate': 0.0,
-                                                'error': str(action_error)
-                                            })
-                                    
-                                    # Re-evaluate with corrected spec
-                                    compilation_result = self.compilation_evaluator.evaluate(
-                                        current_generation_result, task_name, method_name, model_name, spec_module
-                                    )
-                                    composite_result.compilation_check_result = compilation_result
-                                    
-                                    if compilation_result.overall_success:
-                                        compilation_success_round = global_correction_attempts
-                                        logger.info(f"✓ Compilation check passed after correction (Round {compilation_success_round})")
-                                        break
+                                    logger.info(f"✓ Specification corrected for iteration {iteration + 1}")
                                 else:
-                                    logger.warning(f"✗ Correction attempt {global_correction_attempts} failed: {correction_result.error_message}")
-                                    break
+                                    logger.warning(f"✗ Correction failed, using original spec for iteration {iteration + 1}")
                                     
-                            except Exception as fix_error:
-                                logger.error(f"Error during correction attempt {global_correction_attempts + 1}: {fix_error}")
-                                global_correction_attempts += 1
-                                break
+                            except Exception as e:
+                                logger.error(f"Correction attempt failed: {e}")
                         else:
-                            logger.warning(f"Cannot perform corrections - agent_based method not available")
-                            break
-                
-            except Exception as e:
-                logger.error(f"Compilation check evaluation failed: {e}")
-                # Create a failed result to continue with next phases
-                from ..base.result_types import SyntaxEvaluationResult
-                compilation_result = SyntaxEvaluationResult(task_name, method_name, model_name)
-                compilation_result.overall_success = False
-                compilation_result.generation_error = str(e)
-                composite_result.compilation_check_result = compilation_result
+                            logger.warning(f"Cannot perform corrections - missing task/method objects or correction capability")
             
-            # Step 3: Runtime Check - Only if both previous phases passed
-            action_passed = composite_result.action_decomposition_result.overall_success
-            compilation_passed = composite_result.compilation_check_result.overall_success
-            
-            if action_passed and compilation_passed:
-                logger.info(f"Step 3/4: Runtime check (both previous phases passed)")
+            # Step 4: Manual Invariant Verification (only if we had a successful iteration)
+            if successful_iteration is not None:
+                logger.info(f"Running Manual Invariant Verification (iteration {successful_iteration} succeeded)")
                 
                 try:
-                    # Evaluate current specification
-                    inv_result = self.runtime_check_evaluator.evaluate(
+                    manual_result = self.manual_invariant_evaluator.evaluate(
                         current_generation_result, task_name, method_name, model_name, spec_module
                     )
-                    composite_result.runtime_check_results.append(inv_result)
                     
-                    success_status = "✓ PASS" if inv_result.overall_success else "✗ FAIL"
-                    logger.info(f"Runtime check result: {success_status}")
+                    success_status = "✓ PASS" if manual_result.overall_success else "✗ FAIL"
+                    logger.info(f"Manual Invariant Verification: {success_status}")
                     
-                    # Record success if first attempt succeeds
-                    if inv_result.overall_success:
-                        invariant_success_round = 0  # Success on first attempt (before any corrections)
-                    
-                    # If failed, attempt corrections using remaining global attempts
-                    if not inv_result.overall_success:
-                        logger.info(f"Runtime check failed, attempting corrections (max {max_global_corrections - global_correction_attempts} remaining)")
-                        
-                        while global_correction_attempts < max_global_corrections:
-                            if task is not None and method is not None and hasattr(method, '_generate_correction'):
-                                logger.info(f"Correction attempt {global_correction_attempts + 1}/{max_global_corrections}")
-                                
-                                # Collect all errors from runtime check
-                                all_errors = []
-                                if hasattr(inv_result, 'invariant_generation_error') and inv_result.invariant_generation_error:
-                                    all_errors.append(f"Invariant generation: {inv_result.invariant_generation_error}")
-                                if hasattr(inv_result, 'config_generation_error') and inv_result.config_generation_error:
-                                    all_errors.append(f"Config generation: {inv_result.config_generation_error}")
-                                if hasattr(inv_result, 'model_checking_error') and inv_result.model_checking_error:
-                                    all_errors.append(f"Model checking: {inv_result.model_checking_error}")
-                                if hasattr(inv_result, 'invariant_violations') and inv_result.invariant_violations:
-                                    all_errors.extend([f"Violation: {v}" for v in inv_result.invariant_violations])
-                                
-                                logger.info(f"Errors to fix: {len(all_errors)}")
-                                
-                                try:
-                                    # Get the model for correction
-                                    from ...config import get_configured_model
-                                    model_obj = get_configured_model(model_name)
-                                    
-                                    # Use agent_based's correction method
-                                    correction_result = method._generate_correction(task, current_spec, all_errors, model_obj)
-                                    global_correction_attempts += 1
-                                    
-                                    if correction_result.success:
-                                        current_spec = correction_result.generated_text
-                                        current_generation_result = GenerationResult(
-                                            generated_text=current_spec,
-                                            metadata=correction_result.metadata,
-                                            timestamp=time.time(),
-                                            success=True
-                                        )
-                                        logger.info(f"✓ Specification corrected (attempt {global_correction_attempts})")
-                                        
-                                        # Re-evaluate with corrected spec
-                                        inv_result = self.runtime_check_evaluator.evaluate(
-                                            current_generation_result, task_name, method_name, model_name, spec_module
-                                        )
-                                        composite_result.runtime_check_results[-1] = inv_result
-                                        
-                                        if inv_result.overall_success:
-                                            invariant_success_round = global_correction_attempts
-                                            logger.info(f"✓ Runtime check passed after correction (Round {invariant_success_round})")
-                                            break
-                                    else:
-                                        logger.warning(f"✗ Correction attempt {global_correction_attempts} failed: {correction_result.error_message}")
-                                        break
-                                        
-                                except Exception as fix_error:
-                                    logger.error(f"Error during correction attempt {global_correction_attempts + 1}: {fix_error}")
-                                    global_correction_attempts += 1
-                                    break
-                            else:
-                                logger.warning(f"Cannot perform corrections - agent_based method not available")
-                                break
-                    
-                except Exception as e:
-                    logger.error(f"Runtime check evaluation failed: {e}")
-                    # Create a failed result
-                    from ..base.result_types import SemanticEvaluationResult
-                    inv_result = SemanticEvaluationResult(task_name, method_name, model_name)
-                    inv_result.overall_success = False
-                    inv_result.error_message = str(e)
-                    composite_result.runtime_check_results.append(inv_result)
-            else:
-                logger.info(f"Step 3/4: Skipping runtime check (prerequisites not met: action={action_passed}, compilation={compilation_passed})")
-            
-            # Step 4: Manual Invariant Verification - Only if all previous phases passed
-            action_passed = composite_result.action_decomposition_result.overall_success
-            compilation_passed = composite_result.compilation_check_result.overall_success
-            runtime_passed = any(r.overall_success for r in composite_result.runtime_check_results)
-            
-            if action_passed and compilation_passed and runtime_passed:
-                logger.info(f"Step 4/4: Manual invariant verification (all previous phases passed)")
-                
-                try:
-                    # Evaluate current specification with manual invariants
-                    manual_inv_result = self.manual_invariant_evaluator.evaluate(
-                        current_generation_result, task_name, method_name, model_name, spec_module
-                    )
-                    composite_result.manual_invariant_result = manual_inv_result
-                    
-                    success_status = "✓ PASS" if manual_inv_result.overall_success else "✗ FAIL"
-                    total_invariants = manual_inv_result.custom_data.get('total_invariants', 0) if manual_inv_result.custom_data else 0
-                    passed_invariants = manual_inv_result.custom_data.get('passed_invariants', 0) if manual_inv_result.custom_data else 0
-                    logger.info(f"Manual invariant verification: {success_status} ({passed_invariants}/{total_invariants} invariants passed)")
+                    composite_result.manual_invariant_result = manual_result
                     
                 except Exception as e:
                     logger.error(f"Manual invariant verification failed: {e}")
                     from ..base.result_types import SemanticEvaluationResult
-                    manual_inv_result = SemanticEvaluationResult(task_name, method_name, model_name)
-                    manual_inv_result.overall_success = False
-                    manual_inv_result.error_message = str(e)
-                    composite_result.manual_invariant_result = manual_inv_result
+                    manual_result = SemanticEvaluationResult(task_name, method_name, model_name)
+                    manual_result.overall_success = False
+                    manual_result.generation_error = str(e)
+                    composite_result.manual_invariant_result = manual_result
             else:
-                logger.info(f"Step 4/4: Skipping manual invariant verification (prerequisites not met: action={action_passed}, compilation={compilation_passed}, runtime={runtime_passed})")
-                
-            # Update the final specification in the composite result
-            composite_result.generated_specification = current_spec
+                logger.info(f"Skipping Manual Invariant Verification (no successful iteration)")
             
-            logger.info(f"Global correction attempts used: {global_correction_attempts}/{max_global_corrections}")
+            # Determine overall success
+            composite_result.overall_success = successful_iteration is not None
             
-            # Calculate overall generation statistics across all iterations
-            self._calculate_composite_generation_stats(composite_result)
+            # Log final summary
+            logger.info(f"Composite evaluation summary: {len(iteration_results)} iterations, {'success' if successful_iteration else 'failure'}")
             
-            # Calculate overall success
-            composite_result.overall_success = self._calculate_overall_success(composite_result)
+            # Create output directory and save results
+            output_manager = get_output_manager()
+            output_dir = output_manager.create_experiment_dir("composite", task_name, method_name, model_name)
             
-            # Create output directory and save results first
-            output_dir = self._create_output_directory(task_name, method_name, model_name)
+            # Print evaluation summary
+            self._print_evaluation_summary_new(
+                iteration_results, successful_iteration, composite_result, output_dir
+            )
             
-            # Print detailed summary report with output_dir for JSON export
-            self._print_evaluation_summary(action_results_history, compilation_success_round, invariant_success_round, global_correction_attempts, composite_result, output_dir=output_dir)
+            # Save composite result
+            composite_result.output_directory = output_dir
             
-            # Save composite results to the already created directory
-            self._save_composite_results(composite_result, output_dir)
+            # Prepare result data and metadata for saving
+            result_data = {
+                'overall_success': composite_result.overall_success,
+                'generation_time': composite_result.generation_time,
+                'action_decomposition': getattr(composite_result, 'action_decomposition_result', None),
+                'compilation_check': getattr(composite_result, 'compilation_check_result', None),
+                'runtime_check': getattr(composite_result, 'runtime_check_result', None),
+                'manual_invariant': getattr(composite_result, 'manual_invariant_result', None)
+            }
             
-        except Exception as e:
-            logger.error(f"Composite evaluation error: {e}")
-            composite_result.overall_success = False
+            metadata = {
+                'task_name': task_name,
+                'method_name': method_name,
+                'model_name': model_name,
+                'timestamp': time.time(),
+                'successful_iteration': successful_iteration,
+                'total_iterations': len(iteration_results)
+            }
+            
+            output_manager.save_result(output_dir, result_data, metadata)
+            logger.info(f"Composite results saved to: {output_dir}")
         
         finally:
             # Results already saved in try block
@@ -593,6 +509,176 @@ class CompositeEvaluator(BaseEvaluator):
             model=model_name
         )
         return output_dir
+    
+    def _print_evaluation_summary_new(self, iteration_results, successful_iteration, composite_result, output_dir=None):
+        """Print detailed evaluation summary with results from all iterations."""
+        # Generate experiment data for JSON export
+        experiment_data = self._generate_experiment_data_new(
+            iteration_results, successful_iteration, composite_result
+        )
+        
+        # Save experiment data as JSON
+        if output_dir:
+            import json
+            json_file = f"{output_dir}/experiment_data.json"
+            with open(json_file, 'w') as f:
+                json.dump(experiment_data, f, indent=2)
+            logger.info(f"Experiment data saved to: {json_file}")
+        
+        # Extract summary information
+        summary = experiment_data['summary']
+        
+        # Print detailed summary with consistent formatting
+        logger.info("=" * 70)
+        logger.info("COMPOSITE EVALUATION SUMMARY")
+        logger.info("=" * 70)
+        
+        overall_status = "✓ SUCCESS" if summary['overall_success'] else "✗ FAILURE"
+        logger.info(f"📊 OVERALL RESULT: {overall_status}")
+        logger.info(f"📈 Total Iterations: {summary['total_iterations']}")
+        logger.info(f"⏱️  Generation Time: {summary['generation_time']:.1f}s")
+        logger.info(f"⏱️  Total Time: {summary['total_evaluation_time']:.1f}s")
+        logger.info("")
+        
+        # Iteration breakdown
+        logger.info("🔄 ITERATION BREAKDOWN:")
+        for iter_data in experiment_data['iterations']:
+            iter_num = iter_data['iteration']
+            action_status = "✓ PASS" if iter_data['phases']['action']['success'] else "✗ FAIL"
+            compile_status = "✓ PASS" if iter_data['phases']['compilation']['success'] else "✗ FAIL"
+            runtime_status = iter_data['phases']['runtime']['status']
+            
+            if runtime_status == "skipped":
+                runtime_display = "⚠ SKIPPED"
+            elif iter_data['phases']['runtime']['success']:
+                runtime_display = "✓ PASS"
+            else:
+                runtime_display = "✗ FAIL"
+            
+            logger.info(f"  Iteration {iter_num}:")
+            logger.info(f"    Phase 1 (Actions): {action_status} ({iter_data['phases']['action']['success_rate']:.1f}%)")
+            logger.info(f"    Phase 2 (Compile): {compile_status}")
+            logger.info(f"    Phase 3 (Runtime): {runtime_display}")
+        
+        logger.info("")
+        
+        # Final phase statistics
+        logger.info("📈 FINAL PHASE STATISTICS:")
+        if successful_iteration:
+            final_iter = next(iter_data for iter_data in experiment_data['iterations'] if iter_data['iteration'] == successful_iteration)
+            logger.info(f"  Phase 1 (Action Decomposition): ✓ ({final_iter['phases']['action']['success_rate']:.1f}%)")
+            logger.info(f"  Phase 2 (Compilation Check): ✓")
+            logger.info(f"  Phase 3 (Runtime Check): ✓")
+            
+            # Manual invariant results
+            if hasattr(composite_result, 'manual_invariant_result') and composite_result.manual_invariant_result:
+                manual_result = composite_result.manual_invariant_result
+                manual_status = "✓" if manual_result.overall_success else "✗"
+                logger.info(f"  Phase 4 (Manual Invariants): {manual_status}")
+            else:
+                logger.info(f"  Phase 4 (Manual Invariants): ⚠ NOT EXECUTED")
+        else:
+            # Show results from the last iteration
+            if iteration_results:
+                last_iter = iteration_results[-1]
+                action_status = "✓" if last_iter['action_result'] and last_iter['action_result'].overall_success else "✗"
+                compile_status = "✓" if last_iter['compilation_result'] and last_iter['compilation_result'].overall_success else "✗"
+                runtime_status = "✗" if last_iter['runtime_result'] and not last_iter['runtime_result'].overall_success else "⚠ NOT EXECUTED"
+                
+                logger.info(f"  Phase 1 (Action Decomposition): {action_status}")
+                logger.info(f"  Phase 2 (Compilation Check): {compile_status}")
+                logger.info(f"  Phase 3 (Runtime Check): {runtime_status}")
+                logger.info(f"  Phase 4 (Manual Invariants): ⚠ NOT EXECUTED")
+        
+        logger.info("=" * 70)
+    
+    def _generate_experiment_data_new(self, iteration_results, successful_iteration, composite_result):
+        """Generate structured experiment data for JSON export with new format."""
+        
+        # Calculate iteration statistics
+        total_iterations = len(iteration_results)
+        
+        # Phase results for each iteration
+        iterations_data = []
+        for iter_data in iteration_results:
+            iteration_num = iter_data['iteration']
+            
+            # Action decomposition data
+            action_result = iter_data['action_result']
+            action_success = action_result.overall_success if action_result else False
+            action_success_rate = getattr(action_result, 'action_success_rate', 0.0) * 100 if action_result else 0.0
+            
+            # Compilation data
+            compile_result = iter_data['compilation_result']
+            compile_success = compile_result.overall_success if compile_result else False
+            
+            # Runtime data
+            runtime_result = iter_data['runtime_result']
+            if runtime_result is None:
+                runtime_status = "skipped"
+                runtime_success = False
+            else:
+                runtime_status = "executed"
+                runtime_success = runtime_result.overall_success
+            
+            iterations_data.append({
+                'iteration': iteration_num,
+                'success': iter_data['success'],
+                'phases': {
+                    'action': {
+                        'success': action_success,
+                        'success_rate': action_success_rate,
+                        'total_actions': getattr(action_result, 'total_actions', 0) if action_result else 0,
+                        'successful_actions': getattr(action_result, 'successful_actions', 0) if action_result else 0
+                    },
+                    'compilation': {
+                        'success': compile_success
+                    },
+                    'runtime': {
+                        'status': runtime_status,
+                        'success': runtime_success
+                    }
+                },
+                'errors': iter_data.get('errors', [])
+            })
+        
+        # Manual invariant verification data
+        manual_inv_data = {}
+        if hasattr(composite_result, 'manual_invariant_result') and composite_result.manual_invariant_result:
+            manual_result = composite_result.manual_invariant_result
+            manual_inv_data = {
+                'executed': True,
+                'success': manual_result.overall_success,
+                'total_invariants': manual_result.custom_data.get('total_invariants', 0) if hasattr(manual_result, 'custom_data') and manual_result.custom_data else 0,
+                'passed_invariants': manual_result.custom_data.get('passed_invariants', 0) if hasattr(manual_result, 'custom_data') and manual_result.custom_data else 0,
+                'failed_invariants': manual_result.custom_data.get('failed_invariants', []) if hasattr(manual_result, 'custom_data') and manual_result.custom_data else []
+            }
+        else:
+            manual_inv_data = {
+                'executed': False,
+                'success': False,
+                'total_invariants': 0,
+                'passed_invariants': 0,
+                'failed_invariants': []
+            }
+        
+        return {
+            'summary': {
+                'overall_success': successful_iteration is not None,
+                'successful_iteration': successful_iteration,
+                'total_iterations': total_iterations,
+                'generation_time': composite_result.generation_time,
+                'total_evaluation_time': 0.0  # Will be filled by caller
+            },
+            'iterations': iterations_data,
+            'manual_invariant_verification': manual_inv_data,
+            'metadata': {
+                'task': getattr(composite_result, 'task_name', ''),
+                'method': getattr(composite_result, 'method_name', ''),
+                'model': getattr(composite_result, 'model_name', ''),
+                'timestamp': time.time()
+            }
+        }
     
     def _generate_experiment_data(self, action_results_history, compilation_success_round, 
                                 invariant_success_round, global_correction_attempts, composite_result):

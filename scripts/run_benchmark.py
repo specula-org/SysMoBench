@@ -187,24 +187,15 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
                 error_count = len(comp_result.syntax_errors) + len(comp_result.semantic_errors)
                 print(f"   Errors: {error_count} total")
         
-        # Show invariant verification results
-        if eval_result.runtime_check_results:
-            inv_results = eval_result.runtime_check_results
-            successful_iterations = sum(1 for r in inv_results if r.overall_success)
-            total_iterations = len(inv_results)
-            
-            inv_status = "✓ PASS" if successful_iterations > 0 else "✗ FAIL"
-            print(f"\nRuntime Check: {inv_status}")
-            print(f"   Iterations: {successful_iterations}/{total_iterations} successful")
-            
-            # Show details for each iteration
-            for i, inv_result in enumerate(inv_results, 1):
-                iter_status = "✓" if inv_result.overall_success else "✗"
-                print(f"   Iteration {i}: {iter_status} ({inv_result.states_explored} states)")
-                if inv_result.invariant_violations:
-                    print(f"      Violations: {len(inv_result.invariant_violations)}")
+        # Show runtime check results
+        if hasattr(eval_result, 'runtime_check_result') and eval_result.runtime_check_result:
+            runtime_result = eval_result.runtime_check_result
+            runtime_status = "✓ PASS" if runtime_result.overall_success else "✗ FAIL"
+            print(f"\nRuntime Check: {runtime_status}")
+            if hasattr(runtime_result, 'states_explored'):
+                print(f"   States explored: {runtime_result.states_explored}")
         else:
-            print(f"\nRuntime Check: SKIPPED (compilation failed)")
+            print(f"\nRuntime Check: SKIPPED")
         
         # Show manual invariant verification results
         if hasattr(eval_result, 'manual_invariant_result') and eval_result.manual_invariant_result:
@@ -220,7 +211,11 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
                 print(f"   Invariants: {passed_invariants}/{total_invariants} passed")
                 
                 if failed_invariants:
-                    print(f"   Failed: {', '.join(failed_invariants)}")
+                    # Ensure failed_invariants is iterable
+                    if isinstance(failed_invariants, (list, tuple)):
+                        print(f"   Failed: {', '.join(failed_invariants)}")
+                    else:
+                        print(f"   Failed: {failed_invariants}")
             else:
                 print(f"\nManual Invariant Verification: {manual_status}")
         else:
