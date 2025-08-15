@@ -194,7 +194,7 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
             total_iterations = len(inv_results)
             
             inv_status = "✓ PASS" if successful_iterations > 0 else "✗ FAIL"
-            print(f"\nInvariant Verification: {inv_status}")
+            print(f"\nRuntime Check: {inv_status}")
             print(f"   Iterations: {successful_iterations}/{total_iterations} successful")
             
             # Show details for each iteration
@@ -204,79 +204,41 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
                 if inv_result.invariant_violations:
                     print(f"      Violations: {len(inv_result.invariant_violations)}")
         else:
-            print(f"\nInvariant Verification: SKIPPED (compilation failed)")
+            print(f"\nRuntime Check: SKIPPED (compilation failed)")
+        
+        # Show manual invariant verification results
+        if hasattr(eval_result, 'manual_invariant_result') and eval_result.manual_invariant_result:
+            manual_result = eval_result.manual_invariant_result
+            manual_status = "✓ PASS" if manual_result.overall_success else "✗ FAIL"
+            
+            if manual_result.custom_data:
+                total_invariants = manual_result.custom_data.get('total_invariants', 0)
+                passed_invariants = manual_result.custom_data.get('passed_invariants', 0)
+                failed_invariants = manual_result.custom_data.get('failed_invariants', [])
+                
+                print(f"\nManual Invariant Verification: {manual_status}")
+                print(f"   Invariants: {passed_invariants}/{total_invariants} passed")
+                
+                if failed_invariants:
+                    print(f"   Failed: {', '.join(failed_invariants)}")
+            else:
+                print(f"\nManual Invariant Verification: {manual_status}")
+        else:
+            # Check if manual invariant verification was skipped due to prerequisites
+            action_passed = eval_result.action_decomposition_result and eval_result.action_decomposition_result.overall_success
+            compilation_passed = eval_result.compilation_check_result and eval_result.compilation_check_result.overall_success
+            runtime_passed = eval_result.runtime_check_results and any(r.overall_success for r in eval_result.runtime_check_results)
+            
+            if action_passed and compilation_passed and runtime_passed:
+                print(f"\nManual Invariant Verification: ERROR (should have run)")
+            else:
+                prereq_status = f"action={action_passed}, compilation={compilation_passed}, runtime={runtime_passed}"
+                print(f"\nManual Invariant Verification: SKIPPED ({prereq_status})")
         
         # Show file locations
         if hasattr(eval_result, 'output_directory'):
             print(f"\nResults saved to: {eval_result.output_directory}")
         
-        # Show detailed summary based on actual results
-        print(f"\nComposite Evaluation Summary:")
-        
-        # Generation summary
-        generation_data = eval_result.to_dict().get('generation', {})
-        generation_status = "PASS" if generation_data.get('successful', False) else "FAIL"
-        generation_time = generation_data.get('time_seconds', 0)
-        print(f"   Generation: {generation_status} ({generation_time:.1f}s)")
-        
-        # Action decomposition summary (single evaluation, no correction)
-        if hasattr(eval_result, 'action_decomposition_result') and eval_result.action_decomposition_result:
-            ad_result = eval_result.action_decomposition_result
-            ad_status = "PASS" if ad_result.overall_success else "FAIL"
-            
-            if hasattr(ad_result, 'successful_actions') and hasattr(ad_result, 'total_actions'):
-                actions_pass = ad_result.successful_actions
-                actions_total = ad_result.total_actions
-                print(f"   Action Decomposition: {ad_status} ({actions_pass}/{actions_total} actions)")
-            else:
-                print(f"   Action Decomposition: {ad_status}")
-        else:
-            print(f"   Action Decomposition: NOT RUN")
-        
-        # Compilation check summary (evaluation + potential correction)
-        if hasattr(eval_result, 'compilation_check_result') and eval_result.compilation_check_result:
-            cc_result = eval_result.compilation_check_result
-            cc_status = "PASS" if cc_result.overall_success else "FAIL"
-            
-            error_count = len(cc_result.syntax_errors) + len(cc_result.semantic_errors)
-            if error_count > 0:
-                print(f"   Compilation Check: {cc_status} ({error_count} errors)")
-            else:
-                print(f"   Compilation Check: {cc_status}")
-        else:
-            print(f"   Compilation Check: NOT RUN")
-        
-        # Invariant verification summary (conditional execution + potential correction)
-        if hasattr(eval_result, 'runtime_check_results') and eval_result.runtime_check_results:
-            # Get the final result (after potential corrections)
-            iv_result = eval_result.runtime_check_results[-1]
-            iv_status = "PASS" if iv_result.overall_success else "FAIL"
-            
-            states = getattr(iv_result, 'states_explored', 0)
-            violations = len(getattr(iv_result, 'invariant_violations', []))
-            deadlock = getattr(iv_result, 'deadlock_found', False)
-            
-            status_details = []
-            if states > 0:
-                status_details.append(f"{states} states")
-            if violations > 0:
-                status_details.append(f"{violations} violations")
-            if deadlock:
-                status_details.append("deadlock")
-            
-            details_text = f" ({', '.join(status_details)})" if status_details else ""
-            print(f"   Invariant Verification: {iv_status}{details_text}")
-        else:
-            print(f"   Invariant Verification: SKIPPED")
-        
-        # Show correction summary if applicable
-        if hasattr(eval_result, 'total_corrections_attempted'):
-            print(f"   Global Corrections: {eval_result.successful_corrections}/{eval_result.total_corrections_attempted} successful")
-        
-        # Overall result
-        overall_status = "PASS" if eval_result.overall_success else "FAIL"
-        total_time = eval_result.to_dict().get('overall', {}).get('total_time_seconds', 0)
-        print(f"\n   Overall Result: {overall_status} (Total: {total_time:.1f}s)")
 
 
 def validate_prerequisites(phase: int = 1):

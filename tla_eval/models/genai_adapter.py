@@ -86,7 +86,70 @@ class GenAIAdapter(ModelAdapter):
         generation_config: Optional[GenerationConfig] = None
     ) -> GenerationResult:
         """
-        Generate TLA+ specification using Google GenAI API.
+        Generate TLA+ specification using Google GenAI API with retry for empty responses.
+        
+        This method wraps the actual implementation with retry logic to handle
+        Gemini's occasional empty responses (STOP with no content).
+        """
+        return self._retry_on_empty_response(
+            self._generate_tla_specification_core,
+            source_code,
+            prompt_template,
+            generation_config
+        )
+    
+    def _retry_on_empty_response(self, func, *args, **kwargs):
+        """
+        Retry wrapper specifically for handling Gemini's empty response issues.
+        
+        Gemini sometimes returns STOP with empty content due to temporary issues
+        or content filtering. This wrapper retries up to 3 times with delays.
+        """
+        max_retries = 3
+        retry_delay = 10  # 10 seconds between retries for empty responses
+        
+        for attempt in range(max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+                
+            except GenerationError as e:
+                error_str = str(e).lower()
+                
+                # Check if this is a retryable empty response error
+                is_empty_response = (
+                    "empty text response" in error_str and 
+                    ("finish_reason: stop" in error_str or "stop" in error_str)
+                )
+                
+                if is_empty_response and attempt < max_retries:
+                    logger.warning(f"Empty response from Gemini (attempt {attempt + 1}/{max_retries + 1}). Retrying in {retry_delay}s...")
+                    logger.debug(f"Error details: {e}")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    # Non-retryable error or max retries reached
+                    if attempt >= max_retries and is_empty_response:
+                        logger.error(f"All {max_retries + 1} attempts failed with empty responses. This may indicate persistent content filtering or API issues.")
+                    raise
+                    
+            except Exception as e:
+                # For any other exception, don't retry
+                raise
+        
+        # Should not reach here, but just in case
+        raise GenerationError("Unexpected error in retry logic")
+
+    def _generate_tla_specification_core(
+        self, 
+        source_code: str, 
+        prompt_template: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Core TLA+ specification generation using Google GenAI API.
+        
+        This is the actual implementation that makes the API call.
+        It's wrapped by _generate_tla_specification_impl with retry logic.
         
         Args:
             source_code: Source code to convert to TLA+
@@ -282,7 +345,24 @@ class GenAIAdapter(ModelAdapter):
         generation_config: Optional[GenerationConfig] = None
     ) -> GenerationResult:
         """
-        Generate content using a complete, pre-formatted prompt.
+        Generate content using a complete, pre-formatted prompt with retry for empty responses.
+        
+        This method wraps the actual implementation with retry logic to handle
+        Gemini's occasional empty responses.
+        """
+        return self._retry_on_empty_response(
+            self._generate_direct_core,
+            complete_prompt,
+            generation_config
+        )
+    
+    def _generate_direct_core(
+        self, 
+        complete_prompt: str,
+        generation_config: Optional[GenerationConfig] = None
+    ) -> GenerationResult:
+        """
+        Core direct content generation using Google GenAI API.
         
         Args:
             complete_prompt: Complete, ready-to-use prompt text

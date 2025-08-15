@@ -290,12 +290,12 @@ class CompositeEvaluator(BaseEvaluator):
                 compilation_result.generation_error = str(e)
                 composite_result.compilation_check_result = compilation_result
             
-            # Step 3: Invariant Verification - Only if both previous phases passed
+            # Step 3: Runtime Check - Only if both previous phases passed
             action_passed = composite_result.action_decomposition_result.overall_success
             compilation_passed = composite_result.compilation_check_result.overall_success
             
             if action_passed and compilation_passed:
-                logger.info(f"Step 3/3: Invariant verification (both previous phases passed)")
+                logger.info(f"Step 3/4: Runtime check (both previous phases passed)")
                 
                 try:
                     # Evaluate current specification
@@ -305,7 +305,7 @@ class CompositeEvaluator(BaseEvaluator):
                     composite_result.runtime_check_results.append(inv_result)
                     
                     success_status = "✓ PASS" if inv_result.overall_success else "✗ FAIL"
-                    logger.info(f"Invariant verification result: {success_status}")
+                    logger.info(f"Runtime check result: {success_status}")
                     
                     # Record success if first attempt succeeds
                     if inv_result.overall_success:
@@ -313,13 +313,13 @@ class CompositeEvaluator(BaseEvaluator):
                     
                     # If failed, attempt corrections using remaining global attempts
                     if not inv_result.overall_success:
-                        logger.info(f"Invariant verification failed, attempting corrections (max {max_global_corrections - global_correction_attempts} remaining)")
+                        logger.info(f"Runtime check failed, attempting corrections (max {max_global_corrections - global_correction_attempts} remaining)")
                         
                         while global_correction_attempts < max_global_corrections:
                             if task is not None and method is not None and hasattr(method, '_generate_correction'):
                                 logger.info(f"Correction attempt {global_correction_attempts + 1}/{max_global_corrections}")
                                 
-                                # Collect all errors from invariant verification
+                                # Collect all errors from runtime check
                                 all_errors = []
                                 if hasattr(inv_result, 'invariant_generation_error') and inv_result.invariant_generation_error:
                                     all_errors.append(f"Invariant generation: {inv_result.invariant_generation_error}")
@@ -359,7 +359,7 @@ class CompositeEvaluator(BaseEvaluator):
                                         
                                         if inv_result.overall_success:
                                             invariant_success_round = global_correction_attempts
-                                            logger.info(f"✓ Invariant verification passed after correction (Round {invariant_success_round})")
+                                            logger.info(f"✓ Runtime check passed after correction (Round {invariant_success_round})")
                                             break
                                     else:
                                         logger.warning(f"✗ Correction attempt {global_correction_attempts} failed: {correction_result.error_message}")
@@ -374,7 +374,7 @@ class CompositeEvaluator(BaseEvaluator):
                                 break
                     
                 except Exception as e:
-                    logger.error(f"Invariant verification evaluation failed: {e}")
+                    logger.error(f"Runtime check evaluation failed: {e}")
                     # Create a failed result
                     from ..base.result_types import SemanticEvaluationResult
                     inv_result = SemanticEvaluationResult(task_name, method_name, model_name)
@@ -382,7 +382,7 @@ class CompositeEvaluator(BaseEvaluator):
                     inv_result.error_message = str(e)
                     composite_result.runtime_check_results.append(inv_result)
             else:
-                logger.info(f"Step 3/3: Skipping invariant verification (prerequisites not met: action={action_passed}, compilation={compilation_passed})")
+                logger.info(f"Step 3/4: Skipping runtime check (prerequisites not met: action={action_passed}, compilation={compilation_passed})")
             
             # Step 4: Manual Invariant Verification - Only if all previous phases passed
             action_passed = composite_result.action_decomposition_result.overall_success
