@@ -104,17 +104,24 @@ class InvariantTranslator:
         """
         Translate all invariant templates to the specific TLA+ specification in one call.
         
+        Note: Always uses Claude for translation as it produces the best results.
+        The model_name parameter is kept for interface compatibility but Claude is used internally.
+        
         Args:
             templates: List of invariant templates to translate
             tla_content: Target TLA+ specification content
             task_name: Name of the task (for loading prompt)
-            model_name: Model to use for translation
+            model_name: Model name (ignored, Claude is always used for translation)
             
         Returns:
             Tuple of (success, {invariant_name: translated_invariant}, error_message)
         """
         try:
-            model = get_configured_model(model_name)
+            # Always use Claude for invariant translation as it produces the best results
+            # This is a "usage" of LLM rather than "evaluation", so we want consistency
+            claude_model_name = "my_claude"  # Use available Claude model
+            logger.info(f"Using Claude ({claude_model_name}) for invariant translation (original model: {model_name})")
+            model = get_configured_model(claude_model_name)
             
             # Load task-specific prompt template
             prompt_template = self._load_translation_prompt(task_name)
@@ -271,14 +278,139 @@ class InvariantTranslator:
         return translated_invariants
 
 
+class StaticConfigGenerator:
+    """
+    Static configuration generator that creates .cfg files by string manipulation
+    instead of LLM generation. Generates a base .cfg once, then adds invariants statically.
+    """
+    
+    def __init__(self):
+        self.base_config_cache = {}  # Cache base configs by task_name
+        self.llm_config_generator = ConfigGenerator()  # Fallback to LLM generation
+    
+    def generate_config_for_invariant(self, 
+                                    tla_content: str,
+                                    invariant_name: str,
+                                    invariant_type: str, 
+                                    task_name: str,
+                                    model_name: str) -> Tuple[bool, str, str]:
+        """
+        Generate a .cfg file for a specific invariant by adding it to a base config.
+        
+        Args:
+            tla_content: TLA+ specification content
+            invariant_name: Name of the invariant to add
+            invariant_type: Type of invariant ("safety" or "liveness")
+            task_name: Task name for caching
+            model_name: Model name for base config generation
+            
+        Returns:
+            Tuple of (success, config_content, error_message)
+        """
+        try:
+            # Get or generate base config
+            base_config = self._get_base_config(tla_content, task_name, model_name)
+            if not base_config:
+                return False, "", "Failed to generate base config"
+            
+            # Add the specific invariant to the base config
+            modified_config = self._add_invariant_to_config(
+                base_config, invariant_name, invariant_type
+            )
+            
+            return True, modified_config, None
+            
+        except Exception as e:
+            logger.error(f"Static config generation failed: {e}")
+            return False, "", str(e)
+    
+    def _get_base_config(self, tla_content: str, task_name: str, model_name: str) -> Optional[str]:
+        """
+        Get base config, generating it once and caching.
+        """
+        if task_name in self.base_config_cache:
+            logger.debug(f"Using cached base config for task: {task_name}")
+            return self.base_config_cache[task_name]
+        
+        logger.info(f"Generating base config for task: {task_name}")
+        
+        # Generate base config with empty invariants using LLM
+        # Use Claude for config generation as well since it produces better results
+        claude_model_name = "my_claude"
+        logger.info(f"Using Claude ({claude_model_name}) for base config generation (original model: {model_name})")
+        success, config_content, error = self.llm_config_generator.generate_config(
+            tla_content, "", task_name, claude_model_name
+        )
+        
+        if success:
+            self.base_config_cache[task_name] = config_content
+            logger.info(f"Successfully cached base config for task: {task_name}")
+            return config_content
+        else:
+            logger.error(f"Failed to generate base config: {error}")
+            return None
+    
+    def _add_invariant_to_config(self, base_config: str, invariant_name: str, invariant_type: str) -> str:
+        """
+        Add a specific invariant to the base config based on its type.
+        
+        For safety invariants: add to INVARIANT section
+        For liveness invariants: add to PROPERTY section
+        """
+        lines = base_config.split('\n')
+        result_lines = []
+        
+        section_keyword = "INVARIANT" if invariant_type == "safety" else "PROPERTY"
+        section_found = False
+        invariant_added = False
+        
+        for i, line in enumerate(lines):
+            result_lines.append(line)
+            
+            # Look for the target section
+            if line.strip() == section_keyword:
+                section_found = True
+                # Add the invariant on the next line
+                result_lines.append(f"    {invariant_name}")
+                invariant_added = True
+                logger.debug(f"Added {invariant_name} to existing {section_keyword} section")
+        
+        # If section not found, add it before the end of file
+        if not section_found:
+            # Find a good place to insert the section (typically after CONSTANTS)
+            insert_index = len(result_lines)
+            for i, line in enumerate(result_lines):
+                if line.strip().startswith("CONSTANTS") or line.strip().startswith("SPECIFICATION"):
+                    # Insert after this section
+                    insert_index = i + 1
+                    # Skip any content under this section
+                    while (insert_index < len(result_lines) and 
+                           result_lines[insert_index].strip() and
+                           not result_lines[insert_index].strip().isupper()):
+                        insert_index += 1
+                    break
+            
+            # Insert the new section
+            result_lines.insert(insert_index, "")
+            result_lines.insert(insert_index + 1, section_keyword)
+            result_lines.insert(insert_index + 2, f"    {invariant_name}")
+            invariant_added = True
+            logger.debug(f"Created new {section_keyword} section with {invariant_name}")
+        
+        if not invariant_added:
+            logger.warning(f"Failed to add invariant {invariant_name} to config")
+        
+        return '\n'.join(result_lines)
+
+
 class ManualInvariantEvaluator(BaseEvaluator):
     """
     Manual Invariant Evaluator: Phase 3 evaluation for TLA+ specifications.
     
     This evaluator implements the third phase of evaluation:
     1. Load expert-written invariant templates
-    2. Translate templates to specific TLA+ specification
-    3. Run TLC model checking for each invariant
+    2. Translate templates to specific TLA+ specification (using Claude)
+    3. Run TLC model checking for each invariant (using static .cfg generation)
     4. Report detailed results
     """
     
@@ -293,7 +425,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
         super().__init__(timeout=tlc_timeout)
         self.template_loader = InvariantTemplateLoader(templates_dir)
         self.translator = InvariantTranslator()
-        self.config_generator = ConfigGenerator()
+        self.static_config_generator = StaticConfigGenerator()
         self.tlc_runner = TLCRunner(timeout=tlc_timeout)
     
     def evaluate(self, 
@@ -487,10 +619,9 @@ class ManualInvariantEvaluator(BaseEvaluator):
             with open(modified_spec_file, 'w', encoding='utf-8') as f:
                 f.write(modified_spec)
             
-            # Generate config file for this invariant
-            invariant_list = template.name  # Single invariant
-            config_success, config_content, config_error = self.config_generator.generate_config(
-                modified_spec, invariant_list, task_name, model_name  # Use the same model
+            # Generate config file for this invariant using static method
+            config_success, config_content, config_error = self.static_config_generator.generate_config_for_invariant(
+                modified_spec, template.name, template.type, task_name, model_name
             )
             
             if not config_success:
