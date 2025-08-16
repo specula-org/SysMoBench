@@ -324,6 +324,34 @@ class StaticConfigGenerator:
             logger.error(f"Static config generation failed: {e}")
             return False, "", str(e)
     
+    def generate_config_for_invariant_from_base(self, 
+                                               base_config: str,
+                                               invariant_name: str,
+                                               invariant_type: str) -> Tuple[bool, str, str]:
+        """
+        Generate a .cfg file for a specific invariant using an existing base config.
+        This prevents cache pollution by not regenerating the base config.
+        
+        Args:
+            base_config: Pre-generated base configuration
+            invariant_name: Name of the invariant to add
+            invariant_type: Type of invariant ("safety" or "liveness")
+            
+        Returns:
+            Tuple of (success, config_content, error_message)
+        """
+        try:
+            # Add the specific invariant to the provided base config
+            modified_config = self._add_invariant_to_config(
+                base_config, invariant_name, invariant_type
+            )
+            
+            return True, modified_config, None
+            
+        except Exception as e:
+            logger.error(f"Static config generation from base failed: {e}")
+            return False, "", str(e)
+    
     def _get_base_config(self, tla_content: str, task_name: str, model_name: str) -> Optional[str]:
         """
         Get base config, generating it once and caching.
@@ -499,6 +527,23 @@ class ManualInvariantEvaluator(BaseEvaluator):
             
             logger.info(f"Successfully translated {len(translated_invariants)} invariants")
             
+            # Step 2.5: Generate clean base config using original specification BEFORE testing invariants
+            # This prevents cache pollution from invariant-specific configurations
+            logger.info("Step 2.5: Generating clean base configuration...")
+            base_config_success, base_config, base_config_error = self.static_config_generator._get_base_config(
+                generation_result.generated_text,  # Use original spec, not modified spec
+                task_name, 
+                model_name
+            )
+            
+            if not base_config_success:
+                logger.error(f"Failed to generate base configuration: {base_config_error}")
+                result.config_generation_error = base_config_error
+                result.overall_success = False
+                return result
+            
+            logger.info("✓ Clean base configuration generated successfully")
+            
             # Step 3: Test each invariant individually  
             logger.info("Step 3: Testing invariants with TLC...")
             invariant_results = []
@@ -512,7 +557,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
                 invariant_test_result = self._test_single_invariant(
                     template, translated_invariants[template.name],
                     generation_result.generated_text, output_dir, spec_module or task_name,
-                    task_name, model_name
+                    task_name, model_name, base_config
                 )
                 
                 # Print detailed results for each invariant test
@@ -599,7 +644,8 @@ class ManualInvariantEvaluator(BaseEvaluator):
                               output_dir: Path,
                               spec_module: str,
                               task_name: str,
-                              model_name: str) -> InvariantTestResult:
+                              model_name: str,
+                              base_config: str) -> InvariantTestResult:
         """Test a single invariant using TLC"""
         
         logger.debug(f"Testing invariant: {template.name}")
@@ -619,9 +665,10 @@ class ManualInvariantEvaluator(BaseEvaluator):
             with open(modified_spec_file, 'w', encoding='utf-8') as f:
                 f.write(modified_spec)
             
-            # Generate config file for this invariant using static method
-            config_success, config_content, config_error = self.static_config_generator.generate_config_for_invariant(
-                modified_spec, template.name, template.type, task_name, model_name
+            # Generate config file for this invariant using pre-generated clean base config
+            # This prevents cache pollution from using modified_spec
+            config_success, config_content, config_error = self.static_config_generator.generate_config_for_invariant_from_base(
+                base_config, template.name, template.type
             )
             
             if not config_success:
