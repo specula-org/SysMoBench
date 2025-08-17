@@ -35,7 +35,8 @@ Key considerations for read-write mutex correctness:
 2. Maintain reader-writer safety properties (no simultaneous read-write)
 3. Fix any syntax errors while preserving the rwmutex logic
 4. Ensure all variables and operators are properly declared
-5. Preserve fairness and deadlock prevention mechanisms
+5. Preserve WaitQueue-based coordination and upgradeable reader semantics
+6. **MANDATORY**: Include weak fairness in Spec definition using pattern: Spec == Init /\ [][Next]_Vars /\ WF_Vars(Next)
 
 CRITICAL OUTPUT REQUIREMENTS:
 1. The MODULE name must remain exactly "rwmutex" (---- MODULE rwmutex ----)
