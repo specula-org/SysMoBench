@@ -1,6 +1,8 @@
-# Simplified Invariants for etcd/Raft Systems
+# Invariants for etcd/Raft Systems
+# Includes both generic Raft consensus properties and etcd-specific features
 
 invariants:
+  # Generic Raft Consensus Invariants (applicable to all Raft implementations)
   - name: "LeaderUniqueness"
     type: "safety"
     natural_language: "At most one leader can exist in any given term across all nodes in the cluster"
@@ -53,6 +55,89 @@ invariants:
             /\ idx > 0
             => log[n1][idx] = log[n2][idx]
 
+  - name: "VoteUniqueness"
+    type: "safety"
+    natural_language: "Each node can vote for at most one candidate in any given term"
+    formal_description: "A node can cast at most one vote per term, preventing split-vote scenarios that could lead to election failures."
+    tla_example: |
+      VoteUniqueness ==
+        \A n \in Nodes, term \in Terms :
+          (votedFor[n] /= None /\ currentTerm[n] = term) =>
+            \A candidate \in Nodes :
+              (votedFor[n] = candidate) => 
+                ~(\E otherCandidate \in Nodes : 
+                  otherCandidate /= candidate /\ VotedFor(n, otherCandidate, term))
+
+  # etcd-specific Invariants (aligned with prompt modeling requirements)
+  - name: "PreVotePhaseConsistency"
+    type: "safety"
+    natural_language: "Pre-vote phase correctly prevents unnecessary term increments"
+    formal_description: "etcd-specific: PreVote mechanism ensures terms only increment when a candidate can actually get majority support (required by prompt)"
+    tla_example: |
+      PreVotePhaseConsistency ==
+        \A n \in Nodes :
+          (serverState[n] = StatePreCandidate) =>
+            CanReceiveMajorityPreVotes(n, currentTerm[n])
+
+  - name: "MessageTypeHandling"
+    type: "safety"
+    natural_language: "Different message types are handled correctly based on node state"
+    formal_description: "etcd message processing: MsgHup, MsgVote/MsgVoteResp, MsgApp/MsgAppResp messages are processed according to current node state"
+    tla_example: |
+      MessageTypeHandling ==
+        \A n \in Nodes, msg \in Messages :
+          ProcessMessage(n, msg) =>
+            /\ (msg.type = MsgHup) => (serverState[n] \in {StateFollower, StatePreCandidate})
+            /\ (msg.type = MsgVote) => ValidVoteMessage(msg)
+            /\ (msg.type = MsgApp) => ValidAppendMessage(msg)
+
+  - name: "ClientProposalHandling"
+    type: "safety"
+    natural_language: "Client proposals (MsgProp) are only processed by leaders and create valid log entries"
+    formal_description: "etcd client proposals: MsgProp messages are only accepted by leaders and result in properly formatted log entries"
+    tla_example: |
+      ClientProposalHandling ==
+        \A n \in Nodes, proposal \in ClientProposals :
+          AcceptProposal(n, proposal) =>
+            /\ serverState[n] = StateLeader
+            /\ ValidLogEntry(proposal.entry)
+            /\ proposal.entry.term = currentTerm[n]
+
+  - name: "StateTransitionCorrectness"
+    type: "safety"
+    natural_language: "Node state transitions follow the correct Raft state machine: Follower → PreCandidate → Candidate → Leader"
+    formal_description: "etcd state transitions: strict state machine transitions with prevote phase"
+    tla_example: |
+      StateTransitionCorrectness ==
+        \A n \in Nodes :
+          /\ (serverState'[n] = StatePreCandidate) => (serverState[n] = StateFollower)
+          /\ (serverState'[n] = StateCandidate) => (serverState[n] = StatePreCandidate)
+          /\ (serverState'[n] = StateLeader) => (serverState[n] = StateCandidate)
+
+  - name: "TermAdvancementCorrectness"
+    type: "safety"
+    natural_language: "Nodes advance their term only when receiving messages with higher terms"
+    formal_description: "etcd term advancement: nodes update currentTerm when receiving higher term messages, ensuring term progression"
+    tla_example: |
+      TermAdvancementCorrectness ==
+        \A n \in Nodes, msg \in Messages :
+          (currentTerm'[n] > currentTerm[n]) =>
+            /\ ProcessMessage(n, msg)
+            /\ msg.term > currentTerm[n]
+            /\ currentTerm'[n] = msg.term
+
+  - name: "HeartbeatPreventsElection"
+    type: "safety"
+    natural_language: "Valid heartbeats from current leader prevent followers from starting elections"
+    formal_description: "etcd heartbeat mechanism: followers receiving valid heartbeats reset election timeout and don't become candidates"
+    tla_example: |
+      HeartbeatPreventsElection ==
+        \A n \in Nodes :
+          /\ serverState[n] = StateFollower
+          /\ ReceiveValidHeartbeat(n)
+          => ~(serverState'[n] = StatePreCandidate)
+
+  # Generic Liveness Properties
   - name: "EventualLeaderElection"
     type: "liveness"
     natural_language: "Eventually, a leader will be elected if the majority of nodes are functioning"
@@ -60,9 +145,20 @@ invariants:
     tla_example: |
       EventualLeaderElection ==
         /\ MajorityNodesUp
-        => <>(\E n \in Nodes : serverState[n] = Leader)
+        => <>(E n \in Nodes : serverState[n] = Leader)
+
+  - name: "EventualLogCommitment"
+    type: "liveness"
+    natural_language: "Proposed log entries will eventually be committed when a stable leader exists"
+    formal_description: "Under fair scheduling and stable leadership, proposed entries will eventually be replicated to majority and committed."
+    tla_example: |
+      EventualLogCommitment ==
+        \A entry \in LogEntries :
+          (Proposed(entry) /\ StableLeaderExists) ~> Committed(entry)
 
 metadata:
-  total_invariants: 5
-  safety_invariants: 4
-  liveness_invariants: 1
+  total_invariants: 12
+  safety_invariants: 10
+  liveness_invariants: 2
+  generic_raft_invariants: 6  # LeaderUniqueness, LogConsistency, LeaderCompletenessProperty, StateMachineSafety, VoteUniqueness, EventualLeaderElection
+  etcd_specific_invariants: 6  # PreVotePhaseConsistency, MessageTypeHandling, ClientProposalHandling, StateTransitionCorrectness, TermAdvancementCorrectness, HeartbeatPreventsElection
