@@ -14,11 +14,11 @@ Mutex modeling requirements:
 
 MANDATORY CORE ACTIONS (must include all):
 1. 【Lock/Unlock Operations】lock(), try_lock(), unlock() methods with proper blocking/non-blocking semantics
-2. 【Atomic CAS】compare_exchange operation on AtomicBool (false→true acquire, store false release)
-3. 【WaitQueue Blocking】wait_until() blocking mechanism, wake_one() notification on unlock
-4. 【Guard Lifecycle】MutexGuard creation on lock(), automatic unlock on Drop
+2. 【Atomic CAS】compare_exchange operation on AtomicBool (false→true acquire, store false release) - logical atomicity level
+3. 【WaitQueue Blocking】wait_until() blocking mechanism, wake_one() FIFO notification on unlock
+4. 【Guard Lifecycle】MutexGuard creation on lock(), automatic unlock on Drop (creation/destruction only)
 5. 【Thread Interleaving】Multiple threads competing for exclusive access with different orderings
-6. 【Memory Ordering】Acquire ordering for lock acquisition, Release ordering for unlock
+6. 【Thread State Management】Waiting/blocked thread states when lock is held by others
 
 EXPLICITLY EXCLUDED (do not model):
 - Arc-based locking (lock_arc method and ArcMutexGuard)
@@ -27,14 +27,18 @@ EXPLICITLY EXCLUDED (do not model):
 - Debug formatting and trait implementations
 - Thread ownership tracking complexities beyond basic exclusion
 - Advanced guard type variations (lifetime management complexities)
+- Hardware memory ordering details (Acquire/Release ordering - handle at logical atomicity level only)
+- Detailed wait_until() retry loop implementation (abstract as waiting state)
+- Guard Deref/DerefMut access patterns (only model creation/destruction)
 
 REQUIRED BEHAVIORAL SCOPE:
 - Simple AtomicBool state: false (unlocked) ↔ true (locked)
 - Exclusive access enforcement (only one thread in critical section)
-- Basic fairness under fair thread scheduling (no permanent starvation)
-- WaitQueue-based blocking and wakeup coordination
+- WaitQueue-based blocking and wakeup coordination with FIFO fairness (wake_one uses pop_front())
 - Thread can reacquire lock only after releasing it
 - Non-blocking try_lock() vs blocking lock() semantics differentiation
+- Guard lifecycle: creation on successful lock acquisition, automatic unlock on Drop (abstract level only)
+- Thread waiting state abstraction: threads can be in waiting/blocked state when lock is held by others
 
 Generate a TLA+ specification that accurately models the mutex's concurrent behavior.
 
