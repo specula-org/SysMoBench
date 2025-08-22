@@ -14,6 +14,12 @@ Usage Examples:
     # Phase 1: Compilation checking (default)
     python scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu
     
+    # Use existing TLA+ specification files (coverage evaluation)
+    python scripts/run_benchmark.py --task etcd --method agent_based --model my_claude --metric coverage --spec-file path/to/spec.tla --config-file path/to/config.cfg
+    
+    # Use only existing TLA+ file, generate config automatically
+    python scripts/run_benchmark.py --task etcd --method agent_based --model my_claude --metric coverage --spec-file path/to/spec.tla
+    
     # Batch evaluation with multiple combinations
     python scripts/run_benchmark.py --tasks etcd raft --methods direct_call agent_based --models gpt-4 claude-3 --output results/
     
@@ -259,11 +265,54 @@ def validate_prerequisites(phase: int = 1):
     return True
 
 
+def _call_evaluator_with_files(evaluator, generation_result, task_name, method_name, model_name, 
+                              spec_module, spec_file=None, config_file=None):
+    """
+    Smart evaluator caller that supports file path parameters for compatible evaluators.
+    
+    This function provides extensibility for future metrics that may support file paths.
+    """
+    import inspect
+    
+    # Get the evaluate method signature
+    evaluate_method = getattr(evaluator, 'evaluate', None)
+    if not evaluate_method:
+        raise ValueError(f"Evaluator {type(evaluator).__name__} does not have an evaluate method")
+    
+    # Check if the evaluator supports file path parameters
+    sig = inspect.signature(evaluate_method)
+    supports_spec_file = 'spec_file_path' in sig.parameters
+    supports_config_file = 'config_file_path' in sig.parameters
+    
+    # Build arguments dynamically
+    args = [generation_result, task_name, method_name, model_name]
+    kwargs = {}
+    
+    # Add spec_module if the method accepts it
+    if 'spec_module' in sig.parameters:
+        if len(sig.parameters) > 4:  # Check if it's a positional parameter
+            args.append(spec_module)
+        else:
+            kwargs['spec_module'] = spec_module
+    
+    # Add file paths if supported and provided
+    if supports_spec_file and spec_file:
+        kwargs['spec_file_path'] = spec_file
+    
+    if supports_config_file and config_file:
+        kwargs['config_file_path'] = config_file
+    
+    # Call the evaluator
+    return evaluate_method(*args, **kwargs)
+
+
 def run_single_benchmark(task_name: str, method_name: str, model_name: str, 
                         evaluation_type: str = "syntax",
                         metric: Optional[str] = None,
                         phase: Optional[int] = None,  # Legacy support
                         source_file: Optional[str] = None,
+                        spec_file: Optional[str] = None,
+                        config_file: Optional[str] = None,
                         generation_config: Optional[GenerationConfig] = None,
                         **metric_params) -> dict:
     """
@@ -277,6 +326,8 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         metric: Specific metric to run (if None, uses default for evaluation_type)
         phase: Legacy evaluation phase (1=syntax, 2=semantics, 3=consistency)
         source_file: Optional specific source file
+        spec_file: Optional path to existing TLA+ specification file
+        config_file: Optional path to existing TLC configuration file
         generation_config: Optional generation configuration
         metric_params: Additional parameters for specific metrics
         
@@ -335,37 +386,77 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         prompt_template = task_loader.get_task_prompt(task_name, method_name)
         logger.info(f"Loaded prompt template ({len(prompt_template)} chars)")
         
-        # Load model
-        model = get_configured_model(model_name)
-        logger.info(f"Loaded model: {model.model_name}")
+        # Load model (only if not using existing files)
+        model = None
+        if not spec_file:
+            model = get_configured_model(model_name)
+            logger.info(f"Loaded model: {model.model_name}")
+        else:
+            logger.info(f"Skipping model loading (using existing spec file)")
         
-        # Load method
-        method = get_method(method_name)
-        logger.info(f"Using method: {method_name}")
-        
-        # Generate TLA+ specification
-        logger.info("Starting TLA+ generation...")
-        start_time = time.time()
-        
-        # Note: methods use their own prompt templates and load models internally
-        generation_output = method.generate(task, model_name)
-        
-        generation_time = time.time() - start_time
-        logger.info(f"Generation completed in {generation_time:.2f}s")
-        
-        # Convert to GenerationResult format expected by evaluator
-        from tla_eval.models.base import GenerationResult
-        generation_result = GenerationResult(
-            generated_text=generation_output.tla_specification,
-            metadata={
-                'method': generation_output.method_name,
-                'latency_seconds': generation_time,
-                **generation_output.metadata
-            },
-            timestamp=time.time(),
-            success=generation_output.success,
-            error_message=generation_output.error_message
-        )
+        # Generate TLA+ specification or use existing files
+        generation_result = None
+        if spec_file:
+            # Use existing specification file(s)
+            logger.info(f"Using existing specification file: {spec_file}")
+            if config_file:
+                logger.info(f"Using existing config file: {config_file}")
+            
+            # Validate that spec file exists
+            from pathlib import Path
+            if not Path(spec_file).exists():
+                logger.error(f"Specified spec file does not exist: {spec_file}")
+                return {"success": False, "error": f"Spec file not found: {spec_file}"}
+            
+            if config_file and not Path(config_file).exists():
+                logger.error(f"Specified config file does not exist: {config_file}")
+                return {"success": False, "error": f"Config file not found: {config_file}"}
+            
+            # Create a dummy GenerationResult for existing files
+            from tla_eval.models.base import GenerationResult
+            generation_result = GenerationResult(
+                generated_text="",  # Not needed for existing files
+                metadata={
+                    'method': method_name,
+                    'latency_seconds': 0.0,
+                    'using_existing_files': True,
+                    'spec_file': spec_file,
+                    'config_file': config_file
+                },
+                timestamp=time.time(),
+                success=True,
+                error_message=None
+            )
+            
+        else:
+            # Generate TLA+ specification
+            logger.info("Starting TLA+ generation...")
+            
+            # Load method
+            method = get_method(method_name)
+            logger.info(f"Using method: {method_name}")
+            
+            start_time = time.time()
+            
+            # Note: methods use their own prompt templates and load models internally
+            generation_output = method.generate(task, model_name)
+            
+            generation_time = time.time() - start_time
+            logger.info(f"Generation completed in {generation_time:.2f}s")
+            
+            # Convert to GenerationResult format expected by evaluator
+            from tla_eval.models.base import GenerationResult
+            generation_result = GenerationResult(
+                generated_text=generation_output.tla_specification,
+                metadata={
+                    'method': generation_output.method_name,
+                    'latency_seconds': generation_time,
+                    **generation_output.metadata
+                },
+                timestamp=time.time(),
+                success=generation_output.success,
+                error_message=generation_output.error_message
+            )
         
         # Create evaluator using metric registry
         evaluator = create_evaluator(metric, **metric_params)
@@ -375,20 +466,22 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         
         if metric == "compilation_check":
             # Syntax evaluation: Compilation checking
-            evaluation_result = evaluator.evaluate(
-                generation_result, task_name, method_name, model_name, task.spec_module
+            evaluation_result = _call_evaluator_with_files(
+                evaluator, generation_result, task_name, method_name, model_name, 
+                task.spec_module, spec_file, config_file
             )
             logger.info(f"Compilation check: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
         elif metric == "runtime_check":
             # Semantics evaluation: Model checking with TLC
             # Use the generated specification from generation_result
-            if not generation_result.success:
+            if not generation_result.success and not spec_file:
                 logger.error("Cannot perform runtime check: TLA+ generation failed")
                 return {"success": False, "error": "TLA+ generation failed"}
             
-            evaluation_result = evaluator.evaluate(
-                generation_result, task_name, method_name, model_name, task.spec_module
+            evaluation_result = _call_evaluator_with_files(
+                evaluator, generation_result, task_name, method_name, model_name, 
+                task.spec_module, spec_file, config_file
             )
             logger.info(f"Runtime check: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
@@ -400,26 +493,32 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             evaluation_result = evaluator.evaluate(task_name, consistency_config)
             logger.info(f"Trace validation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
         else:
-            # For future metrics, use generic interface
+            # For future metrics, use generic interface with smart file parameter detection
             try:
-                # Try to call with standard parameters first
+                # Get metric info for dimension checking
+                metric_registry = get_metric_registry()
+                metric_info = metric_registry.get_metric(metric)
+                
                 if hasattr(evaluator, 'evaluate'):
                     if metric_info.dimension == "syntax":
-                        evaluation_result = evaluator.evaluate(
-                            generation_result, task_name, method_name, model_name, task.spec_module
+                        evaluation_result = _call_evaluator_with_files(
+                            evaluator, generation_result, task_name, method_name, model_name, 
+                            task.spec_module, spec_file, config_file
                         )
                     elif metric_info.dimension == "semantics":
-                        if not generation_result.success:
+                        if not generation_result.success and not spec_file:
                             return {"success": False, "error": "TLA+ generation failed"}
-                        evaluation_result = evaluator.evaluate(
-                            generation_result, task_name, method_name, model_name, task.spec_module
+                        evaluation_result = _call_evaluator_with_files(
+                            evaluator, generation_result, task_name, method_name, model_name, 
+                            task.spec_module, spec_file, config_file
                         )
                     elif metric_info.dimension == "consistency":
                         consistency_config = evaluator.get_default_config() if hasattr(evaluator, 'get_default_config') else {}
                         evaluation_result = evaluator.evaluate(task_name, consistency_config)
                     elif metric_info.dimension == "composite":
                         # Composite metrics perform iterative evaluation and improvement
-                        # Pass task and method objects for potential specification fixing (future enhancement)
+                        # Load method for composite evaluation
+                        method = get_method(method_name) if not spec_file else None
                         evaluation_result = evaluator.evaluate(
                             generation_result, task_name, method_name, model_name, task.spec_module,
                             task=task, method=method
@@ -583,12 +682,18 @@ Examples:
                        help="Number of attempts for pass@k metrics")
     parser.add_argument("--level", type=int,
                        help="Granularity level for progressive metrics")
+    parser.add_argument("--tlc-timeout", type=int,
+                       help="Timeout for TLC model checking in seconds (for coverage and runtime metrics)")
     
     # Input selection
     parser.add_argument("--task", help="Single task name")
     parser.add_argument("--method", help="Single method name")  
     parser.add_argument("--model", help="Single model name")
     parser.add_argument("--source-file", help="Specific source file within task")
+    
+    # Existing specification files (for reusing existing TLA+ specifications)
+    parser.add_argument("--spec-file", help="Path to existing TLA+ specification file (.tla)")
+    parser.add_argument("--config-file", help="Path to existing TLC configuration file (.cfg)")
     
     # Batch mode
     parser.add_argument("--tasks", nargs="+", help="Multiple task names")
@@ -665,6 +770,30 @@ Examples:
         evaluation_type = phase_to_type.get(args.phase, evaluation_type)
         logger.warning(f"Using legacy --phase {args.phase} parameter, consider using --evaluation-type {evaluation_type}")
     
+    # Validate file arguments
+    if args.spec_file or args.config_file:
+        # File arguments are only supported in single mode
+        single_mode = args.task and args.method and args.model
+        if not single_mode:
+            print("Error: --spec-file and --config-file can only be used with single task/method/model (not batch mode)")
+            sys.exit(1)
+        
+        # Validate file paths
+        from pathlib import Path
+        if args.spec_file and not Path(args.spec_file).exists():
+            print(f"Error: Specified spec file does not exist: {args.spec_file}")
+            sys.exit(1)
+        
+        if args.config_file and not Path(args.config_file).exists():
+            print(f"Error: Specified config file does not exist: {args.config_file}")
+            sys.exit(1)
+        
+        # Convert to absolute paths
+        if args.spec_file:
+            args.spec_file = str(Path(args.spec_file).resolve())
+        if args.config_file:
+            args.config_file = str(Path(args.config_file).resolve())
+    
     # Validate prerequisites
     legacy_phase = {"syntax": 1, "semantics": 2, "consistency": 3}.get(evaluation_type, 1)
     if not validate_prerequisites(legacy_phase):
@@ -686,12 +815,16 @@ Examples:
         metric_params['k'] = args.k
     if args.level is not None:
         metric_params['level'] = args.level
+    if args.tlc_timeout is not None:
+        metric_params['tlc_timeout'] = args.tlc_timeout
     
     if single_mode:
         # Single benchmark
         result = run_single_benchmark(
             args.task, args.method, args.model, evaluation_type, args.metric,
             source_file=args.source_file,
+            spec_file=args.spec_file,
+            config_file=args.config_file,
             generation_config=generation_config,
             **metric_params
         )

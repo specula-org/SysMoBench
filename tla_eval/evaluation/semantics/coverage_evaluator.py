@@ -116,10 +116,38 @@ class TLCCoverageParser:
         lines = output.split('\n')
         coverage_data = CoverageData()
         
-        in_coverage_section = False
-        i = 0
+        # Find the last complete coverage section
+        last_coverage_start = -1
+        last_coverage_end = -1
         
-        while i < len(lines):
+        # First pass: find all coverage section boundaries
+        for i, line in enumerate(lines):
+            if '@!@!@STARTMSG ' in line:
+                msg_code = self._extract_message_code(line)
+                if msg_code == 2201:  # Coverage start
+                    last_coverage_start = i
+                elif msg_code == 2202:  # Coverage end
+                    if last_coverage_start != -1:  # Only update if we have a start
+                        last_coverage_end = i
+        
+        # Determine the range to parse
+        if last_coverage_start == -1:
+            logger.warning("No coverage data found in TLC output")
+            return coverage_data
+        
+        start_idx = last_coverage_start
+        if last_coverage_end > last_coverage_start:
+            # Complete coverage section found
+            end_idx = last_coverage_end + 1
+            logger.info(f"Parsing last complete coverage section (lines {start_idx}-{last_coverage_end})")
+        else:
+            # Incomplete section (likely timeout), parse to end
+            end_idx = len(lines)
+            logger.info(f"Parsing incomplete coverage section from line {start_idx} to end (likely timeout)")
+        
+        # Second pass: parse only the last coverage section
+        in_coverage_section = False
+        for i in range(start_idx, end_idx):
             line = lines[i].strip()
             
             # Check for message start marker
@@ -128,19 +156,16 @@ class TLCCoverageParser:
                 
                 if msg_code == 2201:  # Coverage start
                     in_coverage_section = True
-                    logger.info("Started parsing TLC coverage statistics")
+                    logger.debug("Started parsing last TLC coverage statistics")
                 elif msg_code == 2202:  # Coverage end
                     in_coverage_section = False
-                    logger.info("Finished parsing TLC coverage statistics")
+                    logger.debug("Finished parsing last TLC coverage statistics")
                     break
                 elif in_coverage_section and msg_code in self.MESSAGE_CODES:
                     # Read next line for actual content
-                    i += 1
-                    if i < len(lines):
-                        content = lines[i].strip()
+                    if i + 1 < len(lines):
+                        content = lines[i + 1].strip()
                         self._parse_coverage_line(msg_code, content, coverage_data)
-            
-            i += 1
         
         # Calculate summary statistics
         self._calculate_summary(coverage_data)
@@ -214,10 +239,18 @@ class TLCCoverageParser:
             evaluations = int(match.group(3))
             new_states = int(match.group(4))
             
+            # Only count if this is a new action
+            if action_name not in coverage_data.action_coverage:
+                coverage_data.total_actions += 1
+                if new_states > 0:
+                    coverage_data.successful_actions += 1
+            else:
+                # Update successful actions count if this action now has new states
+                old_new_states = coverage_data.action_coverage[action_name][1]
+                if old_new_states == 0 and new_states > 0:
+                    coverage_data.successful_actions += 1
+            
             coverage_data.action_coverage[action_name] = (evaluations, new_states)
-            coverage_data.total_actions += 1
-            if new_states > 0:
-                coverage_data.successful_actions += 1
             
             logger.debug(f"Action coverage: {action_name} = {evaluations} evals, {new_states} new states")
     
@@ -253,9 +286,13 @@ class TLCCoverageParser:
             
             # Use depth and location as key
             key = f"{len(depth_markers)}:{location_str}"
+            
+            # Only count if this is a new expression
+            if key not in coverage_data.expression_coverage:
+                coverage_data.total_expressions += 1
+                coverage_data.covered_expressions += 1
+            
             coverage_data.expression_coverage[key] = evaluations
-            coverage_data.total_expressions += 1
-            coverage_data.covered_expressions += 1
             coverage_data.total_evaluations += evaluations
             
             logger.debug(f"Expression coverage: {key} = {evaluations} evals")
@@ -302,7 +339,7 @@ class CoverageEvaluator(BaseEvaluator):
     """
     
     def __init__(self, 
-                 tlc_timeout: int = 60,
+                 tlc_timeout: int = 120,
                  coverage_interval: int = 1):
         """
         Initialize coverage evaluator.
@@ -538,9 +575,29 @@ class CoverageEvaluator(BaseEvaluator):
             
             return coverage_data
             
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             logger.warning(f"TLC timed out after {self.tlc_timeout}s")
-            return CoverageData()  # Return empty coverage data
+            # IMPORTANT: Parse coverage data from timeout output too!
+            if hasattr(e, 'stdout') and hasattr(e, 'stderr'):
+                # Handle both str and bytes output
+                stdout_str = e.stdout.decode('utf-8') if isinstance(e.stdout, bytes) else (e.stdout or "")
+                stderr_str = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else (e.stderr or "")
+                combined_output = stdout_str + stderr_str
+                coverage_data = self.parser.parse_tool_output(combined_output)
+                
+                # Save timeout output for debugging
+                with open(output_dir / "tlc_coverage_output.log", 'w') as f:
+                    f.write(f"Command: {' '.join(cmd)}\n")
+                    f.write(f"Status: TIMEOUT after {self.tlc_timeout}s\n")
+                    f.write(f"Working directory: {Path(spec_file_path).parent}\n")
+                    f.write(f"STDOUT:\n{stdout_str}\n")
+                    f.write(f"STDERR:\n{stderr_str}\n")
+                
+                logger.info(f"Parsed coverage data from timeout output: {coverage_data.total_expressions} expressions, {coverage_data.total_variables} variables")
+                return coverage_data
+            else:
+                logger.warning("No output available from timeout exception")
+                return CoverageData()  # Return empty coverage data only if no output
         except Exception as e:
             logger.error(f"TLC coverage execution failed: {e}")
             return CoverageData()  # Return empty coverage data
