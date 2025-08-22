@@ -265,6 +265,7 @@ class CompositeEvaluationResult(EvaluationResult):
         self.compilation_check_result: Optional[SyntaxEvaluationResult] = None
         self.runtime_check_results: List[SemanticEvaluationResult] = []
         self.manual_invariant_result: Optional[SemanticEvaluationResult] = None
+        self.coverage_result: Optional[SemanticEvaluationResult] = None
         
         # Global correction tracking
         self.total_corrections_attempted = 0
@@ -307,6 +308,10 @@ class CompositeEvaluationResult(EvaluationResult):
         # Add manual invariant results
         if self.manual_invariant_result:
             result["manual_invariant"] = self.manual_invariant_result.to_dict()
+        
+        # Add coverage results
+        if self.coverage_result:
+            result["coverage"] = self.coverage_result.to_dict()
         
         return result
     

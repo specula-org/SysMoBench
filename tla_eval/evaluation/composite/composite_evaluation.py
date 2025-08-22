@@ -21,6 +21,7 @@ from ..syntax.action_decomposition import ActionDecompositionEvaluator
 from ..syntax.compilation_check import CompilationCheckEvaluator
 from ..semantics.runtime_check import RuntimeCheckEvaluator
 from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
+from ..semantics.coverage_evaluator import CoverageEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,8 @@ class CompositeEvaluator(BaseEvaluator):
                  validation_timeout: int = 30,
                  invariant_iterations: int = 3,
                  keep_temp_files: bool = False,
-                 max_correction_attempts: int = 3):
+                 max_correction_attempts: int = 3,
+                 enable_coverage: bool = True):
         """
         Initialize composite evaluator.
         
@@ -48,11 +50,13 @@ class CompositeEvaluator(BaseEvaluator):
             invariant_iterations: Number of invariant verification iterations
             keep_temp_files: Whether to keep temporary files for debugging
             max_correction_attempts: Maximum number of global correction attempts
+            enable_coverage: Whether to run coverage analysis
         """
         super().__init__(timeout=validation_timeout)
         self.max_iterations = invariant_iterations
         self.keep_temp_files = keep_temp_files
         self.max_correction_attempts = max_correction_attempts
+        self.enable_coverage = enable_coverage
         
         # Initialize sub-evaluators
         self.action_evaluator = ActionDecompositionEvaluator(
@@ -66,6 +70,9 @@ class CompositeEvaluator(BaseEvaluator):
             tlc_timeout=validation_timeout
         )
         self.manual_invariant_evaluator = ManualInvariantEvaluator(
+            tlc_timeout=validation_timeout
+        )
+        self.coverage_evaluator = CoverageEvaluator(
             tlc_timeout=validation_timeout
         )
     
@@ -313,6 +320,51 @@ class CompositeEvaluator(BaseEvaluator):
                     composite_result.manual_invariant_result = manual_result
             else:
                 logger.info(f"Skipping Manual Invariant Verification (no successful iteration)")
+            
+            # Step 5: Coverage Analysis (optional, run regardless of success status)
+            if self.enable_coverage:
+                logger.info("Running Coverage Analysis")
+                
+                try:
+                    # Try to reuse files from runtime check if available
+                    spec_file_path = None
+                    config_file_path = None
+                    
+                    # Look for runtime check result with files
+                    if successful_iteration is not None and iteration_results:
+                        runtime_result = None
+                        for iter_result in iteration_results:
+                            if iter_result.get('runtime_result'):
+                                runtime_result = iter_result['runtime_result']
+                                break
+                        
+                        if runtime_result and hasattr(runtime_result, 'specification_file'):
+                            spec_file_path = runtime_result.specification_file
+                            
+                        if runtime_result and hasattr(runtime_result, 'config_file_path'):
+                            config_file_path = runtime_result.config_file_path
+                    
+                    # Run coverage evaluation
+                    coverage_result = self.coverage_evaluator.evaluate(
+                        current_generation_result, task_name, method_name, model_name, spec_module,
+                        spec_file_path=spec_file_path,
+                        config_file_path=config_file_path
+                    )
+                    
+                    success_status = "✓ PASS" if coverage_result.overall_success else "✗ FAIL"
+                    logger.info(f"Coverage Analysis: {success_status}")
+                    
+                    composite_result.coverage_result = coverage_result
+                    
+                except Exception as e:
+                    logger.error(f"Coverage analysis failed: {e}")
+                    from ..base.result_types import SemanticEvaluationResult
+                    coverage_result = SemanticEvaluationResult(task_name, method_name, model_name)
+                    coverage_result.overall_success = False
+                    coverage_result.model_checking_error = str(e)
+                    composite_result.coverage_result = coverage_result
+            else:
+                logger.info("Coverage Analysis disabled")
             
             # Determine overall success
             composite_result.overall_success = successful_iteration is not None
@@ -577,6 +629,14 @@ class CompositeEvaluator(BaseEvaluator):
                 logger.info(f"  Phase 4 (Manual Invariants): {manual_status}")
             else:
                 logger.info(f"  Phase 4 (Manual Invariants): ⚠ NOT EXECUTED")
+            
+            # Coverage analysis results
+            if hasattr(composite_result, 'coverage_result') and composite_result.coverage_result:
+                coverage_result = composite_result.coverage_result
+                coverage_status = "✓" if coverage_result.overall_success else "✗"
+                logger.info(f"  Phase 5 (Coverage Analysis): {coverage_status}")
+            else:
+                logger.info(f"  Phase 5 (Coverage Analysis): ⚠ NOT EXECUTED")
         else:
             # Show results from the last iteration
             if iteration_results:
@@ -589,6 +649,14 @@ class CompositeEvaluator(BaseEvaluator):
                 logger.info(f"  Phase 2 (Compilation Check): {compile_status}")
                 logger.info(f"  Phase 3 (Runtime Check): {runtime_status}")
                 logger.info(f"  Phase 4 (Manual Invariants): ⚠ NOT EXECUTED")
+                
+                # Coverage analysis results
+                if hasattr(composite_result, 'coverage_result') and composite_result.coverage_result:
+                    coverage_result = composite_result.coverage_result
+                    coverage_status = "✓" if coverage_result.overall_success else "✗"
+                    logger.info(f"  Phase 5 (Coverage Analysis): {coverage_status}")
+                else:
+                    logger.info(f"  Phase 5 (Coverage Analysis): ⚠ NOT EXECUTED")
         
         logger.info("=" * 70)
     

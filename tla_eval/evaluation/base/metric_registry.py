@@ -69,6 +69,7 @@ class MetricRegistry:
         from ..syntax.action_decomposition import ActionDecompositionEvaluator
         from ..semantics.runtime_check import RuntimeCheckEvaluator
         from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
+        from ..semantics.coverage_evaluator import CoverageEvaluator
         from ..consistency.trace_validation import TraceValidationEvaluator
         from ..composite.composite_evaluation import CompositeEvaluator
         
@@ -110,6 +111,14 @@ class MetricRegistry:
             evaluator_class=ManualInvariantEvaluator
         ))
         
+        self.register_metric(MetricInfo(
+            name="coverage",
+            dimension="semantics",
+            description="TLA+ specification coverage analysis using TLC coverage statistics",
+            evaluator_class=CoverageEvaluator,
+            default_params={"tlc_timeout": 60, "coverage_interval": 1}
+        ))
+        
         # Future semantics metrics (placeholders)
         # self.register_metric(MetricInfo(
         #     name="ast_analysis",
@@ -137,9 +146,9 @@ class MetricRegistry:
         self.register_metric(MetricInfo(
             name="composite",
             dimension="composite",
-            description="Integrated evaluation combining action decomposition, compilation check, runtime check, and manual invariant verification",
+            description="Integrated evaluation combining action decomposition, compilation check, runtime check, manual invariant verification, and coverage analysis",
             evaluator_class=CompositeEvaluator,
-            default_params={"invariant_iterations": 3, "max_correction_attempts": 3}
+            default_params={"invariant_iterations": 3, "max_correction_attempts": 3, "enable_coverage": True}
         ))
         
         # Future consistency metrics (placeholders)
