@@ -27,14 +27,30 @@ $invariant_templates
    - **DO** use equivalent semantic concepts even if data representations differ
    - **PRESERVE** the original Raft safety/liveness guarantees without weakening the property
 
-4. **Constraint Compliance**:
+4. **TLA+ Property Type Constraints**:
+   
+   **FOR SAFETY PROPERTIES** (type: "safety"):
+   - **MUST** be STATE PREDICATES (describe single states only)
+   - **NEVER** use primed variables (`currentTerm'`, `log'`)
+   - **NEVER** use temporal operators (`[]`, `<>`, `~>`)
+   - **NEVER** reference actions (like `RequestVote(s)`, `AppendEntries(s,t)`) - only use state variables
+   - **ONLY** use unprimed variables (`currentTerm[s]`, `log[s]`) and constants
+   - **CORRECT**: `LeaderUniqueness == \A term \in Terms : Cardinality({s \in Servers : state[s] = "leader" /\ currentTerm[s] = term}) <= 1` 
+   - **INCORRECT**: `state[s] = "candidate" => RequestVote(s)`  (references action RequestVote)
+
+   **FOR LIVENESS PROPERTIES** (type: "liveness"): 
+   - **MUST** be TEMPORAL FORMULAS (describe execution traces)
+   - **MUST** use temporal operators (`<>`, `~>`) to express "eventually" or "leads-to"
+   - **CORRECT**: `EventualLeaderElection == <>(\E s \in Servers : state[s] = "leader")` 
+
+5. **Constraint Compliance**:
    - Use ONLY variables, constants, and operators that exist in the specification
    - Generate complete, syntactically valid TLA+ invariant definitions
    - Maintain the exact invariant names from templates
 
-5. **Output format**: Return a JSON object containing an array of complete TLA+ invariant definitions
+6. **Output format**: Return a JSON object containing an array of complete TLA+ invariant definitions
 
-6. **EXACT naming requirement**: You MUST use the exact invariant names specified in the templates above. Do not create your own names.
+7. **EXACT naming requirement**: You MUST use the exact invariant names specified in the templates above. Do not create your own names.
 
 ## Example Output Format
 

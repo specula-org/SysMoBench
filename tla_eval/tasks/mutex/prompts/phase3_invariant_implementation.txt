@@ -33,9 +33,11 @@ $invariant_templates
    - **MUST** be STATE PREDICATES (describe single states only)
    - **NEVER** use primed variables (`pc'`, `lock_state'`)
    - **NEVER** use temporal operators (`[]`, `<>`, `~>`)
-   - **ONLY** use unprimed variables (`pc[t]`, `lock_state`)
+   - **NEVER** reference actions (like `Lock(p)`, `Unlock(p)`) - only use state variables
+   - **ONLY** use unprimed variables (`pc[t]`, `lock_state`) and constants
    - **CORRECT**: `MutualExclusion == Cardinality({p ∈ Proc : pc[p] = "critical"}) <= 1` 
    - **INCORRECT**: `pc[t] = "acquiring" => pc'[t] = "critical"`  (has primed variable)
+   - **INCORRECT**: `pc[p] = "waiting" => Lock(p)`  (references action Lock)
 
    **FOR LIVENESS PROPERTIES** (type: "liveness"): 
    - **MUST** be TEMPORAL FORMULAS (describe execution traces)

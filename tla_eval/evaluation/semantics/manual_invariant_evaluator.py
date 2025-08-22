@@ -530,15 +530,15 @@ class ManualInvariantEvaluator(BaseEvaluator):
             # Step 2.5: Generate clean base config using original specification BEFORE testing invariants
             # This prevents cache pollution from invariant-specific configurations
             logger.info("Step 2.5: Generating clean base configuration...")
-            base_config_success, base_config, base_config_error = self.static_config_generator._get_base_config(
+            base_config = self.static_config_generator._get_base_config(
                 generation_result.generated_text,  # Use original spec, not modified spec
                 task_name, 
                 model_name
             )
             
-            if not base_config_success:
-                logger.error(f"Failed to generate base configuration: {base_config_error}")
-                result.config_generation_error = base_config_error
+            if not base_config:
+                logger.error("Failed to generate base configuration")
+                result.config_generation_error = "Failed to generate base configuration"
                 result.overall_success = False
                 return result
             
