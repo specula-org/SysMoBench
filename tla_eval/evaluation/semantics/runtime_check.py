@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from ...models.base import GenerationResult
 from ...config import get_configured_model
+from ...core.verification.error_statistics_manager import classify_and_record_tlc_result, TLCErrorCategory
 from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SemanticEvaluationResult
@@ -191,30 +192,31 @@ class TLCRunner:
             
             output = result.stdout + result.stderr
             
-            # Parse output to determine actual success based on content, not just exit code
-            # TLC exit codes can be misleading - focus on actual violations/deadlocks
+            # Use new error classification system instead of string matching
+            error_info = classify_and_record_tlc_result(
+                result.returncode, 
+                result.stdout, 
+                result.stderr, 
+                context="runtime"  # This is runtime model checking
+            )
+            
+            # Determine success based on error classification
+            if error_info.category == TLCErrorCategory.SUCCESS:
+                content_based_success = True
+            elif error_info.is_violation:
+                # Violations are model checking findings, not spec errors
+                # In runtime context, violations indicate the model found issues
+                content_based_success = False  # The specification has issues
+                logger.info(f"TLC found model violations: {error_info.description}")
+            else:
+                # Other errors (compilation, runtime errors, etc.)
+                content_based_success = False
+                logger.info(f"TLC failed: {error_info.category.value} - {error_info.description}")
+            
+            # Still parse output for detailed information (for backwards compatibility)
             violations, deadlock_found, states_explored = self.parse_tlc_output(output)
             
-            # Check if TLC actually started model checking
-            started_model_checking = "Computing initial states" in output
-            
-            if not started_model_checking:
-                # TLC failed to start model checking (parse error, config error, etc.)
-                content_based_success = False
-            else:
-                # TLC started, check if it completed normally by looking for state statistics
-                has_state_stats = any(pattern in output for pattern in [
-                    "states generated", "distinct states found", "states left on queue"
-                ])
-                
-                if has_state_stats:
-                    # Normal completion, check for violations/deadlocks
-                    content_based_success = len(violations) == 0 and not deadlock_found
-                else:
-                    # Started but no state statistics - likely failed during execution
-                    content_based_success = False
-            
-            logger.debug(f"TLC finished: exit_code={result.returncode}, violations={len(violations)}, deadlock={deadlock_found}, states={states_explored}")
+            logger.debug(f"TLC finished: classification={error_info.category.value}, violations={len(violations)}, deadlock={deadlock_found}, states={states_explored}")
             
             return content_based_success, output, result.returncode
             

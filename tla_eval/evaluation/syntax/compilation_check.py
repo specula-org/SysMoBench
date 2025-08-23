@@ -14,6 +14,7 @@ from ...models.base import GenerationResult
 from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SyntaxEvaluationResult
+from ...core.verification.error_statistics_manager import classify_and_record_tlc_result, TLCErrorCategory
 
 logger = logging.getLogger(__name__)
 

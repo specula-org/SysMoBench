@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple, Optional
 import logging
 
 from ...utils.setup_utils import get_tla_tools_path, check_java_available
+from .error_statistics_manager import classify_and_record_tlc_result, TLCErrorCategory
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,6 @@ class TLAValidator:
             # File name must match module name for SANY
             if task_name:
                 # Save to organized directory structure
-                from pathlib import Path
                 data_dir = Path.cwd() / "data" / "spec" / task_name
                 data_dir.mkdir(parents=True, exist_ok=True)
                 spec_file_path = data_dir / f"{module_name}.tla"
@@ -232,18 +232,16 @@ class TLAValidator:
             
             output = result.stdout + result.stderr
             
-            # Simple logic: if returncode is 0 and no explicit error indicators, it's successful
-            # SANY returns 0 for successful compilation and non-zero for failures
-            has_explicit_errors = (
-                "*** Errors:" in output or
-                "Fatal errors" in output or
-                "Semantic errors:" in output or
-                "Could not parse" in output or
-                "Error:" in output
+            # Use new error classification system instead of string matching
+            error_info = classify_and_record_tlc_result(
+                result.returncode,
+                result.stdout,
+                result.stderr, 
+                context="compilation"  # This is compilation/parsing
             )
             
-            # If returncode is 0 and no explicit error messages, consider it successful
-            success = result.returncode == 0 and not has_explicit_errors
+            # Determine success based on classification
+            success = error_info.category == TLCErrorCategory.SUCCESS
             
             logger.debug(f"SANY validation result: success={success}, returncode={result.returncode}, output_length={len(output)}")
             

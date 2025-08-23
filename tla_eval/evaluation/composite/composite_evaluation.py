@@ -22,6 +22,7 @@ from ..syntax.compilation_check import CompilationCheckEvaluator
 from ..semantics.runtime_check import RuntimeCheckEvaluator
 from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
 from ..semantics.coverage_evaluator import CoverageEvaluator
+from ...core.verification.error_statistics_manager import get_error_statistics_manager
 
 logger = logging.getLogger(__name__)
 
@@ -424,6 +425,20 @@ class CompositeEvaluator(BaseEvaluator):
             
             output_manager.save_result(output_dir, result_data, metadata)
             logger.info(f"Composite results saved to: {output_dir}")
+            
+            # Save experiment error statistics to output directory
+            try:
+                stats_manager = get_error_statistics_manager()
+                stats_file_path = stats_manager.save_experiment_statistics(
+                    output_dir, task_name, method_name, model_name
+                )
+                logger.info(f"Experiment error statistics saved to: {stats_file_path}")
+                
+                # Reset experiment statistics for next run
+                stats_manager.reset_experiment_statistics()
+                
+            except Exception as e:
+                logger.warning(f"Failed to save experiment error statistics: {e}")
         
         finally:
             # Results already saved in try block
