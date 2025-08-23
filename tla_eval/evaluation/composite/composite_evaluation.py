@@ -301,9 +301,28 @@ class CompositeEvaluator(BaseEvaluator):
             if successful_iteration is not None:
                 logger.info(f"Running Manual Invariant Verification (iteration {successful_iteration} succeeded)")
                 
+                # Try to reuse base config from runtime check to avoid redundant generation
+                base_config_content = None
+                if iteration_results:
+                    runtime_result = None
+                    for iter_result in iteration_results:
+                        if iter_result.get('runtime_result'):
+                            runtime_result = iter_result['runtime_result']
+                            break
+                    
+                    if runtime_result and hasattr(runtime_result, 'config_file_path'):
+                        config_file_path = runtime_result.config_file_path
+                        try:
+                            with open(config_file_path, 'r', encoding='utf-8') as f:
+                                base_config_content = f.read()
+                            logger.info("✓ Loaded base config from runtime check for manual invariant verification")
+                        except Exception as e:
+                            logger.warning(f"Failed to load config from runtime check: {e}")
+                            base_config_content = None
+                
                 try:
                     manual_result = self.manual_invariant_evaluator.evaluate(
-                        current_generation_result, task_name, method_name, model_name, spec_module
+                        current_generation_result, task_name, method_name, model_name, spec_module, base_config_content
                     )
                     
                     success_status = "✓ PASS" if manual_result.overall_success else "✗ FAIL"

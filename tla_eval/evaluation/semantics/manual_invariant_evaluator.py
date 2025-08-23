@@ -461,7 +461,8 @@ class ManualInvariantEvaluator(BaseEvaluator):
                 task_name: str,
                 method_name: str,
                 model_name: str,
-                spec_module: Optional[str] = None) -> SemanticEvaluationResult:
+                spec_module: Optional[str] = None,
+                base_config_content: Optional[str] = None) -> SemanticEvaluationResult:
         """
         Evaluate a TLA+ specification using manual invariant testing.
         
@@ -471,6 +472,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
             method_name: Name of the generation method
             model_name: Name of the model used
             spec_module: Optional TLA+ module name
+            base_config_content: Optional pre-generated base config content to reuse
             
         Returns:
             SemanticEvaluationResult with manual invariant testing results
@@ -527,22 +529,28 @@ class ManualInvariantEvaluator(BaseEvaluator):
             
             logger.info(f"Successfully translated {len(translated_invariants)} invariants")
             
-            # Step 2.5: Generate clean base config using original specification BEFORE testing invariants
-            # This prevents cache pollution from invariant-specific configurations
-            logger.info("Step 2.5: Generating clean base configuration...")
-            base_config = self.static_config_generator._get_base_config(
-                generation_result.generated_text,  # Use original spec, not modified spec
-                task_name, 
-                model_name
-            )
-            
-            if not base_config:
-                logger.error("Failed to generate base configuration")
-                result.config_generation_error = "Failed to generate base configuration"
-                result.overall_success = False
-                return result
-            
-            logger.info("✓ Clean base configuration generated successfully")
+            # Step 2.5: Get or generate clean base config
+            if base_config_content:
+                logger.info("Step 2.5: Using provided base configuration from runtime check...")
+                base_config = base_config_content
+                logger.info("✓ Reusing base configuration from runtime check")
+            else:
+                # Generate clean base config using original specification BEFORE testing invariants
+                # This prevents cache pollution from invariant-specific configurations
+                logger.info("Step 2.5: Generating clean base configuration...")
+                base_config = self.static_config_generator._get_base_config(
+                    generation_result.generated_text,  # Use original spec, not modified spec
+                    task_name, 
+                    model_name
+                )
+                
+                if not base_config:
+                    logger.error("Failed to generate base configuration")
+                    result.config_generation_error = "Failed to generate base configuration"
+                    result.overall_success = False
+                    return result
+                
+                logger.info("✓ Clean base configuration generated successfully")
             
             # Step 3: Test each invariant individually  
             logger.info("Step 3: Testing invariants with TLC...")
