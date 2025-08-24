@@ -692,10 +692,10 @@ class ManualInvariantEvaluator(BaseEvaluator):
             with open(config_file, 'w', encoding='utf-8') as f:
                 f.write(config_content)
             
-            # Run TLC
+            # Run TLC (skip statistics recording for invariant checking)
             start_time = time.time()
             tlc_success, tlc_output, tlc_exit_code = self.tlc_runner.run_model_checking(
-                str(modified_spec_file), str(config_file)
+                str(modified_spec_file), str(config_file), record_stats=False
             )
             verification_time = time.time() - start_time
             

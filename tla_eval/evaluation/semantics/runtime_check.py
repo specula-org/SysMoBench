@@ -149,13 +149,14 @@ class TLCRunner:
         from ...utils.setup_utils import get_tla_tools_path
         return get_tla_tools_path()
     
-    def run_model_checking(self, spec_file: str, config_file: str) -> Tuple[bool, str, int]:
+    def run_model_checking(self, spec_file: str, config_file: str, record_stats: bool = True) -> Tuple[bool, str, int]:
         """
         Run TLC model checking.
         
         Args:
             spec_file: Path to TLA+ specification file
             config_file: Path to TLC configuration file
+            record_stats: Whether to record error statistics (default True for safety)
             
         Returns:
             Tuple of (success, output, exit_code)
@@ -192,31 +193,41 @@ class TLCRunner:
             
             output = result.stdout + result.stderr
             
-            # Use new error classification system instead of string matching
-            error_info = classify_and_record_tlc_result(
-                result.returncode, 
-                result.stdout, 
-                result.stderr, 
-                context="runtime"  # This is runtime model checking
-            )
-            
-            # Determine success based on error classification
-            if error_info.category == TLCErrorCategory.SUCCESS:
-                content_based_success = True
-            elif error_info.is_violation:
-                # Violations are model checking findings, not spec errors
-                # In runtime context, violations indicate the model found issues
-                content_based_success = False  # The specification has issues
-                logger.info(f"TLC found model violations: {error_info.description}")
+            if record_stats:
+                # Use new error classification system and record statistics (default behavior)
+                error_info = classify_and_record_tlc_result(
+                    result.returncode, 
+                    result.stdout, 
+                    result.stderr, 
+                    context="runtime"  # This is runtime model checking
+                )
+                
+                # Determine success based on error classification
+                if error_info.category == TLCErrorCategory.SUCCESS:
+                    content_based_success = True
+                elif error_info.is_violation:
+                    # Violations are model checking findings, not spec errors
+                    # In runtime context, violations indicate the model found issues
+                    content_based_success = False  # The specification has issues
+                    logger.info(f"TLC found model violations: {error_info.description}")
+                else:
+                    # Other errors (compilation, runtime errors, etc.)
+                    content_based_success = False
+                    logger.info(f"TLC failed: {error_info.category.value} - {error_info.description}")
+                
+                logger.debug(f"TLC finished: classification={error_info.category.value}, violations={len(violations)}, deadlock={deadlock_found}, states={states_explored}")
             else:
-                # Other errors (compilation, runtime errors, etc.)
-                content_based_success = False
-                logger.info(f"TLC failed: {error_info.category.value} - {error_info.description}")
+                # Skip statistics recording (for invariant checking context)
+                # Use simple exit code based success determination
+                content_based_success = (result.returncode == 0)
+                
+                if not content_based_success:
+                    logger.debug(f"TLC failed with exit code {result.returncode} (stats recording disabled)")
+                else:
+                    logger.debug("TLC succeeded (stats recording disabled)")
             
-            # Still parse output for detailed information (for backwards compatibility)
+            # Always parse output for detailed information (for backwards compatibility)
             violations, deadlock_found, states_explored = self.parse_tlc_output(output)
-            
-            logger.debug(f"TLC finished: classification={error_info.category.value}, violations={len(violations)}, deadlock={deadlock_found}, states={states_explored}")
             
             return content_based_success, output, result.returncode
             
