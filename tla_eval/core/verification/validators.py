@@ -223,6 +223,7 @@ class TLAValidator:
                 "java",
                 "-cp", str(self.tla_tools_path),
                 "tla2sany.SANY",
+                "-error-codes",
                 str(file_abs_path)
             ]
             

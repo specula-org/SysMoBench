@@ -65,12 +65,12 @@ class SANYErrorCodeReverse:
         patterns = {
             # SANY Basic Semantic Errors (4200-4206)
             4200: (
-                r"Unknown operator[^\w]*[`']?(\w+)[`']?",
+                r"Unknown operator:\s*[`']([^`']+)[`']\.|DEF\s+clause\s+entry\s+should\s+describe\s+a\s+defined\s+operator",
                 "SYMBOL_UNDEFINED", 
                 "Symbol or operator not defined"
             ),
             4201: (
-                r"Symbol\s+[`']?(\w+)[`']?\s+is\s+already\s+defined",
+                r"Multiply-defined symbol\s+[`']([^`']+)[`']",
                 "SYMBOL_REDEFINED",
                 "Symbol redefined in same scope"
             ),
@@ -85,7 +85,7 @@ class SANYErrorCodeReverse:
                 "Operator name syntax incomplete"
             ),
             4204: (
-                r"Operator\s+[`']?(\w+)[`']?\s+is\s+given\s+(?:the\s+)?wrong\s+number\s+of\s+arguments",
+                r"(?:The\s+operator\s+[`']([^`']+)[`']\s+requires\s+(\d+)\s+arguments?|Wrong\s+number\s+of\s+arguments\s*\((\d+)\)\s*given\s+to\s+operator\s+[`']([^`']+)[`']|Operator\s+used\s+with\s+the\s+wrong\s+number\s+of\s+arguments)",
                 "OPERATOR_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS",
                 "Operator called with wrong number of arguments"
             ),
@@ -102,12 +102,12 @@ class SANYErrorCodeReverse:
             
             # SANY Module Import Errors (4220-4224)
             4220: (
-                r"Cannot\s+find\s+(?:source\s+)?file\s+for\s+module\s+[`']?(\w+)[`']?",
+                r"Cannot\s+find\s+source\s+file\s+for\s+module\s+[`']([^`']+)[`']\s+in\s+director(?:y|ies)",
                 "MODULE_FILE_CANNOT_BE_FOUND",
                 "Module file not found"
             ),
             4221: (
-                r"Module\s+name\s+[`']?(\w+)[`']?\s+(?:is\s+)?different\s+from\s+file\s+name",
+                r"File\s+name\s+[`']([^`']+)[`']\s+does\s+not\s+match\s+the\s+name\s+[`']([^`']+)[`']\s+of\s+the\s+top\s+level\s+module\s+it\s+contains",
                 "MODULE_NAME_DIFFERENT_FROM_FILE_NAME",
                 "Module name doesn't match filename"
             ),
@@ -193,9 +193,9 @@ class SANYErrorCodeReverse:
                 "Expression given where higher-order operator required"
             ),
             4271: (
-                r"Higher-order\s+operator\s+argument\s+(?:has\s+)?incorrect\s+arity",
+                r"(?:Expected\s+arity\s+(\d+)\s+but\s+found\s+operator\s+of\s+arity\s+(\d+)|Argument\s+number\s+(\d+)\s+to\s+operator\s+[`']([^`']+)[`']\s+should\s+be\s+a\s+(\d+)-parameter\s+operator)",
                 "HIGHER_ORDER_OPERATOR_ARGUMENT_HAS_INCORRECT_ARITY",
-                "Higher-order operator argument arity mismatch"
+                "Higher-order operator argument has incorrect arity"
             ),
             4272: (
                 r"Higher-order\s+operator\s+parameter\s+level\s+constraint\s+(?:is\s+)?not\s+met",
@@ -208,9 +208,9 @@ class SANYErrorCodeReverse:
                 "Coparameter level constraints exceeded"
             ),
             4274: (
-                r"Lambda\s+operator\s+argument\s+(?:has\s+)?incorrect\s+arity",
+                r"Selector\s+with\s+(\d+)\s+arguments?\s+used\s+for\s+LAMBDA\s+expression\s+taking\s+(\d+)\s+arguments?",
                 "LAMBDA_OPERATOR_ARGUMENT_HAS_INCORRECT_ARITY",
-                "Lambda operator argument arity mismatch"
+                "LAMBDA operator argument has incorrect arity"
             ),
             4275: (
                 r"Lambda\s+(?:operator\s+)?given\s+where\s+expression\s+(?:is\s+)?required",
@@ -245,21 +245,21 @@ class SANYErrorCodeReverse:
                 "Illegal definition in recursive section"
             ),
             
-            # SANY Temporal Operator Errors (4310-4315)
+            # SANY Temporal Operator Errors (4310-4315) - Updated to match actual TLA+ source
             4310: (
-                r"Always\s+(?:\[\])?property\s+(?:is\s+)?sensitive\s+to\s+stuttering",
+                r"\[\]\s+followed\s+by\s+action\s+not\s+of\s+form\s+\[A\]_v",
                 "ALWAYS_PROPERTY_SENSITIVE_TO_STUTTERING",
-                "Always property is sensitive to stuttering"
+                "[] followed by action not of form [A]_v"
             ),
             4311: (
-                r"Eventually\s+(?:<>)?property\s+(?:is\s+)?sensitive\s+to\s+stuttering",
+                r"<>\s+followed\s+by\s+action\s+not\s+of\s+form\s+<<A>>_v",
                 "EVENTUALLY_PROPERTY_SENSITIVE_TO_STUTTERING",
-                "Eventually property is sensitive to stuttering"
+                "<> followed by action not of form <<A>>_v"
             ),
             4312: (
-                r"Binary\s+temporal\s+operator\s+with\s+action\s+level\s+parameter",
+                r"(?:Binary\s+temporal\s+operator\s+with\s+action\s+level\s+parameter|Action\s+used\s+where\s+only\s+temporal\s+formula\s+or\s+state\s+formula\s+is\s+allowed)",
                 "BINARY_TEMPORAL_OPERATOR_WITH_ACTION_LEVEL_PARAMETER",
-                "Binary temporal operator with action-level parameter"
+                "Action used where temporal/state formula required"
             ),
             4313: (
                 r"Logical\s+operator\s+with\s+mixed\s+action\s+(?:and\s+)?temporal\s+parameters",
@@ -411,6 +411,13 @@ class SANYErrorCodeReverse:
                 "General TLA+ parsing error"
             ),
             
+            # Special unknown error code for fallback classification
+            9999: (
+                r".*",  # Matches any string as last resort
+                "UNKNOWN_SANY_ERROR",
+                "Unmatched SANY error requiring pattern analysis"
+            ),
+            
             # SANY Warnings (4800+)
             4800: (
                 r"Extended\s+modules?\s+symbol\s+unification\s+ambiguity",
@@ -464,7 +471,26 @@ class SANYErrorCodeReverse:
                         description=description
                     )
         
-        return best_match if best_confidence > 0.6 else None  # Minimum confidence threshold
+        # If we found a high-confidence match, return it
+        if best_match and best_confidence > 0.6:
+            return best_match
+        
+        # FALLBACK: If no patterns matched with sufficient confidence, 
+        # create an UNKNOWN error classification for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.warning(f"SANY Error Classification Failed - Unknown Error Pattern")
+        logger.warning(f"Error message content (first 500 chars): {repr(error_message[:500])}")
+        
+        # Return unknown error classification to ensure we don't lose the error
+        return SANYErrorMatch(
+            error_code=9999,  # Special code for unknown SANY errors
+            error_name="UNKNOWN_SANY_ERROR",
+            confidence=0.5,  # Medium confidence since we know it's an error, just don't know the type
+            matched_pattern="<unmatched>",
+            description="Unmatched SANY error - needs pattern analysis"
+        )
     
     def _calculate_confidence(self, pattern: str, match: re.Match, full_message: str) -> float:
         """
@@ -527,8 +553,10 @@ class SANYErrorCodeReverse:
             return SANYErrorCategory.LABEL
         elif 4350 <= error_code <= 4357:  # Updated range to match actual codes
             return SANYErrorCategory.PROOF
-        elif error_code >= 9000:  # Custom syntax/parse errors
+        elif error_code >= 9000 and error_code < 9999:  # Custom syntax/parse errors
             return SANYErrorCategory.SYNTAX_PARSE
+        elif error_code == 9999:  # Special unknown error code
+            return SANYErrorCategory.INTERNAL_ERROR  # Classify unknowns as internal for now
         elif error_code >= 4800:
             return SANYErrorCategory.WARNING
         else:

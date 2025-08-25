@@ -71,9 +71,11 @@ class TLCErrorClassifier:
         151: TLCErrorCategory.ERROR_CONFIG_PARSE,
         152: TLCErrorCategory.ERROR_STATESPACE_TOO_LARGE,
         153: TLCErrorCategory.ERROR_SYSTEM,
-        # SANY exit codes (SANY parser errors)
-        255: TLCErrorCategory.ERROR_SPEC_PARSE,  # SANY parsing error
-        1: TLCErrorCategory.ERROR_SPEC_PARSE,    # Generic SANY error
+        # SANY exit codes (SANY parser errors with -error-codes)
+        2: TLCErrorCategory.ERROR_SPEC_PARSE,   # SANY parsing error
+        4: TLCErrorCategory.ERROR_SPEC_PARSE,   # SANY semantic analysis error
+        255: TLCErrorCategory.ERROR_SPEC_PARSE,  # SANY parsing error (legacy)
+        1: TLCErrorCategory.ERROR_SPEC_PARSE,    # Generic SANY error (legacy)
         # System-level exit codes
         -1: TLCErrorCategory.ERROR_SYSTEM,      # JVM crash, signal termination, or system-level error
     }
@@ -141,8 +143,8 @@ class TLCErrorClassifier:
         # Extract error code from output if available
         error_code = self._extract_error_code(stdout, stderr)
         
-        # Handle SANY errors (exit code 255 or 1) with pattern matching
-        if exit_code in [255, 1] and category == TLCErrorCategory.ERROR_SPEC_PARSE:
+        # Handle SANY errors (exit codes: 1, 2, 4, 255) with pattern matching
+        if exit_code in [1, 2, 4, 255] and category == TLCErrorCategory.ERROR_SPEC_PARSE:
             combined_output = stdout + stderr
             sany_error_match = self.sany_classifier.classify_sany_error(combined_output)
             if sany_error_match:

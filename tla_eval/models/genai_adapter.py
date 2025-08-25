@@ -208,10 +208,12 @@ class GenAIAdapter(ModelAdapter):
             
         genai_config = types.GenerateContentConfig(**config_params)
         
-        # Make API call
+        # Make API call using non-streaming method (streaming disabled for Gemini to avoid empty responses)
+        # Note: Google GenAI has both generate_content (non-streaming) and generate_content_stream (streaming)
+        # We intentionally use the non-streaming version to avoid the empty response issue mentioned by user
         start_time = time.time()
         try:
-            logger.info(f"Starting generation with model {self.model_name}...")
+            logger.info(f"Starting non-streaming generation with model {self.model_name}...")
             
             response = self.client.models.generate_content(
                 model=self.model_name,
@@ -399,13 +401,14 @@ class GenAIAdapter(ModelAdapter):
         config_params = {k: v for k, v in config_params.items() if v is not None}
         
         try:
-            logger.info("Starting direct generation...")
+            logger.info("Starting direct non-streaming generation...")
             start_time = time.time()
             
             # Create generation config
             genai_config = types.GenerateContentConfig(**config_params)
             
-            # Generate content using complete prompt directly
+            # Generate content using non-streaming method (streaming disabled for Gemini to avoid empty responses)
+            # Note: We intentionally use generate_content instead of generate_content_stream
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=complete_prompt,
