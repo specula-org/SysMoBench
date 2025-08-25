@@ -74,6 +74,8 @@ class TLCErrorClassifier:
         # SANY exit codes (SANY parser errors)
         255: TLCErrorCategory.ERROR_SPEC_PARSE,  # SANY parsing error
         1: TLCErrorCategory.ERROR_SPEC_PARSE,    # Generic SANY error
+        # System-level exit codes
+        -1: TLCErrorCategory.ERROR_SYSTEM,      # JVM crash, signal termination, or system-level error
     }
     
     # TLC internal error codes (from EC.java)

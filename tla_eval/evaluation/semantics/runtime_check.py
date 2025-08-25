@@ -227,6 +227,8 @@ class TLCRunner:
                     content_based_success = False
                     logger.info(f"TLC failed: {error_info.category.value} - {error_info.description}")
                 
+                # Parse output for detailed information to include in debug log
+                violations, deadlock_found, states_explored = self.parse_tlc_output(output)
                 logger.debug(f"TLC finished: classification={error_info.category.value}, violations={len(violations)}, deadlock={deadlock_found}, states={states_explored}")
             else:
                 # Skip statistics recording (for invariant checking context)
