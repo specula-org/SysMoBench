@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from ...models.base import GenerationResult
 from ...config import get_configured_model
-from ...core.verification.error_statistics_manager import classify_and_record_tlc_result, TLCErrorCategory
+from ...core.verification.error_statistics_manager import classify_and_record_tlc_result, TLCErrorCategory, get_experiment_error_statistics_manager
 from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SemanticEvaluationResult
@@ -134,14 +134,16 @@ class ConfigGenerator:
 class TLCRunner:
     """Runs TLC model checker and parses results"""
     
-    def __init__(self, timeout: int = 300):
+    def __init__(self, timeout: int = 300, error_stats_manager=None):
         """
         Initialize TLC runner.
         
         Args:
             timeout: Timeout for TLC execution in seconds
+            error_stats_manager: Optional custom error statistics manager
         """
         self.timeout = timeout
+        self.error_stats_manager = error_stats_manager
         self.tla_tools_path = self._get_tla_tools_path()
     
     def _get_tla_tools_path(self) -> Path:
@@ -195,12 +197,22 @@ class TLCRunner:
             
             if record_stats:
                 # Use new error classification system and record statistics (default behavior)
-                error_info = classify_and_record_tlc_result(
-                    result.returncode, 
-                    result.stdout, 
-                    result.stderr, 
-                    context="runtime"  # This is runtime model checking
-                )
+                if self.error_stats_manager:
+                    # Use custom error statistics manager
+                    error_info = self.error_stats_manager.classify_and_record_tlc_result(
+                        result.returncode, 
+                        result.stdout, 
+                        result.stderr, 
+                        context="runtime"  # This is runtime model checking
+                    )
+                else:
+                    # Use global error statistics manager (default behavior)
+                    error_info = classify_and_record_tlc_result(
+                        result.returncode, 
+                        result.stdout, 
+                        result.stderr, 
+                        context="runtime"  # This is runtime model checking
+                    )
                 
                 # Determine success based on error classification
                 if error_info.category == TLCErrorCategory.SUCCESS:
@@ -326,7 +338,10 @@ class RuntimeCheckEvaluator(BaseEvaluator):
         """
         super().__init__(timeout=tlc_timeout)
         self.config_generator = ConfigGenerator()
-        self.tlc_runner = TLCRunner(timeout=tlc_timeout)
+        # Create separate error statistics manager for this evaluator
+        self.error_stats_manager = get_experiment_error_statistics_manager()
+        # Create TLC runner with custom error statistics manager
+        self.tlc_runner = TLCRunner(timeout=tlc_timeout, error_stats_manager=self.error_stats_manager)
     
     def evaluate(self, 
                 generation_result: GenerationResult,
@@ -523,6 +538,18 @@ class RuntimeCheckEvaluator(BaseEvaluator):
             }
             
             output_manager.save_result(output_dir, result_data, metadata)
+            
+            # Save error statistics for this runtime_check run
+            try:
+                stats_file_path = self.error_stats_manager.save_experiment_statistics(
+                    output_dir=output_dir,
+                    task_name=task_name,
+                    method_name=method_name,
+                    model_name=model_name
+                )
+                logger.info(f"Error statistics saved to: {stats_file_path}")
+            except Exception as stats_error:
+                logger.error(f"Failed to save error statistics: {stats_error}")
             
             return result
             

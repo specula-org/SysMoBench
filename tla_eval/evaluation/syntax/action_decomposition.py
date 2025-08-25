@@ -20,6 +20,7 @@ from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass
 
 from ...core.verification.validators import TLAValidator, ValidationResult
+from ...core.verification.error_statistics_manager import get_experiment_error_statistics_manager
 from ...models.base import GenerationResult
 from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
@@ -57,9 +58,12 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             keep_temp_files: Whether to keep temporary action files for debugging
         """
         super().__init__(timeout=validation_timeout)
-        self.validator = TLAValidator(timeout=validation_timeout)
         self.keep_temp_files = keep_temp_files
         self.temp_dir = None
+        # Create separate error statistics manager for this evaluator
+        self.error_stats_manager = get_experiment_error_statistics_manager()
+        # Create validator with custom error statistics manager
+        self.validator = TLAValidator(timeout=validation_timeout, error_stats_manager=self.error_stats_manager)
     
     def evaluate(self, 
                 generation_result: GenerationResult,
@@ -135,7 +139,8 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             overall_validation = self.validator.validate_specification(
                 generation_result.generated_text,
                 module_name=spec_module,
-                task_name=task_name
+                task_name=task_name,
+                context="action_decomposition"
             )
             self._set_validation_result(eval_result, overall_validation)
             
@@ -211,6 +216,18 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                 
                 output_manager.save_result(output_dir, result_data, metadata)
                 logger.info(f"Results saved to: {output_dir}")
+                
+                # Save error statistics for this action_decomposition run
+                try:
+                    stats_file_path = self.error_stats_manager.save_experiment_statistics(
+                        output_dir=output_dir,
+                        task_name=task_name,
+                        method_name=method_name,
+                        model_name=model_name
+                    )
+                    logger.info(f"Error statistics saved to: {stats_file_path}")
+                except Exception as stats_error:
+                    logger.error(f"Failed to save error statistics: {stats_error}")
                 
                 # Store output directory path in evaluation result for display
                 eval_result.output_directory = str(output_dir)
@@ -403,7 +420,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                 f.write(tla_content)
             
             # Validate and attempt error recovery
-            validation_result = self.validator.validate_file(str(action_file))
+            validation_result = self.validator.validate_file(str(action_file), context="action_decomposition")
             
             # Attempt to fix common errors
             if not validation_result.success:
@@ -420,14 +437,18 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                 
                 # Re-validate after fixes
                 if added_vars or added_funcs:
-                    validation_result = self.validator.validate_file(str(action_file))
+                    validation_result = self.validator.validate_file(str(action_file), context="action_decomposition")
                     if not validation_result.success:
                         recovery_attempts += 1
+            
+            # Final validation to record error statistics (after all fixes are complete)
+            final_validation_result = self.validator.validate_file(str(action_file), context="action_validation")
+            logger.debug(f"Final validation for action {action_name}: success={final_validation_result.success}")
             
             return ActionValidationResult(
                 action_name=action_name,
                 file_path=str(action_file),
-                validation_result=validation_result,
+                validation_result=final_validation_result,
                 variables_added=variables_added,
                 functions_added=functions_added,
                 recovery_attempts=recovery_attempts
@@ -485,7 +506,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             List of variables that were added
         """
         # Run SANY to get error output
-        validation_result = self.validator.validate_file(file_path)
+        validation_result = self.validator.validate_file(file_path, context="action_decomposition")
         output = validation_result.output
         
         # Extract unknown operators that might be variables
@@ -592,7 +613,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             # print(f"DEBUG: Starting iteration {iteration + 1}")
             
             # Run SANY to get error output
-            validation_result = self.validator.validate_file(file_path)
+            validation_result = self.validator.validate_file(file_path, context="action_decomposition")
             output = validation_result.output
             
             # Extract functions that require specific number of arguments

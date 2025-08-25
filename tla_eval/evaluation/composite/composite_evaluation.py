@@ -175,10 +175,12 @@ class CompositeEvaluator(BaseEvaluator):
                 
                 # Phase 2: Compilation Check
                 logger.info(f"Iteration {iteration} - Phase 2/3: Compilation Check")
+                logger.info(f"🔍 DEBUG: About to call compilation_evaluator.evaluate() - iteration {iteration}")
                 try:
                     compilation_result = self.compilation_evaluator.evaluate(
                         current_generation_result, task_name, method_name, model_name, spec_module
                     )
+                    logger.info(f"🔍 DEBUG: compilation_evaluator.evaluate() completed - iteration {iteration}, success={compilation_result.overall_success}")
                     iteration_data['compilation_result'] = compilation_result
                     
                     success_status = "✓ PASS" if compilation_result.overall_success else "✗ FAIL"
@@ -290,8 +292,10 @@ class CompositeEvaluator(BaseEvaluator):
                                         success=True
                                     )
                                     logger.info(f"✓ Specification corrected for iteration {iteration + 1}")
+                                    logger.info(f"🔍 DEBUG: Will use corrected spec for next iteration (length: {len(current_spec)} chars)")
                                 else:
                                     logger.warning(f"✗ Correction failed, using original spec for iteration {iteration + 1}")
+                                    logger.info(f"🔍 DEBUG: Will reuse original spec for next iteration (length: {len(current_spec)} chars)")
                                     
                             except Exception as e:
                                 logger.error(f"Correction attempt failed: {e}")

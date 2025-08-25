@@ -49,14 +49,16 @@ class ValidationResult:
 class TLAValidator:
     """TLA+ specification validator using SANY"""
     
-    def __init__(self, timeout: int = 30):
+    def __init__(self, timeout: int = 30, error_stats_manager=None):
         """
         Initialize TLA+ validator.
         
         Args:
             timeout: Timeout for validation in seconds
+            error_stats_manager: Optional custom error statistics manager
         """
         self.timeout = timeout
+        self.error_stats_manager = error_stats_manager
         self.tla_tools_path = get_tla_tools_path()
         
         # Check prerequisites
@@ -74,7 +76,8 @@ class TLAValidator:
     
     def validate_specification(self, tla_content: str, 
                              module_name: str = None,
-                             task_name: str = None) -> ValidationResult:
+                             task_name: str = None,
+                             context: str = "compilation") -> ValidationResult:
         """
         Validate a TLA+ specification using SANY.
         
@@ -82,6 +85,7 @@ class TLAValidator:
             tla_content: TLA+ specification content
             module_name: Optional module name (extracted from content if not provided)
             task_name: Optional task name for organizing saved specifications
+            context: Execution context for error statistics (default: "compilation")
             
         Returns:
             ValidationResult with validation outcome
@@ -113,7 +117,7 @@ class TLAValidator:
             
             try:
                 # Run SANY validation
-                result = self._run_sany_validation(str(spec_file_path))
+                result = self._run_sany_validation(str(spec_file_path), context)
                 compilation_time = time.time() - start_time
                 
                 syntax_errors, semantic_errors = self._parse_errors(result[1]) if not result[0] else ([], [])
@@ -145,12 +149,13 @@ class TLAValidator:
                 compilation_time=compilation_time
             )
     
-    def validate_file(self, file_path: str) -> ValidationResult:
+    def validate_file(self, file_path: str, context: str = "compilation") -> ValidationResult:
         """
         Validate a TLA+ specification from file.
         
         Args:
             file_path: Path to TLA+ specification file
+            context: Execution context for error statistics (default: "compilation")
             
         Returns:
             ValidationResult with validation outcome
@@ -174,7 +179,7 @@ class TLAValidator:
             # (SANY validation works on file paths)
             
             # Run SANY validation
-            result = self._run_sany_validation(str(file_path))
+            result = self._run_sany_validation(str(file_path), context)
             compilation_time = time.time() - start_time
             
             syntax_errors, semantic_errors = self._parse_errors(result[1]) if not result[0] else ([], [])
@@ -198,12 +203,13 @@ class TLAValidator:
                 compilation_time=compilation_time
             )
     
-    def _run_sany_validation(self, file_path: str) -> Tuple[bool, str]:
+    def _run_sany_validation(self, file_path: str, context: str = "compilation") -> Tuple[bool, str]:
         """
         Run SANY validation on a TLA+ file.
         
         Args:
             file_path: Path to TLA+ file
+            context: Execution context for error statistics
             
         Returns:
             Tuple of (success, output)
@@ -233,12 +239,22 @@ class TLAValidator:
             output = result.stdout + result.stderr
             
             # Use new error classification system instead of string matching
-            error_info = classify_and_record_tlc_result(
-                result.returncode,
-                result.stdout,
-                result.stderr, 
-                context="compilation"  # This is compilation/parsing
-            )
+            if self.error_stats_manager:
+                # Use custom error statistics manager
+                error_info = self.error_stats_manager.classify_and_record_tlc_result(
+                    result.returncode,
+                    result.stdout,
+                    result.stderr, 
+                    context=context  # Use passed context parameter
+                )
+            else:
+                # Use global error statistics manager (default behavior)
+                error_info = classify_and_record_tlc_result(
+                    result.returncode,
+                    result.stdout,
+                    result.stderr, 
+                    context=context  # Use passed context parameter
+                )
             
             # Determine success based on classification
             success = error_info.category == TLCErrorCategory.SUCCESS
@@ -299,7 +315,8 @@ class TLAValidator:
 
 def validate_tla_specification(tla_content: str, 
                              module_name: str = None,
-                             timeout: int = 30) -> ValidationResult:
+                             timeout: int = 30,
+                             context: str = "compilation") -> ValidationResult:
     """
     Convenience function to validate a TLA+ specification.
     
@@ -307,12 +324,13 @@ def validate_tla_specification(tla_content: str,
         tla_content: TLA+ specification content
         module_name: Optional module name
         timeout: Validation timeout in seconds
+        context: Execution context for error statistics
         
     Returns:
         ValidationResult with validation outcome
     """
     validator = TLAValidator(timeout=timeout)
-    return validator.validate_specification(tla_content, module_name)
+    return validator.validate_specification(tla_content, module_name, context=context)
 
 
 def validate_tla_file(file_path: str, timeout: int = 30) -> ValidationResult:

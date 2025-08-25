@@ -146,106 +146,56 @@ tlc_error_codes:
     3113: 0  # CHECK_PARAM_UNRECOGNIZED
     3114: 0  # CHECK_PARAM_TOO_MANY_INPUT_FILES
 
-  # SANY parser internal errors (4000-4002)
-  sany_parser_internal_errors:
-    4000: 0  # SANY_PARSER_CHECK_1
-    4001: 0  # SANY_PARSER_CHECK_2
-    4002: 0  # SANY_PARSER_CHECK_3
-
-  # SANY semantic errors (4003-4005)
-  sany_internal_errors:
-    4003: 0  # INTERNAL_ERROR
-    4004: 0  # SUSPECTED_UNREACHABLE_CHECK
-    4005: 0  # UNSUPPORTED_LANGUAGE_FEATURE
-
-  # SANY basic semantic errors (4200-4206)
-  sany_basic_errors:
-    4200: 0  # SYMBOL_UNDEFINED
-    4201: 0  # SYMBOL_REDEFINED
-    4202: 0  # BUILT_IN_SYMBOL_REDEFINED
-    4203: 0  # OPERATOR_NAME_INCOMPLETE
-    4204: 0  # OPERATOR_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS
-    4205: 0  # OPERATOR_LEVEL_CONSTRAINTS_EXCEEDED
-    4206: 0  # ASSUMPTION_IS_NOT_CONSTANT
-
-  # SANY module import errors (4220-4224)
-  sany_module_errors:
-    4220: 0  # MODULE_FILE_CANNOT_BE_FOUND
-    4221: 0  # MODULE_NAME_DIFFERENT_FROM_FILE_NAME
-    4222: 0  # MODULE_DEPENDENCIES_ARE_CIRCULAR
-    4223: 0  # MODULE_REDEFINED
-    4224: 0  # EXTENDED_MODULES_SYMBOL_UNIFICATION_CONFLICT
-
-  # SANY instance substitution errors (4240-4247)
-  sany_instance_errors:
-    4240: 0  # INSTANCE_SUBSTITUTION_MISSING_SYMBOL
-    4241: 0  # INSTANCE_SUBSTITUTION_SYMBOL_REDEFINED_MULTIPLE_TIMES
-    4242: 0  # INSTANCE_SUBSTITUTION_ILLEGAL_SYMBOL_REDEFINITION
-    4243: 0  # INSTANCE_SUBSTITUTION_OPERATOR_CONSTANT_INCORRECT_ARITY
-    4244: 0  # INSTANCE_SUBSTITUTION_NON_LEIBNIZ_OPERATOR
-    4245: 0  # INSTANCE_SUBSTITUTION_LEVEL_CONSTRAINTS_EXCEEDED
-    4246: 0  # INSTANCE_SUBSTITUTION_LEVEL_CONSTRAINT_NOT_MET
-    4247: 0  # INSTANCE_SUBSTITUTION_COPARAMETER_LEVEL_CONSTRAINTS_EXCEEDED
-
-  # SANY function and record errors (4260-4262)
-  sany_function_errors:
-    4260: 0  # FUNCTION_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS
-    4261: 0  # FUNCTION_EXCEPT_AT_USED_WHERE_UNDEFINED
-    4262: 0  # RECORD_CONSTRUCTOR_FIELD_REDEFINITION
-
-  # SANY higher-order operator errors (4270-4275)
-  sany_higher_order_errors:
-    4270: 0  # HIGHER_ORDER_OPERATOR_REQUIRED_BUT_EXPRESSION_GIVEN
-    4271: 0  # HIGHER_ORDER_OPERATOR_ARGUMENT_HAS_INCORRECT_ARITY
-    4272: 0  # HIGHER_ORDER_OPERATOR_PARAMETER_LEVEL_CONSTRAINT_NOT_MET
-    4273: 0  # HIGHER_ORDER_OPERATOR_COPARAMETER_LEVEL_CONSTRAINTS_EXCEEDED
-    4274: 0  # LAMBDA_OPERATOR_ARGUMENT_HAS_INCORRECT_ARITY
-    4275: 0  # LAMBDA_GIVEN_WHERE_EXPRESSION_REQUIRED
-
-  # SANY recursive operator errors (4290-4294)
-  sany_recursive_errors:
-    4290: 0  # RECURSIVE_OPERATOR_PRIMES_PARAMETER
-    4291: 0  # RECURSIVE_OPERATOR_DECLARED_BUT_NOT_DEFINED
-    4292: 0  # RECURSIVE_OPERATOR_DECLARATION_DEFINITION_ARITY_MISMATCH
-    4293: 0  # RECURSIVE_OPERATOR_DEFINED_IN_WRONG_LET_IN_LEVEL
-    4294: 0  # RECURSIVE_SECTION_CONTAINS_ILLEGAL_DEFINITION
-
-  # SANY temporal operator errors (4310-4315)
-  sany_temporal_errors:
-    4310: 0  # ALWAYS_PROPERTY_SENSITIVE_TO_STUTTERING
-    4311: 0  # EVENTUALLY_PROPERTY_SENSITIVE_TO_STUTTERING
-    4312: 0  # BINARY_TEMPORAL_OPERATOR_WITH_ACTION_LEVEL_PARAMETER
-    4313: 0  # LOGICAL_OPERATOR_WITH_MIXED_ACTION_TEMPORAL_PARAMETERS
-    4314: 0  # QUANTIFIED_TEMPORAL_FORMULA_WITH_ACTION_LEVEL_BOUND
-    4315: 0  # QUANTIFICATION_WITH_TEMPORAL_LEVEL_BOUND
-
-  # SANY label errors (4330-4337)
-  sany_label_errors:
-    4330: 0  # LABEL_PARAMETER_REPETITION
-    4331: 0  # LABEL_PARAMETER_MISSING
-    4332: 0  # LABEL_PARAMETER_UNNECESSARY
-    4333: 0  # LABEL_NOT_IN_DEFINITION_OR_PROOF_STEP
-    4334: 0  # LABEL_NOT_ALLOWED_IN_NESTED_ASSUME_PROVE_WITH_NEW
-    4335: 0  # LABEL_NOT_ALLOWED_IN_FUNCTION_EXCEPT
-    4336: 0  # LABEL_REDEFINITION
-    4337: 0  # LABEL_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS
-
-  # SANY proof errors (4350-4362)
-  sany_proof_errors:
-    4350: 0  # PROOF_STEP_WITH_IMPLICIT_LEVEL_CANNOT_HAVE_NAME
-    4351: 0  # PROOF_STEP_NON_EXPRESSION_USED_AS_EXPRESSION
-    4352: 0  # TEMPORAL_PROOF_GOAL_WITH_NON_CONSTANT_TAKE_WITNESS_HAVE
-    4353: 0  # TEMPORAL_PROOF_GOAL_WITH_NON_CONSTANT_CASE
-    4354: 0  # QUANTIFIED_TEMPORAL_PICK_FORMULA_WITH_NON_CONSTANT_BOUND
-    4355: 0  # ASSUME_PROVE_USED_WHERE_EXPRESSION_REQUIRED
-    4356: 0  # ASSUME_PROVE_NEW_CONSTANT_HAS_TEMPORAL_LEVEL_BOUND
-    4357: 0  # USE_OR_HIDE_FACT_NOT_VALID
-
-  # SANY warnings (4800+)
-  sany_warnings:
-    4800: 0  # EXTENDED_MODULES_SYMBOL_UNIFICATION_AMBIGUITY
-    4801: 0  # INSTANCED_MODULES_SYMBOL_UNIFICATION_AMBIGUITY
-    4802: 0  # RECORD_CONSTRUCTOR_FIELD_NAME_CLASH
+  # SANY error types - Pattern-matched error categories
+  # Note: SANY doesn't output structured error codes, so we classify by error types
+  sany_error_types:
+    # Basic semantic errors
+    SYMBOL_UNDEFINED: 0                              # Unknown operator/symbol errors
+    SYMBOL_REDEFINED: 0                              # Symbol redefinition errors  
+    BUILT_IN_SYMBOL_REDEFINED: 0                     # Built-in operator redefinition
+    OPERATOR_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS: 0  # Wrong number of arguments
+    OPERATOR_LEVEL_CONSTRAINTS_EXCEEDED: 0           # Level constraint violations
+    ASSUMPTION_IS_NOT_CONSTANT: 0                    # Non-constant assumptions
+    # Function and record errors
+    FUNCTION_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS: 0  # Function arity mismatch
+    FUNCTION_EXCEPT_AT_USED_WHERE_UNDEFINED: 0       # EXCEPT used where function undefined
+    RECORD_CONSTRUCTOR_FIELD_REDEFINITION: 0         # Record field redefinition
+    # Module import errors
+    MODULE_FILE_CANNOT_BE_FOUND: 0                   # Missing module files
+    MODULE_NAME_DIFFERENT_FROM_FILE_NAME: 0          # Module name mismatch
+    MODULE_DEPENDENCIES_ARE_CIRCULAR: 0              # Circular dependencies
+    # Instance substitution errors
+    INSTANCE_SUBSTITUTION_MISSING_SYMBOL: 0          # Missing substitution symbol
+    INSTANCE_SUBSTITUTION_ILLEGAL_SYMBOL_REDEFINITION: 0  # Illegal symbol redefinition
+    # Higher-order operator errors
+    HIGHER_ORDER_OPERATOR_REQUIRED_BUT_EXPRESSION_GIVEN: 0  # Higher-order operator errors
+    HIGHER_ORDER_OPERATOR_ARGUMENT_HAS_INCORRECT_ARITY: 0   # Arity mismatch
+    # Recursive operator errors
+    RECURSIVE_OPERATOR_DECLARED_BUT_NOT_DEFINED: 0   # Undefined recursive operators
+    RECURSIVE_OPERATOR_DECLARATION_DEFINITION_ARITY_MISMATCH: 0  # Arity mismatch
+    # Temporal logic errors
+    ALWAYS_PROPERTY_SENSITIVE_TO_STUTTERING: 0       # Always property stuttering issues
+    EVENTUALLY_PROPERTY_SENSITIVE_TO_STUTTERING: 0   # Eventually property stuttering issues
+    # Label errors
+    LABEL_REDEFINITION: 0                            # Label redefinition
+    LABEL_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS: 0     # Label arity errors
+    # Proof-related errors (NEW)
+    PROOF_STEP_WITH_IMPLICIT_LEVEL_CANNOT_HAVE_NAME: 0  # Proof step naming issues
+    PROOF_STEP_NON_EXPRESSION_USED_AS_EXPRESSION: 0     # Expression type errors in proofs
+    ASSUME_PROVE_USED_WHERE_EXPRESSION_REQUIRED: 0      # ASSUME/PROVE usage errors
+    TEMPORAL_PROOF_GOAL_WITH_NON_CONSTANT_TAKE_WITNESS_HAVE: 0  # Temporal proof constraint errors
+    USE_OR_HIDE_FACT_NOT_VALID: 0                       # USE/HIDE statement errors
+    # Syntax/Parse errors (COMMON - 9000+ series)
+    INDENTATION_ERROR: 0                             # Improper indentation in conjunction/disjunction
+    OPERATOR_PRECEDENCE_CONFLICT: 0                  # Operator precedence conflicts
+    UNEXPECTED_TOKEN: 0                              # Unexpected tokens
+    EXPECTED_TOKEN_MISSING: 0                        # Missing expected tokens
+    MISSING_OPERATOR: 0                              # Missing operators between expressions
+    GENERAL_PARSE_ERROR: 0                           # General TLA+ parsing errors
+    # Internal and unsupported errors
+    INTERNAL_ERROR: 0                                # Internal SANY errors
+    UNSUPPORTED_LANGUAGE_FEATURE: 0                  # Unsupported TLA+ features
+    OTHER_SANY_ERROR: 0                              # Unclassified SANY errors
 
   # Config file parsing errors (5001-5006)
   config_file_errors:

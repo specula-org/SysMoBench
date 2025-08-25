@@ -14,7 +14,7 @@ from ...models.base import GenerationResult
 from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SyntaxEvaluationResult
-from ...core.verification.error_statistics_manager import classify_and_record_tlc_result, TLCErrorCategory
+from ...core.verification.error_statistics_manager import classify_and_record_tlc_result, TLCErrorCategory, get_experiment_error_statistics_manager
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,10 @@ class CompilationCheckEvaluator(BaseEvaluator):
             validation_timeout: Timeout for TLA+ validation in seconds
         """
         super().__init__(timeout=validation_timeout)
-        self.validator = TLAValidator(timeout=validation_timeout)
+        # Create separate error statistics manager for this evaluator
+        self.error_stats_manager = get_experiment_error_statistics_manager()
+        # Create validator with custom error statistics manager
+        self.validator = TLAValidator(timeout=validation_timeout, error_stats_manager=self.error_stats_manager)
     
     def evaluate(self, 
                 generation_result: GenerationResult,
@@ -156,6 +159,18 @@ class CompilationCheckEvaluator(BaseEvaluator):
         }
         
         output_manager.save_result(output_dir, result_data, metadata)
+        
+        # Save error statistics for this compilation_check run
+        try:
+            stats_file_path = self.error_stats_manager.save_experiment_statistics(
+                output_dir=output_dir,
+                task_name=task_name,
+                method_name=method_name,
+                model_name=model_name
+            )
+            logger.info(f"Error statistics saved to: {stats_file_path}")
+        except Exception as stats_error:
+            logger.error(f"Failed to save error statistics: {stats_error}")
         
         logger.info(f"Evaluation complete: success={eval_result.overall_success}")
         return eval_result

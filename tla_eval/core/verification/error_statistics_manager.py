@@ -122,19 +122,25 @@ class ErrorStatisticsManager:
         # Classify the error
         error_info = self.classifier.classify_tlc_result(exit_code, stdout, stderr)
         
-        # Only record statistics if NOT in invariant checking context
-        # In invariant checking, violations are expected findings, not errors
-        if context != "invariant_check":
+        # Only record statistics if NOT in special contexts
+        # - invariant_check: violations are expected findings, not errors
+        # - action_decomposition: internal validation during individual action decomposition
+        if context not in ["invariant_check", "action_decomposition"]:
             self._update_global_statistics(error_info)
             self._update_experiment_statistics(error_info)
         else:
-            logger.debug(f"Skipping statistics update for invariant check context: {error_info.category.value}")
+            logger.debug(f"Skipping statistics update for context '{context}': {error_info.category.value}")
         
         return error_info
     
     def _update_global_statistics(self, error_info: TLCErrorInfo):
         """Update global error statistics with new error info"""
         try:
+            # Ensure data structures exist
+            if not hasattr(self.global_stats, 'data') or self.global_stats.data is None:
+                logger.error("Global statistics data is None, skipping update")
+                return
+                
             # Update total runs
             self.global_stats.data['statistics']['total_runs'] += 1
             
@@ -152,11 +158,11 @@ class ErrorStatisticsManager:
             elif error_info.is_compilation_error:
                 self.global_stats.data['error_categories']['compilation_errors'] += 1
                 self.global_stats.data['statistics']['failed_runs'] += 1
-                self._update_specific_error_code_in_stats(self.global_stats.data, error_info.error_code)
+                self._update_specific_error_code_in_stats(self.global_stats.data, error_info)
             elif error_info.is_runtime_error:
                 self.global_stats.data['error_categories']['runtime_errors'] += 1
                 self.global_stats.data['statistics']['failed_runs'] += 1
-                self._update_specific_error_code_in_stats(self.global_stats.data, error_info.error_code)
+                self._update_specific_error_code_in_stats(self.global_stats.data, error_info)
             else:
                 self.global_stats.data['error_categories']['unknown_errors'] += 1
                 self.global_stats.data['statistics']['failed_runs'] += 1
@@ -187,11 +193,11 @@ class ErrorStatisticsManager:
             elif error_info.is_compilation_error:
                 self.current_experiment_stats['error_categories']['compilation_errors'] += 1
                 self.current_experiment_stats['statistics']['failed_runs'] += 1
-                self._update_specific_error_code_in_stats(self.current_experiment_stats, error_info.error_code)
+                self._update_specific_error_code_in_stats(self.current_experiment_stats, error_info)
             elif error_info.is_runtime_error:
                 self.current_experiment_stats['error_categories']['runtime_errors'] += 1
                 self.current_experiment_stats['statistics']['failed_runs'] += 1
-                self._update_specific_error_code_in_stats(self.current_experiment_stats, error_info.error_code)
+                self._update_specific_error_code_in_stats(self.current_experiment_stats, error_info)
             else:
                 self.current_experiment_stats['error_categories']['unknown_errors'] += 1
                 self.current_experiment_stats['statistics']['failed_runs'] += 1
@@ -204,8 +210,34 @@ class ErrorStatisticsManager:
         except Exception as e:
             logger.error(f"Failed to update experiment error statistics: {e}")
     
-    def _update_specific_error_code_in_stats(self, stats_data: Dict[str, Any], error_code: Optional[int]):
-        """Update count for specific error code in given statistics data"""
+    def _update_specific_error_code_in_stats(self, stats_data: Dict[str, Any], error_info: 'TLCErrorInfo'):
+        """Update count for specific error code or SANY error type in given statistics data"""
+        # Handle SANY errors (exit code 255 or classified as SANY)
+        if (error_info.exit_code == 255 or error_info.is_sany_error) and 'sany_error_types' in stats_data['tlc_error_codes']:
+            sany_types = stats_data['tlc_error_codes']['sany_error_types']
+            
+            if error_info.sany_error_match:
+                # Specific SANY error type identified
+                error_name = error_info.sany_error_match.error_name
+                if error_name in sany_types:
+                    sany_types[error_name] += 1
+                    logger.debug(f"Incremented SANY error type {error_name}")
+                    return
+                else:
+                    # Fall back to OTHER_SANY_ERROR for unrecognized types
+                    if 'OTHER_SANY_ERROR' in sany_types:
+                        sany_types['OTHER_SANY_ERROR'] += 1
+                        logger.debug(f"Incremented OTHER_SANY_ERROR for unrecognized type {error_name}")
+                        return
+            else:
+                # SANY error but no pattern match - record as OTHER_SANY_ERROR
+                if 'OTHER_SANY_ERROR' in sany_types:
+                    sany_types['OTHER_SANY_ERROR'] += 1
+                    logger.debug(f"Incremented OTHER_SANY_ERROR for unmatched SANY error")
+                    return
+        
+        # Handle regular TLC error codes
+        error_code = error_info.error_code
         if not error_code:
             return
             
@@ -244,13 +276,13 @@ class ErrorStatisticsManager:
             "error_categories": self.global_stats.data['error_categories'].copy()
         }
         
-        # Find most common errors
+        # Find most common errors (including SANY error types)
         most_common = []
         for section_name, section_data in self.global_stats.data['tlc_error_codes'].items():
             if isinstance(section_data, dict):
-                for code, count in section_data.items():
+                for code_or_type, count in section_data.items():
                     if count > 0:
-                        most_common.append((code, count, section_name))
+                        most_common.append((code_or_type, count, section_name))
         
         # Sort by count descending
         most_common.sort(key=lambda x: x[1], reverse=True)
@@ -284,13 +316,13 @@ class ErrorStatisticsManager:
             "error_categories": self.current_experiment_stats['error_categories'].copy()
         }
         
-        # Find most common errors in this experiment
+        # Find most common errors in this experiment (including SANY error types)
         most_common = []
         for section_name, section_data in self.current_experiment_stats['tlc_error_codes'].items():
             if isinstance(section_data, dict):
-                for code, count in section_data.items():
+                for code_or_type, count in section_data.items():
                     if count > 0:
-                        most_common.append((code, count, section_name))
+                        most_common.append((code_or_type, count, section_name))
         
         # Sort by count descending
         most_common.sort(key=lambda x: x[1], reverse=True)

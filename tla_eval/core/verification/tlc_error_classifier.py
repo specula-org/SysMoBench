@@ -10,6 +10,8 @@ from typing import Dict, Optional, Tuple, List
 from dataclasses import dataclass
 import re
 
+from .sany_error_code_reverse import SANYErrorCodeReverse, SANYErrorMatch
+
 
 class TLCErrorCategory(Enum):
     """High-level categories of TLC errors"""
@@ -40,6 +42,9 @@ class TLCErrorInfo:
     is_compilation_error: bool = False
     is_runtime_error: bool = False
     is_violation: bool = False
+    # SANY-specific fields
+    sany_error_match: Optional[SANYErrorMatch] = None
+    is_sany_error: bool = False
 
 
 class TLCErrorClassifier:
@@ -47,7 +52,8 @@ class TLCErrorClassifier:
     Classifier for TLC model checker errors based on exit codes and output parsing.
     
     This provides a robust alternative to string matching by using TLC's
-    structured error reporting system.
+    structured error reporting system. For SANY errors, it uses pattern matching
+    to reverse-engineer error codes from error messages.
     """
     
     # TLC exit codes from EC.ExitStatus
@@ -65,6 +71,9 @@ class TLCErrorClassifier:
         151: TLCErrorCategory.ERROR_CONFIG_PARSE,
         152: TLCErrorCategory.ERROR_STATESPACE_TOO_LARGE,
         153: TLCErrorCategory.ERROR_SYSTEM,
+        # SANY exit codes (SANY parser errors)
+        255: TLCErrorCategory.ERROR_SPEC_PARSE,  # SANY parsing error
+        1: TLCErrorCategory.ERROR_SPEC_PARSE,    # Generic SANY error
     }
     
     # TLC internal error codes (from EC.java)
@@ -104,6 +113,10 @@ class TLCErrorClassifier:
         2127: ("Error writing pool", "SYSTEM_ERROR_WRITING_POOL"),
     }
     
+    def __init__(self):
+        """Initialize the TLC error classifier with SANY error reverse mapping."""
+        self.sany_classifier = SANYErrorCodeReverse()
+    
     def classify_tlc_result(self, exit_code: int, stdout: str = "", stderr: str = "") -> TLCErrorInfo:
         """
         Classify TLC execution result based on exit code and output.
@@ -119,12 +132,27 @@ class TLCErrorClassifier:
         # First, try to get category from exit code
         category = self.EXIT_CODE_TO_CATEGORY.get(exit_code, TLCErrorCategory.ERROR_UNKNOWN)
         
+        # Initialize SANY-specific variables
+        sany_error_match = None
+        is_sany_error = False
+        
         # Extract error code from output if available
         error_code = self._extract_error_code(stdout, stderr)
         
+        # Handle SANY errors (exit code 255 or 1) with pattern matching
+        if exit_code in [255, 1] and category == TLCErrorCategory.ERROR_SPEC_PARSE:
+            combined_output = stdout + stderr
+            sany_error_match = self.sany_classifier.classify_sany_error(combined_output)
+            if sany_error_match:
+                is_sany_error = True
+                error_code = sany_error_match.error_code
+                # Override description with SANY-specific description
+        
         # Get detailed description
         description = ""
-        if error_code and error_code in self.ERROR_CODE_DESCRIPTIONS:
+        if sany_error_match:
+            description = sany_error_match.description
+        elif error_code and error_code in self.ERROR_CODE_DESCRIPTIONS:
             description = self.ERROR_CODE_DESCRIPTIONS[error_code][0]
         
         # Determine error characteristics
@@ -160,7 +188,9 @@ class TLCErrorClassifier:
             description=description,
             is_compilation_error=is_compilation_error,
             is_runtime_error=is_runtime_error,
-            is_violation=is_violation
+            is_violation=is_violation,
+            sany_error_match=sany_error_match,
+            is_sany_error=is_sany_error
         )
     
     def _extract_error_code(self, stdout: str, stderr: str) -> Optional[int]:
