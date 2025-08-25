@@ -21,11 +21,11 @@ invariants:
 
   - name: "NoDeadlock"
     type: "safety"
-    natural_language: "No process can be stuck spinning forever when the lock is free"
-    formal_description: "Deadlock freedom: if a process is spinning, the lock must be currently held by someone"
+    natural_language: "When the lock is free, no process should be spinning indefinitely"
+    formal_description: "Deadlock freedom: if the lock is free, then no process is stuck spinning (they should either acquire the lock or fail)"
     tla_example: |
       NoDeadlock ==
-        \A p \in Proc : (pc[p] = "spinning") => (lock_state = TRUE)
+        (lock_state = FALSE) => ~(\E p \in Proc : pc[p] = "spinning")
 
   - name: "TryLockNoSpinning"
     type: "safety"
@@ -47,7 +47,7 @@ invariants:
             \E q \in Proc : q = p /\ (pc[q] \in {"req_lock", "spinning"})
 
   - name: "GuardLifecycle"
-    type: "safety"
+    type: "liveness"
     natural_language: "Process in critical section will eventually return to idle state"
     formal_description: "RAII Guard semantics: every lock acquisition must be paired with exactly one release"
     tla_example: |
