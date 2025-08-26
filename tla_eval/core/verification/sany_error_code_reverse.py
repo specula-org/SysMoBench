@@ -64,299 +64,357 @@ class SANYErrorCodeReverse:
         """
         patterns = {
             # SANY Basic Semantic Errors (4200-4206)
+            # Reference: Generator.java:3304 "Unknown operator: `" + selectorItemToString(sel, eidx) + "'."
             4200: (
-                r"Unknown operator:\s*[`']([^`']+)[`']\.|DEF\s+clause\s+entry\s+should\s+describe\s+a\s+defined\s+operator",
+                r"Unknown operator",
                 "SYMBOL_UNDEFINED", 
                 "Symbol or operator not defined"
             ),
+            # Reference: SymbolTable.java:164 "Multiply-defined symbol '" + name + "': this definition or declaration conflicts"
+            # Reference: Generator.java "Operator " + name.toString() + " already defined or declared."
+            # Reference: Generator.java "Function name `" + name.toString() + "' already defined or declared."
             4201: (
-                r"Multiply-defined symbol\s+[`']([^`']+)[`']",
+                r"(?:Multiply-defined.*symbol|already.*defined.*declared|defined.*declared)",
                 "SYMBOL_REDEFINED",
                 "Symbol redefined in same scope"
             ),
+            # Reference: SymbolTable.java:148 "Symbol " + name + " is a built-in operator, and cannot be redefined."
             4202: (
-                r"Built-in\s+operator\s+[`']?([^`'\s]+)[`']?\s+cannot\s+be\s+redefined",
+                r"(?:built-in.*operator.*cannot.*redefined|built-in.*cannot.*redefined)",
                 "BUILT_IN_SYMBOL_REDEFINED",
                 "Built-in TLA+ operator redefined"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4203: (
-                r"Operator\s+name\s+[`']?(\w+)[`']?\s+is\s+incomplete",
+                r"(?:name.*incomplete|incomplete.*name|operator.*name.*incomplete)",
                 "OPERATOR_NAME_INCOMPLETE", 
                 "Operator name syntax incomplete"
             ),
+            # Reference: Generator.java "The operator " + curName.toString() + " requires " + (nodeArity - opDefArityFound) + " arguments."
             4204: (
-                r"(?:The\s+operator\s+[`']([^`']+)[`']\s+requires\s+(\d+)\s+arguments?|Wrong\s+number\s+of\s+arguments\s*\((\d+)\)\s*given\s+to\s+operator\s+[`']([^`']+)[`']|Operator\s+used\s+with\s+the\s+wrong\s+number\s+of\s+arguments)",
+                r"(?:operator.*requires.*argument|requires.*argument)",
                 "OPERATOR_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS",
                 "Operator called with wrong number of arguments"
             ),
+            # Reference: OpApplNode.java "Level error in applying operator" + "The level of argument" + "exceeds the maximum level allowed"
             4205: (
-                r"Level\s+constraint\s+(?:of\s+operator\s+)?[`']?(\w+)[`']?\s+(?:is\s+)?exceeded",
+                r"(?:Level.*error.*applying.*operator|level.*argument.*exceed.*maximum|level.*constraint)",
                 "OPERATOR_LEVEL_CONSTRAINTS_EXCEEDED",
                 "TLA+ level constraint violated"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4206: (
-                r"Assumption\s+(?:[`']?(\w+)[`']?\s+)?is\s+not\s+constant",
+                r"(?:Assumption.*not.*constant|is.*not.*constant|not.*constant)",
                 "ASSUMPTION_IS_NOT_CONSTANT",
                 "Assumption must be constant-level"
             ),
             
             # SANY Module Import Errors (4220-4224)
+            # Reference: SpecObj.java "Cannot find source file for module " + name + " imported in module"
             4220: (
-                r"Cannot\s+find\s+source\s+file\s+for\s+module\s+[`']([^`']+)[`']\s+in\s+director(?:y|ies)",
+                r"Cannot.*find.*source.*file.*module",
                 "MODULE_FILE_CANNOT_BE_FOUND",
                 "Module file not found"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4221: (
-                r"File\s+name\s+[`']([^`']+)[`']\s+does\s+not\s+match\s+the\s+name\s+[`']([^`']+)[`']\s+of\s+the\s+top\s+level\s+module\s+it\s+contains",
+                r"(?:does.*not.*match.*name.*module|name.*different.*file)",
                 "MODULE_NAME_DIFFERENT_FROM_FILE_NAME",
                 "Module name doesn't match filename"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4222: (
-                r"(?:Module\s+)?dependencies\s+are\s+circular",
+                r"(?:dependencies.*circular|circular.*dependencies|circular.*module)",
                 "MODULE_DEPENDENCIES_ARE_CIRCULAR",
                 "Circular module dependencies detected"
             ),
+            # Reference: SymbolTable.java:244 "Multiply-defined module '" + name + "': this definition or declaration conflicts"
             4223: (
-                r"Module\s+[`']?(\w+)[`']?\s+(?:is\s+)?(?:already\s+)?(?:re)?defined",
+                r"(?:Multiply-defined.*module|Module.*redefined|module.*already.*defined)",
                 "MODULE_REDEFINED",
                 "Module defined multiple times"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4224: (
-                r"Extended\s+modules?\s+symbol\s+unification\s+conflict",
+                r"(?:Extended.*module.*symbol.*unification.*conflict|symbol.*unification.*conflict|unification.*conflict)",
                 "EXTENDED_MODULES_SYMBOL_UNIFICATION_CONFLICT",
                 "Symbol conflict in extended modules"
             ),
             
             # SANY Function and Record Errors (4260-4262)
+            # Reference: Generator.java "Function '" + name + "' is defined with " + numParms + " parameters, but is applied to " + numArgs + " arguments."
             4260: (
-                r"Function\s+[`']?(\w+)[`']?\s+is\s+defined\s+with\s+(\d+)\s+parameters?,\s+but\s+is\s+applied\s+to\s+(\d+)\s+arguments?",
+                r"(?:Function.*defined.*parameter.*applied.*argument|Function.*wrong.*number|applied.*argument)",
                 "FUNCTION_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS",
                 "Function called with wrong number of arguments"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4261: (
-                r"Function\s+[`']?(\w+)[`']?\s+(?:is\s+)?used\s+(?:with\s+)?EXCEPT\s+(?:at\s+)?(?:a\s+)?(?:point\s+)?(?:where\s+it\s+is\s+)?undefined",
+                r"(?:EXCEPT.*undefined|Function.*EXCEPT.*undefined|EXCEPT.*used.*undefined)",
                 "FUNCTION_EXCEPT_AT_USED_WHERE_UNDEFINED",
                 "EXCEPT used where function undefined"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4262: (
-                r"Record\s+constructor\s+field\s+[`']?(\w+)[`']?\s+(?:is\s+)?(?:re)?defined\s+(?:multiple\s+times|again)",
+                r"(?:Record.*field.*defined.*multiple|Record.*field.*redefined|field.*redefined|field.*multiple)",
                 "RECORD_CONSTRUCTOR_FIELD_REDEFINITION", 
                 "Record field defined multiple times"
             ),
             
-            # SANY Instance Substitution Errors (4240-4247)
+            # SANY Instance Substitution Errors (4240-4247) 
+            # Reference: Need to find this pattern in TLA+ source
             4240: (
-                r"(?:Instance\s+)?(?:substitution\s+)?(?:is\s+)?missing\s+symbol\s+[`']?(\w+)[`']?",
+                r"(?:missing.*symbol|symbol.*missing)",
                 "INSTANCE_SUBSTITUTION_MISSING_SYMBOL",
                 "Required substitution symbol missing"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4241: (
-                r"(?:Instance\s+)?(?:substitution\s+)?symbol\s+[`']?(\w+)[`']?\s+(?:is\s+)?(?:re)?defined\s+multiple\s+times",
+                r"(?:symbol.*redefined.*multiple|symbol.*defined.*multiple|redefined.*multiple)",
                 "INSTANCE_SUBSTITUTION_SYMBOL_REDEFINED_MULTIPLE_TIMES",
                 "Substitution symbol redefined multiple times"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4242: (
-                r"(?:Instance\s+)?(?:substitution\s+)?illegal\s+symbol\s+redefinition",
+                r"(?:illegal.*symbol.*redefinition|illegal.*redefinition)",
                 "INSTANCE_SUBSTITUTION_ILLEGAL_SYMBOL_REDEFINITION",
                 "Illegal symbol redefinition in substitution"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4243: (
-                r"(?:Instance\s+)?(?:substitution\s+)?operator\s+(?:or\s+constant\s+)?(?:has\s+)?incorrect\s+arity",
+                r"(?:incorrect.*arity|arity.*incorrect)",
                 "INSTANCE_SUBSTITUTION_OPERATOR_CONSTANT_INCORRECT_ARITY",
                 "Operator/constant arity mismatch in substitution"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4244: (
-                r"(?:Instance\s+)?(?:substitution\s+)?non-Leibniz\s+operator",
+                r"(?:non-Leibniz.*operator|Leibniz.*operator)",
                 "INSTANCE_SUBSTITUTION_NON_LEIBNIZ_OPERATOR",
                 "Non-Leibniz operator in substitution"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4245: (
-                r"(?:Instance\s+)?(?:substitution\s+)?level\s+constraints?\s+exceeded",
+                r"(?:level.*constraint.*exceeded|constraint.*exceeded)",
                 "INSTANCE_SUBSTITUTION_LEVEL_CONSTRAINTS_EXCEEDED",
                 "Level constraints exceeded in substitution"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4246: (
-                r"(?:Instance\s+)?(?:substitution\s+)?level\s+constraint\s+(?:is\s+)?not\s+met",
+                r"(?:level.*constraint.*not.*met|constraint.*not.*met)",
                 "INSTANCE_SUBSTITUTION_LEVEL_CONSTRAINT_NOT_MET",
                 "Level constraint not met in substitution"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4247: (
-                r"(?:Instance\s+)?(?:substitution\s+)?coparameter\s+level\s+constraints?\s+exceeded",
+                r"(?:coparameter.*level.*constraint.*exceeded|coparameter.*exceeded)",
                 "INSTANCE_SUBSTITUTION_COPARAMETER_LEVEL_CONSTRAINTS_EXCEEDED",
                 "Coparameter level constraints exceeded"
             ),
             
             # SANY Higher-Order Operator Errors (4270-4275)
+            # Reference: Need to find this pattern in TLA+ source
             4270: (
-                r"Higher-order\s+operator\s+(?:is\s+)?required\s+but\s+expression\s+(?:is\s+)?given",
+                r"(?:Higher-order.*operator.*required.*expression.*given|operator.*required.*expression)",
                 "HIGHER_ORDER_OPERATOR_REQUIRED_BUT_EXPRESSION_GIVEN",
                 "Expression given where higher-order operator required"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4271: (
-                r"(?:Expected\s+arity\s+(\d+)\s+but\s+found\s+operator\s+of\s+arity\s+(\d+)|Argument\s+number\s+(\d+)\s+to\s+operator\s+[`']([^`']+)[`']\s+should\s+be\s+a\s+(\d+)-parameter\s+operator)",
+                r"(?:Expected.*arity.*but.*found|Argument.*should.*parameter.*operator|arity.*incorrect)",
                 "HIGHER_ORDER_OPERATOR_ARGUMENT_HAS_INCORRECT_ARITY",
                 "Higher-order operator argument has incorrect arity"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4272: (
-                r"Higher-order\s+operator\s+parameter\s+level\s+constraint\s+(?:is\s+)?not\s+met",
+                r"(?:parameter.*level.*constraint.*not.*met|level.*constraint.*not.*met)",
                 "HIGHER_ORDER_OPERATOR_PARAMETER_LEVEL_CONSTRAINT_NOT_MET",
                 "Parameter level constraint not met"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4273: (
-                r"Higher-order\s+operator\s+coparameter\s+level\s+constraints?\s+exceeded",
+                r"(?:coparameter.*level.*constraint.*exceeded|coparameter.*exceeded)",
                 "HIGHER_ORDER_OPERATOR_COPARAMETER_LEVEL_CONSTRAINTS_EXCEEDED",
                 "Coparameter level constraints exceeded"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4274: (
-                r"Selector\s+with\s+(\d+)\s+arguments?\s+used\s+for\s+LAMBDA\s+expression\s+taking\s+(\d+)\s+arguments?",
+                r"(?:Selector.*argument.*LAMBDA.*expression|LAMBDA.*argument.*arity)",
                 "LAMBDA_OPERATOR_ARGUMENT_HAS_INCORRECT_ARITY",
                 "LAMBDA operator argument has incorrect arity"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4275: (
-                r"Lambda\s+(?:operator\s+)?given\s+where\s+expression\s+(?:is\s+)?required",
+                r"(?:Lambda.*given.*where.*expression.*required|Lambda.*expression.*required)",
                 "LAMBDA_GIVEN_WHERE_EXPRESSION_REQUIRED",
                 "Lambda given where expression required"
             ),
             
             # SANY Recursive Operator Errors (4290-4294)
+            # Reference: Need to find this pattern in TLA+ source
             4290: (
-                r"Recursive\s+operator\s+[`']?(\w+)[`']?\s+(?:has\s+)?primed\s+parameter",
+                r"(?:Recursive.*operator.*primed.*parameter|primed.*parameter)",
                 "RECURSIVE_OPERATOR_PRIMES_PARAMETER",
                 "Recursive operator has primed parameter"
             ),
+            # Reference: Generator.java "Symbol " + odn.getName().toString() + " declared in RECURSIVE statement but not defined."
             4291: (
-                r"Recursive\s+operator\s+[`']?(\w+)[`']?\s+(?:is\s+)?declared\s+but\s+not\s+defined",
+                r"(?:declared.*RECURSIVE.*not.*defined|Recursive.*operator.*declared.*not.*defined|declared.*not.*defined)",
                 "RECURSIVE_OPERATOR_DECLARED_BUT_NOT_DEFINED",
                 "Recursive operator declared but not defined"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4292: (
-                r"Recursive\s+operator\s+(?:declaration\s+(?:and\s+)?definition\s+)?arity\s+mismatch",
+                r"(?:Recursive.*operator.*arity.*mismatch|arity.*mismatch|declaration.*definition.*arity)",
                 "RECURSIVE_OPERATOR_DECLARATION_DEFINITION_ARITY_MISMATCH",
                 "Recursive operator declaration/definition arity mismatch"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4293: (
-                r"Recursive\s+operator\s+[`']?(\w+)[`']?\s+(?:is\s+)?defined\s+in\s+wrong\s+LET-IN\s+level",
+                r"(?:Recursive.*operator.*defined.*wrong.*LET.*level|defined.*wrong.*level|wrong.*LET.*level)",
                 "RECURSIVE_OPERATOR_DEFINED_IN_WRONG_LET_IN_LEVEL",
                 "Recursive operator defined at wrong LET-IN level"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4294: (
-                r"Recursive\s+section\s+contains\s+illegal\s+definition",
+                r"(?:Recursive.*section.*illegal.*definition|illegal.*definition.*recursive|illegal.*definition)",
                 "RECURSIVE_SECTION_CONTAINS_ILLEGAL_DEFINITION",
                 "Illegal definition in recursive section"
             ),
             
             # SANY Temporal Operator Errors (4310-4315) - Updated to match actual TLA+ source
+            # Reference: OpApplNode.java "[] followed by action not of form [A]_v."
             4310: (
-                r"\[\]\s+followed\s+by\s+action\s+not\s+of\s+form\s+\[A\]_v",
+                r"(?:\[\].*followed.*action.*not.*form.*\[A\]_v|followed.*action.*not.*form)",
                 "ALWAYS_PROPERTY_SENSITIVE_TO_STUTTERING",
                 "[] followed by action not of form [A]_v"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4311: (
-                r"<>\s+followed\s+by\s+action\s+not\s+of\s+form\s+<<A>>_v",
+                r"(?:<>.*followed.*action.*not.*form|followed.*action.*not.*form)",
                 "EVENTUALLY_PROPERTY_SENSITIVE_TO_STUTTERING",
                 "<> followed by action not of form <<A>>_v"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4312: (
-                r"(?:Binary\s+temporal\s+operator\s+with\s+action\s+level\s+parameter|Action\s+used\s+where\s+only\s+temporal\s+formula\s+or\s+state\s+formula\s+is\s+allowed)",
+                r"(?:Binary.*temporal.*operator.*action.*level|Action.*used.*where.*temporal.*formula|temporal.*operator.*action)",
                 "BINARY_TEMPORAL_OPERATOR_WITH_ACTION_LEVEL_PARAMETER",
                 "Action used where temporal/state formula required"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4313: (
-                r"Logical\s+operator\s+with\s+mixed\s+action\s+(?:and\s+)?temporal\s+parameters",
+                r"(?:Logical.*operator.*mixed.*action.*temporal|mixed.*action.*temporal)",
                 "LOGICAL_OPERATOR_WITH_MIXED_ACTION_TEMPORAL_PARAMETERS",
                 "Logical operator with mixed action/temporal parameters"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4314: (
-                r"Quantified\s+temporal\s+formula\s+with\s+action\s+level\s+bound",
+                r"(?:Quantified.*temporal.*formula.*action.*level.*bound|temporal.*formula.*action.*bound)",
                 "QUANTIFIED_TEMPORAL_FORMULA_WITH_ACTION_LEVEL_BOUND",
                 "Quantified temporal formula with action-level bound"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4315: (
-                r"Quantification\s+with\s+temporal\s+level\s+bound",
+                r"(?:Quantification.*temporal.*level.*bound|temporal.*level.*bound)",
                 "QUANTIFICATION_WITH_TEMPORAL_LEVEL_BOUND",
                 "Quantification with temporal-level bound"
             ),
             
             # SANY Label Errors (4330-4337)
+            # Reference: Generator.java "Repeated formal parameter " + odns[i].getName().toString() + " \nin label `" + ln.getName().toString() + "'."
             4330: (
-                r"Label\s+parameter\s+[`']?(\w+)[`']?\s+(?:is\s+)?(?:repeated|used\s+multiple\s+times)",
+                r"(?:Repeated.*formal.*parameter.*label|Label.*parameter.*repeated|repeated.*parameter)",
                 "LABEL_PARAMETER_REPETITION",
                 "Label parameter repeated"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4331: (
-                r"Label\s+parameter\s+[`']?(\w+)[`']?\s+(?:is\s+)?missing",
+                r"(?:Label.*parameter.*missing|parameter.*missing)",
                 "LABEL_PARAMETER_MISSING",
                 "Required label parameter missing"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4332: (
-                r"Label\s+parameter\s+[`']?(\w+)[`']?\s+(?:is\s+)?unnecessary",
+                r"(?:Label.*parameter.*unnecessary|parameter.*unnecessary)",
                 "LABEL_PARAMETER_UNNECESSARY",
                 "Unnecessary label parameter provided"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4333: (
-                r"Label\s+[`']?(\w+)[`']?\s+(?:is\s+)?not\s+(?:in\s+)?(?:(?:a\s+)?definition\s+(?:or\s+)?(?:proof\s+)?step)",
+                r"(?:Label.*not.*definition.*proof.*step|not.*definition.*step)",
                 "LABEL_NOT_IN_DEFINITION_OR_PROOF_STEP",
                 "Label not in definition or proof step"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4334: (
-                r"Label\s+(?:is\s+)?not\s+allowed\s+in\s+nested\s+ASSUME\s+PROVE\s+with\s+NEW",
+                r"(?:Label.*not.*allowed.*nested.*ASSUME.*PROVE|not.*allowed.*ASSUME.*PROVE)",
                 "LABEL_NOT_ALLOWED_IN_NESTED_ASSUME_PROVE_WITH_NEW",
                 "Label not allowed in nested ASSUME PROVE with NEW"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4335: (
-                r"Label\s+(?:is\s+)?not\s+allowed\s+in\s+function\s+EXCEPT",
+                r"(?:Label.*not.*allowed.*function.*EXCEPT|not.*allowed.*EXCEPT)",
                 "LABEL_NOT_ALLOWED_IN_FUNCTION_EXCEPT",
                 "Label not allowed in function EXCEPT"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4336: (
-                r"Label\s+[`']?(\w+)[`']?\s+(?:is\s+)?(?:already\s+)?(?:re)?defined",
+                r"(?:Label.*already.*defined|Label.*redefined|already.*defined|redefined)",
                 "LABEL_REDEFINITION",
                 "Label redefined"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4337: (
-                r"Label\s+[`']?(\w+)[`']?\s+(?:is\s+)?given\s+(?:the\s+)?wrong\s+number\s+of\s+arguments",
+                r"(?:Label.*given.*wrong.*number.*argument|wrong.*number.*argument)",
                 "LABEL_GIVEN_INCORRECT_NUMBER_OF_ARGUMENTS",
                 "Label given wrong number of arguments"
             ),
             
             # SANY Proof-related Errors (4350-4357)
+            # Reference: Need to find this pattern in TLA+ source
             4350: (
-                r"Proof\s+step\s+with\s+implicit\s+level\s+cannot\s+have\s+(?:a\s+)?name",
+                r"(?:Proof.*step.*implicit.*level.*cannot.*name|implicit.*level.*cannot.*name)",
                 "PROOF_STEP_WITH_IMPLICIT_LEVEL_CANNOT_HAVE_NAME",
                 "Proof step with implicit level cannot have name"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4351: (
-                r"(?:Proof\s+step\s+)?(?:non-)?expression\s+used\s+(?:as\s+)?(?:an\s+)?expression|Non-expression\s+used\s+as\s+expression",
+                r"(?:Non-expression.*used.*expression|expression.*used.*expression)",
                 "PROOF_STEP_NON_EXPRESSION_USED_AS_EXPRESSION",
                 "Non-expression used as expression in proof step"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4352: (
-                r"Temporal\s+proof\s+goal\s+with\s+non-constant\s+(?:TAKE|WITNESS|HAVE)",
+                r"(?:Temporal.*proof.*goal.*non-constant.*(?:TAKE|WITNESS|HAVE)|proof.*goal.*non-constant)",
                 "TEMPORAL_PROOF_GOAL_WITH_NON_CONSTANT_TAKE_WITNESS_HAVE",
                 "Temporal proof goal with non-constant TAKE/WITNESS/HAVE"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4353: (
-                r"Temporal\s+proof\s+goal\s+with\s+non-constant\s+CASE",
+                r"(?:Temporal.*proof.*goal.*non-constant.*CASE|proof.*goal.*CASE)",
                 "TEMPORAL_PROOF_GOAL_WITH_NON_CONSTANT_CASE",
                 "Temporal proof goal with non-constant CASE"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4354: (
-                r"Quantified\s+temporal\s+(?:PICK\s+)?formula\s+with\s+non-constant\s+bound",
+                r"(?:Quantified.*temporal.*PICK.*formula.*non-constant.*bound|temporal.*formula.*non-constant)",
                 "QUANTIFIED_TEMPORAL_PICK_FORMULA_WITH_NON_CONSTANT_BOUND",
                 "Quantified temporal PICK formula with non-constant bound"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4355: (
-                r"ASSUME\s*\/\s*PROVE\s+(?:is\s+)?used\s+where\s+(?:an\s+)?expression\s+(?:is\s+)?required",
+                r"(?:ASSUME.*PROVE.*used.*where.*expression.*required|ASSUME.*PROVE.*expression)",
                 "ASSUME_PROVE_USED_WHERE_EXPRESSION_REQUIRED",
                 "ASSUME/PROVE used where expression required"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4356: (
-                r"ASSUME\s*\/\s*PROVE\s+NEW\s+constant\s+has\s+temporal\s+level\s+bound",
+                r"(?:ASSUME.*PROVE.*NEW.*constant.*temporal.*level.*bound|NEW.*constant.*temporal)",
                 "ASSUME_PROVE_NEW_CONSTANT_HAS_TEMPORAL_LEVEL_BOUND",
                 "ASSUME/PROVE NEW constant has temporal level bound"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4357: (
-                r"USE\s+or\s+HIDE\s+fact\s+(?:is\s+)?not\s+valid",
+                r"(?:USE.*HIDE.*fact.*not.*valid|HIDE.*fact.*not.*valid|fact.*not.*valid)",
                 "USE_OR_HIDE_FACT_NOT_VALID",
                 "USE or HIDE fact not valid"
             ),
@@ -380,33 +438,39 @@ class SANYErrorCodeReverse:
             
             # SANY Syntax/Parse Errors (Common but not in official ErrorCode.java)
             # These are parser-level errors that SANY reports but don't have official error codes
+            # Reference: Need to find these patterns in TLA+ parser source
             9001: (
-                r"(?:Item\s+at\s+line\s+\d+.*)?(?:is\s+)?not\s+properly\s+indented\s+inside\s+(?:conjunction|disjunction)",
+                r"(?:not.*properly.*indented|indented.*conjunction|indented.*disjunction|indented)",
                 "INDENTATION_ERROR",
                 "Improper indentation in conjunction/disjunction"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             9002: (
-                r"Precedence\s+conflict\s+between\s+ops",
+                r"(?:Precedence.*conflict.*ops|precedence.*conflict)",
                 "OPERATOR_PRECEDENCE_CONFLICT",
                 "Operator precedence conflict"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             9003: (
-                r"Encountered\s+[\"']([^\"']*)[\"']\s+at\s+line\s+\d+.*(?:and\s+token|column)",
+                r"(?:Encountered.*line|Unexpected.*token|Parse.*Error|unexpected)",
                 "UNEXPECTED_TOKEN",
                 "Unexpected token encountered"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             9004: (
-                r"Was\s+expecting\s+[\"']([^\"']*)[\"']",
+                r"(?:Was.*expecting|expecting.*token|expecting)",
                 "EXPECTED_TOKEN_MISSING",
                 "Expected token missing"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             9005: (
-                r"(?:expressions?\s+)?(?:at\s+location\s+)?.*follow\s+each\s+other\s+without\s+any\s+intervening\s+operator",
+                r"(?:follow.*each.*other.*without.*intervening.*operator|without.*intervening.*operator|missing.*operator)",
                 "MISSING_OPERATOR",
                 "Missing operator between expressions"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             9006: (
-                r"Fatal\s+errors?\s+while\s+parsing\s+TLA\+\s+spec",
+                r"(?:Fatal.*error.*parsing|Parse.*Error|Could.*not.*parse|parsing.*error)",
                 "GENERAL_PARSE_ERROR",
                 "General TLA+ parsing error"
             ),
@@ -419,18 +483,21 @@ class SANYErrorCodeReverse:
             ),
             
             # SANY Warnings (4800+)
+            # Reference: Need to find this pattern in TLA+ source
             4800: (
-                r"Extended\s+modules?\s+symbol\s+unification\s+ambiguity",
+                r"(?:Extended.*module.*symbol.*unification.*ambiguity|symbol.*unification.*ambiguity)",
                 "EXTENDED_MODULES_SYMBOL_UNIFICATION_AMBIGUITY",
                 "Symbol unification ambiguity in extended modules"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4801: (
-                r"(?:Instanced\s+)?modules?\s+symbol\s+unification\s+ambiguity",
+                r"(?:Instanced.*module.*symbol.*unification.*ambiguity|module.*symbol.*unification.*ambiguity|unification.*ambiguity)",
                 "INSTANCED_MODULES_SYMBOL_UNIFICATION_AMBIGUITY", 
                 "Symbol unification ambiguity in instanced modules"
             ),
+            # Reference: Need to find this pattern in TLA+ source
             4802: (
-                r"Record\s+constructor\s+field\s+name\s+clash",
+                r"(?:Record.*constructor.*field.*name.*clash|field.*name.*clash|name.*clash)",
                 "RECORD_CONSTRUCTOR_FIELD_NAME_CLASH",
                 "Record constructor field name clash"
             ),
@@ -481,7 +548,7 @@ class SANYErrorCodeReverse:
         logger = logging.getLogger(__name__)
         
         logger.warning(f"SANY Error Classification Failed - Unknown Error Pattern")
-        logger.warning(f"Error message content (first 500 chars): {repr(error_message[:500])}")
+        logger.warning(f"Full error message content: {repr(error_message)}")
         
         # Return unknown error classification to ensure we don't lose the error
         return SANYErrorMatch(

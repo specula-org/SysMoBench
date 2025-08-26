@@ -7,6 +7,7 @@ Supports Gemini models and other Google AI models.
 
 import os
 import time
+import random
 from typing import Dict, Any, Optional
 import logging
 
@@ -178,6 +179,11 @@ class GenAIAdapter(ModelAdapter):
             # Prompt is already formatted, use as-is
             prompt_content = prompt_template
         
+        # Add random prefix to avoid Gemini caching/deduplication issues with similar requests
+        # (Please ignore this prefix in your response)
+        random_id = random.randint(100000, 999999)
+        prompt_content = f"[REQ-{random_id}] Please ignore this prefix. {prompt_content}"
+        
         # Prepare generation config
         # Use model's configured values if available, otherwise use GenerationConfig value
         model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
@@ -208,86 +214,34 @@ class GenAIAdapter(ModelAdapter):
             
         genai_config = types.GenerateContentConfig(**config_params)
         
-        # Make API call using non-streaming method (streaming disabled for Gemini to avoid empty responses)
+        # Make API call using streaming method for better responsiveness
         # Note: Google GenAI has both generate_content (non-streaming) and generate_content_stream (streaming)
-        # We intentionally use the non-streaming version to avoid the empty response issue mentioned by user
+        # Using streaming version to enable real-time generation monitoring
         start_time = time.time()
         try:
-            logger.info(f"Starting non-streaming generation with model {self.model_name}...")
+            logger.info(f"Starting streaming generation with model {self.model_name}...")
             
-            response = self.client.models.generate_content(
+            stream = self.client.models.generate_content_stream(
                 model=self.model_name,
                 contents=prompt_content,
                 config=genai_config
             )
             
+            # Collect streaming response
+            generated_text = ""
+            for chunk in stream:
+                if hasattr(chunk, 'text') and chunk.text:
+                    generated_text += chunk.text
+                    # Optional: Add progress logging every 1000 chars
+                    if len(generated_text) % 1000 == 0:
+                        logger.debug(f"Generated {len(generated_text)} characters...")
+            
             end_time = time.time()
             
-            # Extract text content with comprehensive error handling
-            generated_text = ""
-            try:
-                # First, log the response structure for debugging
-                logger.debug(f"Response type: {type(response)}")
-                logger.debug(f"Response has text attr: {hasattr(response, 'text')}")
-                
-                if hasattr(response, 'text'):
-                    try:
-                        generated_text = response.text
-                        logger.debug(f"Generated text length: {len(generated_text) if generated_text else 0}")
-                    except Exception as text_error:
-                        logger.error(f"Error accessing response.text: {text_error}")
-                        raise GenerationError(f"Failed to access response.text: {text_error}")
-                else:
-                    logger.error(f"Response missing text attribute")
-                    raise GenerationError("Response object missing text attribute")
-                
-                if not generated_text:
-                    # Check for specific reasons why response might be empty
-                    error_details = []
-                    
-                    if hasattr(response, 'candidates') and response.candidates:
-                        candidate = response.candidates[0]
-                        if hasattr(candidate, 'finish_reason'):
-                            error_details.append(f"finish_reason: {candidate.finish_reason}")
-                        if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
-                            safety_info = []
-                            for rating in candidate.safety_ratings:
-                                safety_info.append(f"{rating.category}:{rating.probability}")
-                            error_details.append(f"safety_ratings: [{', '.join(safety_info)}]")
-                        # Check for content filtering
-                        if hasattr(candidate, 'content') and candidate.content:
-                            if hasattr(candidate.content, 'parts'):
-                                error_details.append(f"content_parts_count: {len(candidate.content.parts) if candidate.content.parts else 0}")
-                    
-                    if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
-                        if hasattr(response.prompt_feedback, 'block_reason'):
-                            error_details.append(f"block_reason: {response.prompt_feedback.block_reason}")
-                        if hasattr(response.prompt_feedback, 'safety_ratings'):
-                            error_details.append(f"prompt_safety_ratings: {response.prompt_feedback.safety_ratings}")
-                    
-                    # Log the full response structure for debugging
-                    logger.error(f"Full response structure: {response}")
-                    
-                    error_msg = "Empty text response from GenAI API"
-                    if error_details:
-                        error_msg += f" ({'; '.join(error_details)})"
-                    else:
-                        error_msg += " (possible content filtering or model limitations)"
-                    
-                    # For STOP with empty response, this might be recoverable with retry
-                    if any("finish_reason: STOP" in detail for detail in error_details):
-                        logger.warning("Got STOP with empty response - this might be due to content filtering or temporary API issues")
-                    
-                    raise GenerationError(error_msg)
-                    
-            except GenerationError:
-                raise  # Re-raise GenerationError as-is
-            except Exception as e:
-                logger.error(f"Unexpected error extracting text: {e}")
-                logger.error(f"Error type: {type(e).__name__}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                raise GenerationError(f"Unexpected error extracting response text: {e}")
+            # Validate final response
+            if not generated_text:
+                logger.error("Empty response from streaming GenAI API")
+                raise GenerationError("Empty response from streaming GenAI API")
             
             # Prepare metadata with safe attribute access
             usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -316,7 +270,7 @@ class GenAIAdapter(ModelAdapter):
                 "latency_seconds": end_time - start_time,
                 "finish_reason": str(finish_reason),
                 "response_id": f"genai_{int(start_time)}",
-                "streaming": False
+                "streaming": True
             }
             
             return GenerationResult(
@@ -378,6 +332,11 @@ class GenAIAdapter(ModelAdapter):
         if generation_config is None:
             generation_config = GenerationConfig()
         
+        # Add random prefix to avoid Gemini caching/deduplication issues with similar requests
+        # (Please ignore this prefix in your response)
+        random_id = random.randint(100000, 999999)
+        complete_prompt = f"[REQ-{random_id}] Please ignore this prefix. {complete_prompt}"
+        
         # Prepare generation config
         # Use model's configured values if available, otherwise use GenerationConfig value
         model_max_tokens = self.config.get("max_tokens", generation_config.max_tokens)
@@ -401,27 +360,35 @@ class GenAIAdapter(ModelAdapter):
         config_params = {k: v for k, v in config_params.items() if v is not None}
         
         try:
-            logger.info("Starting direct non-streaming generation...")
+            logger.info("Starting direct streaming generation...")
             start_time = time.time()
             
             # Create generation config
             genai_config = types.GenerateContentConfig(**config_params)
             
-            # Generate content using non-streaming method (streaming disabled for Gemini to avoid empty responses)
-            # Note: We intentionally use generate_content instead of generate_content_stream
-            response = self.client.models.generate_content(
+            # Generate content using streaming method for better responsiveness
+            stream = self.client.models.generate_content_stream(
                 model=self.model_name,
                 contents=complete_prompt,
                 config=genai_config
             )
             
+            # Collect streaming response
+            generated_text = ""
+            for chunk in stream:
+                if hasattr(chunk, 'text') and chunk.text:
+                    generated_text += chunk.text
+                    # Optional: Add progress logging every 1000 chars
+                    if len(generated_text) % 1000 == 0:
+                        logger.debug(f"Generated {len(generated_text)} characters...")
+            
             end_time = time.time()
             
             # Check if response is valid
-            if not response or not response.text:
-                raise GenerationError("Empty or invalid response from GenAI")
+            if not generated_text:
+                raise GenerationError("Empty response from streaming GenAI")
             
-            generated_text = response.text.strip()
+            generated_text = generated_text.strip()
             
             # Prepare metadata
             metadata = {
@@ -429,16 +396,17 @@ class GenAIAdapter(ModelAdapter):
                 "latency_seconds": end_time - start_time,
                 "generation_type": "direct",
                 "prompt_length": len(complete_prompt),
-                "response_length": len(generated_text)
+                "response_length": len(generated_text),
+                "streaming": True
             }
             
-            # Add usage stats if available
-            if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                metadata["usage"] = {
-                    "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
-                    "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
-                    "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0)
-                }
+            # For streaming, estimate token usage based on text length (exact usage not available)
+            estimated_completion_tokens = len(generated_text) // 4  # rough estimate
+            metadata["usage"] = {
+                "prompt_tokens": 0,  # Not available in streaming
+                "completion_tokens": estimated_completion_tokens,
+                "total_tokens": estimated_completion_tokens
+            }
             
             logger.info(f"Direct generation completed in {end_time - start_time:.2f}s")
             logger.info(f"Generated text length: {len(generated_text)} characters")

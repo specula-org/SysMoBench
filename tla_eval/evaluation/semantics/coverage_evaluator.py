@@ -404,10 +404,35 @@ class CoverageEvaluator(BaseEvaluator):
         try:
             # Step 1: Get or create specification files
             if spec_file_path and config_file_path:
-                # Mode 1: Use existing .tla and .cfg files
-                logger.info("✓ Using existing .tla and .cfg files")
-                final_spec_path = spec_file_path
-                final_config_path = config_file_path
+                # Mode 1: Use existing .tla and .cfg files (composite mode)
+                logger.info(f"✓ Composite mode: Using existing .tla and .cfg files from runtime check")
+                logger.info(f"  Source spec: {spec_file_path}")
+                logger.info(f"  Source config: {config_file_path}")
+                
+                # Copy files to coverage output directory for consistency and debugging
+                spec_name = Path(spec_file_path).stem
+                final_spec_path = output_dir / f"{spec_name}.tla"
+                final_config_path = output_dir / f"{spec_name}.cfg"
+                
+                # Copy spec file
+                with open(spec_file_path, 'r', encoding='utf-8') as src:
+                    spec_content = src.read()
+                with open(final_spec_path, 'w', encoding='utf-8') as dst:
+                    dst.write(spec_content)
+                
+                # Copy config file
+                with open(config_file_path, 'r', encoding='utf-8') as src:
+                    config_content = src.read()
+                with open(final_config_path, 'w', encoding='utf-8') as dst:
+                    dst.write(config_content)
+                
+                logger.info(f"✓ Copied files to coverage output directory:")
+                logger.info(f"  Target spec: {final_spec_path}")
+                logger.info(f"  Target config: {final_config_path}")
+                
+                # Convert back to string paths for TLC execution
+                final_spec_path = str(final_spec_path)
+                final_config_path = str(final_config_path)
                 
             elif spec_file_path:
                 # Mode 2: Use existing .tla file, generate .cfg file

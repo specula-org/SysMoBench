@@ -1,87 +1,84 @@
+
 ---- MODULE spin ----
-
-EXTENDS Naturals, Sequences, TLC
-
+EXTENDS Naturals, Temporal
 CONSTANTS Threads
 
-VARIABLES 
-    lock_state,
-    thread_state,
-    critical_section,
-    pc
+VARIABLES lock_state, thread_state, request_type
 
-vars == <<lock_state, thread_state, critical_section, pc>>
-
-ThreadStates == {"idle", "trying", "spinning", "locked"}
-ProgramCounters == {"idle", "try_acquire", "spin_loop", "locked", "unlock"}
+(* State definitions *)
+States == {"idle", "trying", "spinning", "locked"}
+RequestTypes == {"blocking", "non_blocking"}
 
 TypeOK == 
     /\ lock_state \in BOOLEAN
-    /\ thread_state \in [Threads -> ThreadStates]
-    /\ critical_section \in [Threads -> BOOLEAN]
-    /\ pc \in [Threads -> ProgramCounters]
+    /\ thread_state \in [Threads -> States]
+    /\ request_type \in [Threads -> RequestTypes]
 
-Init ==
+Init == 
     /\ lock_state = FALSE
     /\ thread_state = [t \in Threads |-> "idle"]
-    /\ critical_section = [t \in Threads |-> FALSE]
-    /\ pc = [t \in Threads |-> "idle"]
+    /\ request_type = [t \in Threads |-> "blocking"]
 
-StartLock(t) ==
-    /\ pc[t] = "idle"
+(* Blocking lock acquisition *)
+Lock(t) == 
     /\ thread_state[t] = "idle"
-    /\ pc' = [pc EXCEPT ![t] = "try_acquire"]
+    /\ request_type' = [request_type EXCEPT ![t] = "blocking"]
     /\ thread_state' = [thread_state EXCEPT ![t] = "trying"]
-    /\ UNCHANGED <<lock_state, critical_section>>
+    /\ UNCHANGED lock_state
 
-TryAcquire(t) ==
-    /\ pc[t] = "try_acquire"
+(* Non-blocking lock attempt *)
+TryLock(t) == 
+    /\ thread_state[t] = "idle"
+    /\ request_type' = [request_type EXCEPT ![t] = "non_blocking"]
+    /\ thread_state' = [thread_state EXCEPT ![t] = "trying"]
+    /\ UNCHANGED lock_state
+
+(* Successful CAS acquisition *)
+Acquire(t) == 
     /\ thread_state[t] = "trying"
-    /\ IF lock_state = FALSE
-       THEN /\ lock_state' = TRUE
-            /\ pc' = [pc EXCEPT ![t] = "locked"]
-            /\ thread_state' = [thread_state EXCEPT ![t] = "locked"]
-            /\ critical_section' = [critical_section EXCEPT ![t] = TRUE]
-       ELSE /\ pc' = [pc EXCEPT ![t] = "spin_loop"]
-            /\ thread_state' = [thread_state EXCEPT ![t] = "spinning"]
-            /\ UNCHANGED <<lock_state, critical_section>>
+    /\ lock_state = FALSE
+    /\ lock_state' = TRUE
+    /\ thread_state' = [thread_state EXCEPT ![t] = "locked"]
+    /\ UNCHANGED request_type
 
-SpinLoop(t) ==
-    /\ pc[t] = "spin_loop"
-    /\ thread_state[t] = "spinning"
-    /\ pc' = [pc EXCEPT ![t] = "try_acquire"]
-    /\ thread_state' = [thread_state EXCEPT ![t] = "trying"]
-    /\ UNCHANGED <<lock_state, critical_section>>
-
-TryLock(t) ==
-    /\ pc[t] = "idle"
-    /\ thread_state[t] = "idle"
-    /\ IF lock_state = FALSE
-       THEN /\ lock_state' = TRUE
-            /\ pc' = [pc EXCEPT ![t] = "locked"]
-            /\ thread_state' = [thread_state EXCEPT ![t] = "locked"]
-            /\ critical_section' = [critical_section EXCEPT ![t] = TRUE]
-       ELSE /\ pc' = [pc EXCEPT ![t] = "idle"]
-            /\ UNCHANGED <<lock_state, thread_state, critical_section>>
-
-Unlock(t) ==
-    /\ pc[t] = "locked"
-    /\ thread_state[t] = "locked"
-    /\ critical_section[t] = TRUE
+(* Failed CAS with spin retry *)
+SpinRetry(t) == 
+    /\ thread_state[t] = "trying"
     /\ lock_state = TRUE
-    /\ lock_state' = FALSE
-    /\ pc' = [pc EXCEPT ![t] = "idle"]
+    /\ request_type[t] = "blocking"
+    /\ thread_state' = [thread_state EXCEPT ![t] = "spinning"]
+    /\ UNCHANGED <<lock_state, request_type>>
+
+(* Failed CAS with immediate return *)
+FailImmediate(t) == 
+    /\ thread_state[t] = "trying"
+    /\ lock_state = TRUE
+    /\ request_type[t] = "non_blocking"
     /\ thread_state' = [thread_state EXCEPT ![t] = "idle"]
-    /\ critical_section' = [critical_section EXCEPT ![t] = FALSE]
+    /\ UNCHANGED <<lock_state, request_type>>
 
+(* Continuation of spin loop *)
+ContinueSpin(t) == 
+    /\ thread_state[t] = "spinning"
+    /\ thread_state' = [thread_state EXCEPT ![t] = "trying"]
+    /\ UNCHANGED <<lock_state, request_type>>
+
+(* Lock release *)
+Unlock(t) == 
+    /\ thread_state[t] = "locked"
+    /\ lock_state' = FALSE
+    /\ thread_state' = [thread_state EXCEPT ![t] = "idle"]
+    /\ UNCHANGED request_type
+
+(* Next-state relation *)
 Next == 
-    \E t \in Threads:
-        \/ StartLock(t)
-        \/ TryAcquire(t)
-        \/ SpinLoop(t)
-        \/ TryLock(t)
-        \/ Unlock(t)
+    \E t \in Threads: 
+        Lock(t) \/ TryLock(t) \/ Acquire(t) \/ SpinRetry(t)
+        \/ FailImmediate(t) \/ ContinueSpin(t) \/ Unlock(t)
 
-Spec == Init /\ [][Next]_vars
+Vars == <<lock_state, thread_state, request_type>>
+WF_Vars(A) == WF_(Vars, A)
+
+Spec == Init /\ [][Next]_Vars /\ \A t \in Threads : WF_Vars(Unlock(t))
 
 ====

@@ -462,9 +462,15 @@ class ManualInvariantEvaluator(BaseEvaluator):
                 method_name: str,
                 model_name: str,
                 spec_module: Optional[str] = None,
-                base_config_content: Optional[str] = None) -> SemanticEvaluationResult:
+                base_config_content: Optional[str] = None,
+                spec_file_path: Optional[str] = None,
+                config_file_path: Optional[str] = None) -> SemanticEvaluationResult:
         """
         Evaluate a TLA+ specification using manual invariant testing.
+        
+        This method supports multiple modes:
+        1. Composite mode: Reuse spec and config files from runtime check
+        2. Standalone mode: Generate spec and config files independently
         
         Args:
             generation_result: GenerationResult containing the TLA+ specification
@@ -473,6 +479,8 @@ class ManualInvariantEvaluator(BaseEvaluator):
             model_name: Name of the model used
             spec_module: Optional TLA+ module name
             base_config_content: Optional pre-generated base config content to reuse
+            spec_file_path: Optional path to existing .tla file (composite mode)
+            config_file_path: Optional path to existing .cfg file (composite mode)
             
         Returns:
             SemanticEvaluationResult with manual invariant testing results
@@ -501,11 +509,29 @@ class ManualInvariantEvaluator(BaseEvaluator):
             result.overall_success = False
             return result
         
-        # Save the TLA+ specification
-        spec_file = output_dir / f"{spec_module or task_name}.tla"
-        with open(spec_file, 'w', encoding='utf-8') as f:
-            f.write(generation_result.generated_text)
-        result.specification_file = str(spec_file)
+        # Determine working mode and prepare specification file
+        if spec_file_path and Path(spec_file_path).exists():
+            # Composite mode: Reuse existing spec file but copy to output directory
+            logger.info(f"✓ Composite mode: Reusing existing spec file from runtime check: {spec_file_path}")
+            
+            # Read content from runtime check file
+            with open(spec_file_path, 'r', encoding='utf-8') as f:
+                tla_content = f.read()
+            
+            # Create copy in invariant verification output directory
+            spec_file = output_dir / f"{spec_module or task_name}.tla"
+            with open(spec_file, 'w', encoding='utf-8') as f:
+                f.write(tla_content)
+            result.specification_file = str(spec_file)
+            logger.info(f"✓ Copied spec file to invariant verification directory: {spec_file}")
+        else:
+            # Standalone mode: Create new spec file
+            logger.info("✓ Standalone mode: Creating new spec file")
+            spec_file = output_dir / f"{spec_module or task_name}.tla"
+            with open(spec_file, 'w', encoding='utf-8') as f:
+                f.write(generation_result.generated_text)
+            result.specification_file = str(spec_file)
+            tla_content = generation_result.generated_text
         
         try:
             # Step 1: Load invariant templates
@@ -516,7 +542,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
             logger.info("Step 2: Translating invariants to specification...")
             translation_start = time.time()
             success, translated_invariants, error = self.translator.translate_all_invariants(
-                templates, generation_result.generated_text, task_name, model_name
+                templates, tla_content, task_name, model_name
             )
             
             result.invariant_generation_time = time.time() - translation_start
@@ -530,16 +556,27 @@ class ManualInvariantEvaluator(BaseEvaluator):
             logger.info(f"Successfully translated {len(translated_invariants)} invariants")
             
             # Step 2.5: Get or generate clean base config
-            if base_config_content:
-                logger.info("Step 2.5: Using provided base configuration from runtime check...")
+            if config_file_path and Path(config_file_path).exists():
+                # Composite mode: Reuse existing config file and copy base config
+                logger.info(f"Step 2.5: Using existing config file from runtime check: {config_file_path}")
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    base_config = f.read()
+                
+                # Also save a copy of the base config to the invariant verification output directory
+                base_config_file = output_dir / f"{spec_module or task_name}.cfg"
+                with open(base_config_file, 'w', encoding='utf-8') as f:
+                    f.write(base_config)
+                logger.info(f"✓ Reusing config file from runtime check and copied to: {base_config_file}")
+            elif base_config_content:
+                # Use provided base config content
+                logger.info("Step 2.5: Using provided base configuration content...")
                 base_config = base_config_content
-                logger.info("✓ Reusing base configuration from runtime check")
+                logger.info("✓ Reusing base configuration content")
             else:
-                # Generate clean base config using original specification BEFORE testing invariants
-                # This prevents cache pollution from invariant-specific configurations
+                # Standalone mode: Generate clean base config
                 logger.info("Step 2.5: Generating clean base configuration...")
                 base_config = self.static_config_generator._get_base_config(
-                    generation_result.generated_text,  # Use original spec, not modified spec
+                    tla_content,  # Use the appropriate TLA content
                     task_name, 
                     model_name
                 )
@@ -564,7 +601,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
                 logger.info(f"=== TESTING INVARIANT {i}/{len(templates)}: {template.name} ===")
                 invariant_test_result = self._test_single_invariant(
                     template, translated_invariants[template.name],
-                    generation_result.generated_text, output_dir, spec_module or task_name,
+                    tla_content, output_dir, spec_module or task_name,
                     task_name, model_name, base_config
                 )
                 

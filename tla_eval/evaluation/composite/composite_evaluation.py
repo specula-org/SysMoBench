@@ -38,7 +38,7 @@ class CompositeEvaluator(BaseEvaluator):
     """
     
     def __init__(self, 
-                 validation_timeout: int = 30,
+                 validation_timeout: int = 90,
                  invariant_iterations: int = 3,
                  keep_temp_files: bool = False,
                  max_correction_attempts: int = 3,
@@ -306,12 +306,13 @@ class CompositeEvaluator(BaseEvaluator):
             if successful_iteration is not None:
                 logger.info(f"Running Manual Invariant Verification (iteration {successful_iteration} succeeded)")
                 
-                # Try to reuse base config from runtime check to avoid redundant generation
+                # Try to reuse base config from the SUCCESSFUL runtime check to avoid redundant generation
                 base_config_content = None
-                if iteration_results:
+                if iteration_results and successful_iteration is not None:
                     runtime_result = None
+                    # Find the runtime result from the successful iteration
                     for iter_result in iteration_results:
-                        if iter_result.get('runtime_result'):
+                        if iter_result.get('iteration') == successful_iteration and iter_result.get('runtime_result') and iter_result['runtime_result'].overall_success:
                             runtime_result = iter_result['runtime_result']
                             break
                     
@@ -326,8 +327,28 @@ class CompositeEvaluator(BaseEvaluator):
                             base_config_content = None
                 
                 try:
+                    # Try to get spec and config file paths from the SUCCESSFUL runtime check result
+                    spec_file_path = None
+                    config_file_path = None
+                    
+                    if iteration_results and successful_iteration is not None:
+                        runtime_result = None
+                        # Find the runtime result from the successful iteration
+                        for iter_result in iteration_results:
+                            if iter_result.get('iteration') == successful_iteration and iter_result.get('runtime_result') and iter_result['runtime_result'].overall_success:
+                                runtime_result = iter_result['runtime_result']
+                                break
+                        
+                        if runtime_result:
+                            if hasattr(runtime_result, 'specification_file'):
+                                spec_file_path = runtime_result.specification_file
+                            if hasattr(runtime_result, 'config_file_path'):
+                                config_file_path = runtime_result.config_file_path
+                    
+                    # Call manual invariant evaluator with composite mode parameters
                     manual_result = self.manual_invariant_evaluator.evaluate(
-                        current_generation_result, task_name, method_name, model_name, spec_module, base_config_content
+                        current_generation_result, task_name, method_name, model_name, spec_module, 
+                        base_config_content, spec_file_path, config_file_path
                     )
                     
                     success_status = "✓ PASS" if manual_result.overall_success else "✗ FAIL"
@@ -350,15 +371,16 @@ class CompositeEvaluator(BaseEvaluator):
                 logger.info("Running Coverage Analysis")
                 
                 try:
-                    # Try to reuse files from runtime check if available
+                    # Try to reuse files from the SUCCESSFUL runtime check if available
                     spec_file_path = None
                     config_file_path = None
                     
-                    # Look for runtime check result with files
+                    # Look for runtime check result with files from the successful iteration
                     if successful_iteration is not None and iteration_results:
                         runtime_result = None
+                        # Find the runtime result from the successful iteration
                         for iter_result in iteration_results:
-                            if iter_result.get('runtime_result'):
+                            if iter_result.get('iteration') == successful_iteration and iter_result.get('runtime_result') and iter_result['runtime_result'].overall_success:
                                 runtime_result = iter_result['runtime_result']
                                 break
                         

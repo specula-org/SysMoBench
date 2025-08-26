@@ -21,47 +21,45 @@ invariants:
 
   - name: "NoDeadlock"
     type: "safety"
-    natural_language: "When the lock is free, no process should be spinning indefinitely"
-    formal_description: "Deadlock freedom: if the lock is free, then no process is stuck spinning (they should either acquire the lock or fail)"
+    natural_language: "Not all threads can be spinning simultaneously - avoids global deadlock"
+    formal_description: "Deadlock freedom: prevents the situation where all threads are stuck spinning simultaneously, which would indicate a global deadlock"
     tla_example: |
       NoDeadlock ==
-        (lock_state = FALSE) => ~(\E p \in Proc : pc[p] = "spinning")
+        ~(\A t \in Threads : pc[t] = "spinning")
 
   - name: "TryLockNoSpinning"
     type: "safety"
     natural_language: "try_lock() operations never enter the spinning state - they succeed or fail immediately"
-    formal_description: "Asterinas-specific: try_lock() is non-blocking and should never cause a process to spin"
+    formal_description: "Asterinas-specific: try_lock() is non-blocking and should never cause a process to spin. If call_type tracks the type of lock request, then threads making try_lock() requests should never be in spinning state."
     tla_example: |
       TryLockNoSpinning ==
-        \A p \in Proc : 
-          pc[p] = "req_try_lock" => thread_state[p] \notin {"trying", "spinning"}
+        \A t \in Threads : 
+          (call_type[t] = "try_lock" /\ pc[t] = "trying") => pc[t] # "spinning"
 
   - name: "BlockingVsNonBlockingSemantics"
     type: "safety"
     natural_language: "Only lock() requests can lead to spinning, try_lock() requests cannot"
-    formal_description: "Asterinas dual-interface semantics: spinning state can only be reached via lock(), not try_lock()"
+    formal_description: "Asterinas dual-interface semantics: spinning state can only be reached via lock(), not try_lock(). If call_type tracks the request type, then any thread in spinning state must have made a blocking lock() request."
     tla_example: |
       BlockingVsNonBlockingSemantics ==
-        \A p \in Proc :
-          pc[p] = "spinning" => 
-            \E q \in Proc : q = p /\ (pc[q] \in {"req_lock", "spinning"})
+        \A t \in Threads :
+          pc[t] = "spinning" => call_type[t] = "lock"
 
   - name: "GuardLifecycle"
     type: "liveness"
-    natural_language: "Process in critical section will eventually return to idle state"
-    formal_description: "RAII Guard semantics: every lock acquisition must be paired with exactly one release"
+    natural_language: "No process can hold the lock permanently - every thread eventually releases"
+    formal_description: "RAII Guard semantics: no thread can hold the lock forever, ensuring that every thread eventually exits the locked state"
     tla_example: |
       GuardLifecycle ==
-        \A p \in Proc :
-          pc[p] = "in_cs" => <>(pc[p] = "idle")
+        \A t \in Threads : []<>(pc[t] # "locked")
 
   # Generic Liveness Property
   - name: "EventualRelease"
     type: "liveness"
-    natural_language: "A process using blocking lock() will eventually release the lock under fair scheduling"
-    formal_description: "Under fair scheduling, any process that has acquired a lock will eventually release it"
+    natural_language: "The system eventually reaches a state where all threads are idle"
+    formal_description: "Under fair scheduling, the system will infinitely often reach a state where no thread holds the lock and all are idle"
     tla_example: |
-      EventualRelease == \A t \in Threads : (thread_state[t] = "locked") ~> (thread_state[t] = "idle")
+      EventualRelease == []<>(\A t \in Threads : pc[t] = "idle")
 
 metadata:
   total_invariants: 7

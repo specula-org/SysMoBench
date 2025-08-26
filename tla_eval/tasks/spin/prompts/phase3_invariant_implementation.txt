@@ -16,10 +16,13 @@ $invariant_templates
    - What are the semantic equivalents between template concepts and specification implementation?
 
 2. **Semantic Mapping**: For each invariant, identify the conceptual mapping between template and specification:
-   - Template `"acquiring"` state → Specification's lock acquisition states (e.g., `"req_lock"`, `"spinning"`)
+   - Template `"acquiring"` state → Specification's lock acquisition states (e.g., `"trying"`, `"spinning"`, `"locked"`)
    - Template `"releasing"` state → Specification's lock release states  
    - Template ownership variables → Specification's ownership representation (explicit variables or implicit via state)
    - Template thread sets → Specification's thread/process constants
+   - Template `call_type` → Specification's mechanism to distinguish lock() vs try_lock() requests (if modeled)
+   - **CRITICAL**: If specification distinguishes lock() vs try_lock(), use call_type or equivalent variable
+   - **FALLBACK**: If specification does NOT have call_type distinction, adapt invariants to the unified semantics
 
 3. **Creative Adaptation**: Translate the invariant while preserving its core semantic meaning:
    - **DO NOT** simply replace variable names - understand the underlying logic

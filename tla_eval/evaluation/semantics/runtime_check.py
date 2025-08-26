@@ -247,7 +247,7 @@ class TLCRunner:
             
         except subprocess.TimeoutExpired as e:
             # For large state spaces, timeout without violations should be considered success
-            # Parse partial output to check for violations
+            # Parse partial output to check for violations AND configuration errors
             partial_output = ""
             try:
                 # Try to get partial output from the process
@@ -258,6 +258,24 @@ class TLCRunner:
             except:
                 # If we can't get partial output, just use empty string
                 partial_output = ""
+            
+            # Check for configuration errors that prevent TLC from starting
+            config_errors = [
+                "is not defined in the specification",
+                "Error: The constraint",
+                "Error: The init predicate",
+                "Error: The next-state relation",
+                "Error: The invariant",
+                "TLC Bug",
+                "Parse error",
+                "Semantic error"
+            ]
+            
+            has_config_error = any(error in partial_output for error in config_errors)
+            
+            if has_config_error:
+                # This is a configuration error, not a genuine timeout during state exploration
+                return False, f"TLC failed due to configuration error (not timeout): {partial_output}", -1
             
             # Parse the partial output for violations and deadlocks
             violations, deadlock_found, states_explored = self.parse_tlc_output(partial_output)
@@ -297,7 +315,7 @@ class TLCRunner:
                 violations.append(line)
             
             # Check for deadlock
-            if "Deadlock reached" in line or "deadlock" in line.lower():
+            if "Deadlock reached" in line:
                 deadlock_found = True
             
             # Check for TLA+ specification errors
