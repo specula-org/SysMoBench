@@ -12,6 +12,7 @@ from .base import ModelAdapter, ModelUnavailableError
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
 from .genai_adapter import GenAIAdapter
+from .exist_spec_adapter import ExistSpecAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class ModelFactory:
         "anthropic": AnthropicAdapter,
         "genai": GenAIAdapter,
         "google_genai": GenAIAdapter,  # Alternative name
+        "exist_spec": ExistSpecAdapter,
     }
     
     # Predefined model configurations
@@ -87,6 +89,13 @@ class ModelFactory:
             "model_name": "gemini-pro",
             "temperature": 0.1,
             "thinking_budget": 0,
+        },
+        
+        # Special adapters
+        "with_exist_spec": {
+            "provider": "exist_spec",
+            "model_name": "with_exist_spec",
+            "temperature": 0.0,
         },
     }
     
