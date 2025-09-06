@@ -12,7 +12,7 @@ from datetime import datetime
 from ..base import TraceGenerator, TraceConverter, SystemModule
 from .cluster import RaftCluster, FileTraceLogger
 from .event_driver import RandomEventDriver
-from ...spec_processing.trace_converter import TraceConverter as ETCDTraceConverter
+from ...spec_processing.trace_converter import TraceConverter as BaseETCDTraceConverter
 
 
 class ETCDTraceGenerator(TraceGenerator):
@@ -91,8 +91,8 @@ class ETCDTraceGenerator(TraceGenerator):
         """Get default configuration for etcd trace generation."""
         return {
             "node_count": 3,
-            "duration_seconds": 60,
-            "client_qps": 10.0,
+            "duration_seconds": 10,
+            "client_qps": 5.0,
             "fault_rate": 0.1,
             "scenario": "normal_operation",
             "enable_network_faults": True,
@@ -133,7 +133,7 @@ class ETCDTraceConverter(TraceConverter):
             print(f"Converting etcd trace from {input_path} to {output_path}")
             
             # Initialize etcd trace converter
-            converter = ETCDTraceConverter()
+            converter = BaseETCDTraceConverter()
             
             # Perform conversion
             result = converter.convert_trace(

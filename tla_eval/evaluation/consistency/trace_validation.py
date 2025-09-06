@@ -119,7 +119,10 @@ class TraceValidationEvaluator(BaseEvaluator):
             step2_start = datetime.now()
             spectrace_result = self._generate_spectrace_from_tla(task_name, timestamp)
             
+            print(f"DEBUG: Step 2 result: {spectrace_result}")
+            
             if not spectrace_result["success"]:
+                print(f"ERROR: Step 2 failed with error: {spectrace_result['error']}")
                 result.trace_generation_error = spectrace_result["error"]
                 return result
             
@@ -132,10 +135,13 @@ class TraceValidationEvaluator(BaseEvaluator):
             actual_trace_path = Path(trace_result["trace_file"])
             trace_conversion_result = self._convert_system_trace(system_module, actual_trace_path, task_name, timestamp)
             
+            print(f"DEBUG: Step 3 result: {trace_conversion_result}")
+            
             result.trace_conversion_time = (datetime.now() - step3_start).total_seconds()
             result.trace_conversion_successful = trace_conversion_result["success"]
             
             if not trace_conversion_result["success"]:
+                print(f"ERROR: Step 3 failed with error: {trace_conversion_result['error']}")
                 result.trace_conversion_error = trace_conversion_result["error"]
                 return result
             
@@ -147,11 +153,14 @@ class TraceValidationEvaluator(BaseEvaluator):
             step4_start = datetime.now()
             verification_result = self._run_tlc_verification(Path(trace_conversion_result["output_file"]), spectrace_result["output_dir"])
             
+            print(f"DEBUG: Step 4 result: {verification_result}")
+            
             result.trace_validation_time = (datetime.now() - step4_start).total_seconds()
             result.trace_validation_successful = verification_result["success"]
             result.validated_events = trace_conversion_result['output_transitions']
             
             if not verification_result["success"]:
+                print(f"ERROR: Step 4 failed with error: {verification_result.get('error', 'TLC verification failed')}")
                 result.trace_validation_error = verification_result.get("error", "TLC verification failed")
             
             # Update overall success
@@ -216,7 +225,7 @@ class TraceValidationEvaluator(BaseEvaluator):
             converted_trace_path = converted_traces_dir / f"{system_name}_converted_{timestamp}.ndjson"
             
             trace_converter = system_module.get_trace_converter()
-            return trace_converter.convert_trace(input_trace_path, converted_trace_path)
+            return trace_converter.convert_trace(input_path=input_trace_path, output_path=converted_trace_path)
                 
         except Exception as e:
             return {
@@ -261,7 +270,16 @@ class TraceValidationEvaluator(BaseEvaluator):
             print(f"Using CFG configuration: {cfg_file}")
             
             # Generate configuration using LLM
-            config_data = generate_config_from_tla(str(spec_file), str(cfg_file), "gpt-4")
+            print(f"DEBUG: Calling generate_config_from_tla with spec_file={spec_file}, cfg_file={cfg_file}")
+            try:
+                config_data = generate_config_from_tla(str(spec_file), str(cfg_file), "my_claude")
+                print(f"DEBUG: LLM config generation successful, got config keys: {list(config_data.keys()) if config_data else 'None'}")
+            except Exception as e:
+                print(f"ERROR: LLM config generation failed: {str(e)}")
+                return {
+                    "success": False,
+                    "error": f"LLM config generation failed: {str(e)}"
+                }
             
             # Save configuration for debugging
             config_path = self.spec_dir / task_name / f"trace_config_{timestamp}.yaml"

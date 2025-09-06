@@ -110,6 +110,35 @@ class TraceConverter:
         
         return dict(state)
     
+    def _build_initial_state(self) -> Dict[str, Dict[str, Any]]:
+        """Build initial state with default values."""
+        state = defaultdict(dict)
+        
+        node_mapping = self.mapping.get("node_mapping", {})
+        variables_config = self.mapping.get("variables", {})
+        
+        for node_id, node_name in node_mapping.items():
+            for var_name, var_config in variables_config.items():
+                state[var_name][node_name] = var_config.get("default_value")
+        
+        return state
+    
+    def _update_state_with_event(self, state: Dict[str, Dict[str, Any]], event: Dict[str, Any]) -> None:
+        """Update state incrementally with a single event."""
+        node_id = event.get("nid", "1")
+        node_name = self._map_node_id(node_id)
+        
+        variables_config = self.mapping.get("variables", {})
+        
+        # Update each variable based on the event
+        for var_name, var_config in variables_config.items():
+            system_path = var_config.get("system_path", [])
+            raw_value = self._extract_value_from_event(event, system_path)
+            
+            if raw_value is not None:
+                mapped_value = self._map_variable_value(var_config, raw_value, node_id)
+                state[var_name][node_name] = mapped_value
+    
     def convert_trace(self, input_trace_path: str, output_trace_path: str, config: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Convert trace from system format to spec format.
@@ -152,12 +181,14 @@ class TraceConverter:
             config_line = json.dumps(self.mapping.get("config", {}))
             output_lines.append(config_line)
             
-            # Process events to generate state transitions
+            # Process events to generate state transitions with incremental state updates
+            # Initialize state once
+            state = self._build_initial_state()
+            
             processed_events = []
-            for i, event in enumerate(events):
-                # Build state snapshot including this event
-                current_events = events[:i+1]
-                state_snapshot = self._build_state_snapshot(current_events)
+            for event in events:
+                # Update state incrementally with current event
+                self._update_state_with_event(state, event)
                 
                 # Map event name to TLA+ action
                 event_name = event.get("name", "Step")
@@ -167,11 +198,11 @@ class TraceConverter:
                 output_event = {}
                 
                 # Add all variables with their current state
-                for var_name, node_values in state_snapshot.items():
+                for var_name, node_values in state.items():
                     output_event[var_name] = [{
                         "op": "Update",
                         "path": [],
-                        "args": [node_values]
+                        "args": [dict(node_values)]  # Convert to dict for JSON serialization
                     }]
                 
                 # Add event name

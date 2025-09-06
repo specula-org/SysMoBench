@@ -9,6 +9,7 @@ import json
 import subprocess
 import tempfile
 import os
+import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
 import time
@@ -41,6 +42,9 @@ class RaftCluster:
         current_dir = Path(__file__).parent
         self.generator_dir = current_dir
         self.binary_path = self.generator_dir / "trace_generator"
+        
+        # Cache for raft repository path
+        self._raft_repo_path = None
         
     def start_cluster(self) -> bool:
         """
@@ -181,7 +185,8 @@ class RaftCluster:
             
             print("Building Go trace generator...")
             
-            # Update go.mod with correct relative path to raft repository
+            # Update go.mod with dynamically calculated path to raft repository
+            # This ensures the repository exists before updating paths
             self._update_go_mod_paths()
             
             # Run go mod tidy first
@@ -234,20 +239,94 @@ class RaftCluster:
         except Exception:
             return 0
     
+    def _load_task_config(self, task_name: str = "etcd") -> Dict[str, Any]:
+        """
+        Load task configuration from task.yaml file.
+        
+        Args:
+            task_name: Name of the task (default: "etcd")
+            
+        Returns:
+            Dictionary containing task configuration
+            
+        Raises:
+            FileNotFoundError: If task.yaml is not found
+            yaml.YAMLError: If YAML parsing fails
+        """
+        # Calculate path from current location to tasks directory
+        # From: tla_eval/core/trace_generation/etcd/
+        # To: tla_eval/tasks/etcd/task.yaml
+        current_dir = Path(__file__).parent
+        project_root = current_dir.parent.parent.parent.parent
+        task_config_path = project_root / "tla_eval" / "tasks" / task_name / "task.yaml"
+        
+        if not task_config_path.exists():
+            raise FileNotFoundError(f"Task configuration not found: {task_config_path}")
+            
+        with open(task_config_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    
+    def _ensure_raft_repository(self) -> Path:
+        """
+        Ensure raft repository exists by reading configuration from task.yaml and auto-cloning if needed.
+        
+        Returns:
+            Path to the raft repository directory
+            
+        Raises:
+            Exception: If repository setup fails
+        """
+        # Return cached path if already resolved
+        if self._raft_repo_path and self._raft_repo_path.exists():
+            return self._raft_repo_path
+            
+        try:
+            # Load task configuration to get repository information
+            task_config = self._load_task_config("etcd")
+            print(f"Loaded task config for repository setup: {task_config['repository']['url']}")
+            
+            # Import RepositoryManager for consistent repository handling
+            from ....utils.repository_manager import RepositoryManager
+            
+            # Use RepositoryManager to handle repository setup (clone/update)
+            repo_manager = RepositoryManager()
+            repo_path = repo_manager.setup_repository(task_config)
+            
+            # Cache the resolved path for future use
+            self._raft_repo_path = repo_path
+            
+            print(f"Raft repository ready at: {repo_path}")
+            return repo_path
+            
+        except Exception as e:
+            raise Exception(f"Failed to ensure raft repository: {str(e)}")
+    
     def _update_go_mod_paths(self):
-        """Update go.mod file with correct relative paths that work for any user."""
+        """
+        Update go.mod file with dynamic relative paths based on actual repository location.
+        
+        This method now reads the repository configuration from task.yaml and calculates
+        the correct relative path dynamically, eliminating hardcoded paths.
+        """
         go_mod_path = self.generator_dir / "go.mod"
         
+        # Ensure raft repository exists and get its path
+        raft_repo_path = self._ensure_raft_repository()
+        
         # Calculate relative path from generator directory to raft repository
-        # From: tla_eval/core/trace_generation/etcd/
-        # To: data/repositories/raft
-        relative_raft_path = "../../../../data/repositories/raft"
+        try:
+            relative_raft_path = os.path.relpath(raft_repo_path, self.generator_dir)
+            print(f"Calculated relative raft path: {relative_raft_path}")
+        except ValueError:
+            # Handle case where paths are on different drives (Windows)
+            relative_raft_path = str(raft_repo_path.resolve())
+            print(f"Using absolute raft path (different drives): {relative_raft_path}")
         
         # Read current go.mod content
         with open(go_mod_path, 'r') as f:
             content = f.read()
         
-        # Replace the raft repository path with correct relative path
+        # Replace the raft repository path with dynamically calculated relative path
         import re
         # Match the replace line and update it
         pattern = r'replace go\.etcd\.io/raft/v3 => .*'
@@ -259,7 +338,7 @@ class RaftCluster:
         with open(go_mod_path, 'w') as f:
             f.write(updated_content)
         
-        print(f"Updated go.mod with raft path: {relative_raft_path}")
+        print(f"Updated go.mod with dynamic raft path: {relative_raft_path}")
 
 
 class FileTraceLogger:

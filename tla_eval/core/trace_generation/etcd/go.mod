@@ -5,7 +5,7 @@ go 1.24
 toolchain go1.24.5
 
 // Use the local raft repository
-replace go.etcd.io/raft/v3 => ../../../../data/repositories/raft
+replace go.etcd.io/raft/v3 => ../../../../data/repositories/etcd
 
 require go.etcd.io/raft/v3 v3.0.0-00010101000000-000000000000
 
