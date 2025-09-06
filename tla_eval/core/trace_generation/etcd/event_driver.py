@@ -112,3 +112,33 @@ class RandomEventDriver:
         }
         
         return scenarios.get(scenario, scenarios["normal_operation"])
+    
+    def set_scenario(self, scenario: str):
+        """
+        Set the scenario configuration for the event driver.
+        
+        Args:
+            scenario: Name of the scenario to use
+        """
+        scenario_config = self.get_scenario_config(scenario)
+        self.config.update(scenario_config)
+        
+        # Update instance variables
+        self.client_qps = self.config.get("client_qps", 10.0)
+        self.fault_rate = self.config.get("fault_rate", 0.1)
+        self.enable_network_faults = self.config.get("enable_network_faults", True)
+        self.enable_node_restart = self.config.get("enable_node_restart", True)
+        
+        print(f"Set scenario '{scenario}' with config: {scenario_config}")
+    
+    def run_scenario(self, duration_seconds: int) -> Dict[str, Any]:
+        """
+        Run the configured scenario for the specified duration.
+        
+        Args:
+            duration_seconds: How long to run the scenario
+            
+        Returns:
+            Dictionary with operation results
+        """
+        return self.run_for_duration(duration_seconds)

@@ -1,11 +1,15 @@
 """
 Trace Validation Evaluator: System consistency evaluation for TLA+ specifications.
 
-This evaluator implements the complete trace validation pipeline:
-1. Real trace generation from etcd raft clusters
+This evaluator implements a generic trace validation pipeline that works with
+any system that provides trace generation and conversion implementations:
+
+1. System-specific trace generation
 2. LLM-based configuration generation for trace validation
-3. Static analysis conversion of TLA+ specs to trace format  
+3. System-specific trace format conversion 
 4. TLC verification of traces against converted specifications
+
+The system-specific logic is delegated to modules in tla_eval/core/trace_generation/{system}/
 """
 
 import os
@@ -17,10 +21,8 @@ from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
 
-from ...core.trace_generation.etcd.cluster import RaftCluster, FileTraceLogger
-from ...core.trace_generation.etcd.event_driver import RandomEventDriver
+from ...core.trace_generation.registry import get_system, get_available_systems, is_system_supported
 from ...core.spec_processing import SpecTraceGenerator, generate_config_from_tla
-from ...core.spec_processing.trace_converter import TraceConverter
 from ...core.verification import TLCRunner
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import ConsistencyEvaluationResult
@@ -30,33 +32,31 @@ class TraceValidationEvaluator(BaseEvaluator):
     """
     Trace Validation Evaluator: System consistency evaluation.
     
-    This evaluator implements the complete trace validation workflow:
-    1. **Trace Generation**: Real etcd raft cluster trace generation
+    This evaluator implements a generic trace validation workflow that works
+    with any system implementation:
+    1. **System-specific Trace Generation**: Uses system modules for trace generation
     2. **Config Generation**: LLM-based YAML configuration from TLA+ specs
-    3. **Spec Conversion**: Static analysis conversion to trace-validation format
+    3. **System-specific Conversion**: Uses system modules for trace format conversion
     4. **TLC Verification**: Trace validation against converted specifications
     """
     
     def __init__(self, 
                  spec_dir: str = "data/spec",
-                 traces_dir: str = "data/sys_traces/etcd",
-                 raft_repo_dir: str = "data/repositories/raft",
+                 traces_dir: str = "data/sys_traces",
                  timeout: int = 600):
         """
         Initialize trace validation evaluator.
         
         Args:
             spec_dir: Directory containing TLA+ specifications
-            traces_dir: Directory to store generated traces
-            raft_repo_dir: Directory containing etcd raft repository
+            traces_dir: Base directory to store generated traces (system subdirs created automatically)
             timeout: Timeout for evaluation operations in seconds
         """
         super().__init__(timeout=timeout)
         self.spec_dir = Path(spec_dir)
         self.traces_dir = Path(traces_dir)
-        self.raft_repo_dir = Path(raft_repo_dir)
         
-        # Ensure directories exist
+        # Ensure base traces directory exists
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         
     def evaluate(self, task_name: str, config: Dict[str, Any]) -> ConsistencyEvaluationResult:
@@ -64,7 +64,7 @@ class TraceValidationEvaluator(BaseEvaluator):
         Run trace validation evaluation for a given task.
         
         Args:
-            task_name: Name of the task (e.g., "etcd")
+            task_name: Name of the task/system (e.g., "etcd", "asterinas")
             config: Configuration parameters for trace generation
             
         Returns:
@@ -78,15 +78,30 @@ class TraceValidationEvaluator(BaseEvaluator):
         # Create evaluation result
         result = ConsistencyEvaluationResult(task_name, "trace_validation", "system")
         
+        # Check if system is supported
+        if not is_system_supported(task_name):
+            result.trace_generation_error = f"System '{task_name}' is not supported. Available systems: {list(get_available_systems().keys())}"
+            return result
+        
+        # Get system implementation
+        system_module = get_system(task_name)
+        if not system_module:
+            result.trace_generation_error = f"Failed to load system module for '{task_name}'"
+            return result
+        
         try:
+            # Create system-specific traces directory
+            system_traces_dir = self.traces_dir / task_name
+            system_traces_dir.mkdir(parents=True, exist_ok=True)
+            
             # Generate trace file name
             timestamp = start_time.strftime("%Y%m%d_%H%M%S")
             trace_filename = f"{task_name}_trace_{timestamp}.ndjson"
-            trace_path = self.traces_dir / trace_filename
+            trace_path = system_traces_dir / trace_filename
             
-            # Step 1: Generate runtime trace using real etcd raft cluster
-            print("Step 1: Generating runtime trace...")
-            trace_result = self._generate_real_trace(task_name, config, trace_path)
+            # Step 1: Generate runtime trace using system-specific implementation
+            print("Step 1: Generating runtime trace using system-specific implementation...")
+            trace_result = self._generate_system_trace(system_module, config, trace_path)
             
             result.trace_generation_time = (datetime.now() - start_time).total_seconds()
             result.trace_generation_successful = trace_result["success"]
@@ -96,7 +111,7 @@ class TraceValidationEvaluator(BaseEvaluator):
                 return result
             
             result.generated_trace_count = trace_result["event_count"]
-            result.raw_trace_files = [str(trace_path)]
+            result.raw_trace_files = [trace_result["trace_file"]]
             print(f"Step 1 completed: {trace_result['event_count']} events generated")
             
             # Step 2: Generate specTrace.tla from TLA+ spec (LLM + static analysis)
@@ -111,12 +126,11 @@ class TraceValidationEvaluator(BaseEvaluator):
             result.specification_files = [spectrace_result.get("config_file", "")]
             print("Step 2 completed: specTrace.tla and specTrace.cfg generated")
             
-            # Step 3: Convert sys_trace to spec-compatible format
-            print("Step 3: Converting sys_trace to spec-compatible format...")
+            # Step 3: Convert sys_trace to spec-compatible format using system-specific implementation
+            print("Step 3: Converting sys_trace to spec-compatible format using system-specific implementation...")
             step3_start = datetime.now()
-            # Use the actual trace file from Step 1 result
             actual_trace_path = Path(trace_result["trace_file"])
-            trace_conversion_result = self._convert_trace_to_spec_format(actual_trace_path, timestamp)
+            trace_conversion_result = self._convert_system_trace(system_module, actual_trace_path, task_name, timestamp)
             
             result.trace_conversion_time = (datetime.now() - step3_start).total_seconds()
             result.trace_conversion_successful = trace_conversion_result["success"]
@@ -125,13 +139,13 @@ class TraceValidationEvaluator(BaseEvaluator):
                 result.trace_conversion_error = trace_conversion_result["error"]
                 return result
             
-            result.converted_trace_files = [trace_conversion_result["converted_trace"]]
+            result.converted_trace_files = [trace_conversion_result["output_file"]]
             print(f"Step 3 completed: Converted {trace_conversion_result['input_events']} events to {trace_conversion_result['output_transitions']} transitions")
             
             # Step 4: Run TLC verification
             print("Step 4: Running TLC verification...")
             step4_start = datetime.now()
-            verification_result = self._run_tlc_verification(Path(trace_conversion_result["converted_trace"]), spectrace_result["output_dir"])
+            verification_result = self._run_tlc_verification(Path(trace_conversion_result["output_file"]), spectrace_result["output_dir"])
             
             result.trace_validation_time = (datetime.now() - step4_start).total_seconds()
             result.trace_validation_successful = verification_result["success"]
@@ -158,12 +172,12 @@ class TraceValidationEvaluator(BaseEvaluator):
             result.trace_validation_error = f"Trace validation evaluation failed: {str(e)}"
             return result
     
-    def _generate_real_trace(self, task_name: str, config: Dict[str, Any], trace_path: Path) -> Dict[str, Any]:
+    def _generate_system_trace(self, system_module, config: Dict[str, Any], trace_path: Path) -> Dict[str, Any]:
         """
-        Generate runtime trace using real etcd raft cluster.
+        Generate runtime trace using system-specific implementation.
         
         Args:
-            task_name: Name of the task
+            system_module: System implementation module
             config: Configuration for trace generation
             trace_path: Path where trace file should be saved
             
@@ -171,54 +185,50 @@ class TraceValidationEvaluator(BaseEvaluator):
             Dictionary with generation results
         """
         try:
-            # Extract configuration parameters with defaults
-            node_count = config.get("node_count", 3)
-            duration = config.get("duration_seconds", 60)
-            client_qps = config.get("client_qps", 10.0)
-            fault_rate = config.get("fault_rate", 0.1)
-            scenario = config.get("scenario", "normal_operation")
-            
-            print(f"Generating real trace: {node_count} nodes, {duration}s duration, {client_qps} QPS")
-            
-            # Initialize real etcd raft cluster
-            trace_logger = FileTraceLogger(str(trace_path))
-            cluster = RaftCluster(node_count, trace_logger)
-            
-            # Initialize event driver with scenario
-            driver = RandomEventDriver(cluster, config)
-            driver.set_scenario(scenario)
-            
-            # Start cluster
-            cluster.start()
-            
-            # Run trace generation
-            start_time = datetime.now()
-            driver.run_scenario(duration)
-            generation_duration = (datetime.now() - start_time).total_seconds()
-            
-            # Stop cluster and finalize trace
-            cluster.stop()
-            event_count = trace_logger.get_event_count()
-            
-            print(f"Generated {event_count} events in {generation_duration:.2f}s")
-            
-            return {
-                "success": True,
-                "trace_file": str(trace_path),
-                "event_count": event_count,
-                "duration": generation_duration,
-                "cluster_size": node_count
-            }
+            trace_generator = system_module.get_trace_generator()
+            return trace_generator.generate_trace(config, trace_path)
             
         except Exception as e:
             return {
                 "success": False,
-                "error": f"Trace generation failed: {str(e)}"
+                "error": f"System trace generation failed: {str(e)}"
+            }
+    
+    def _convert_system_trace(self, system_module, input_trace_path: Path, system_name: str, timestamp: str) -> Dict[str, Any]:
+        """
+        Convert system trace to TLA+ specification-compatible format using system-specific implementation.
+        
+        Args:
+            system_module: System implementation module
+            input_trace_path: Path to system-generated trace file
+            system_name: Name of the system
+            timestamp: Timestamp for output file naming
+            
+        Returns:
+            Dictionary with conversion results
+        """
+        try:
+            # Create output directory for converted traces
+            converted_traces_dir = Path("data/traces") / system_name
+            converted_traces_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate output path for converted trace
+            converted_trace_path = converted_traces_dir / f"{system_name}_converted_{timestamp}.ndjson"
+            
+            trace_converter = system_module.get_trace_converter()
+            return trace_converter.convert_trace(input_trace_path, converted_trace_path)
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"System trace conversion failed: {str(e)}"
             }
     
     def _generate_spectrace_from_tla(self, task_name: str, timestamp: str) -> Dict[str, Any]:
         """
         Generate specTrace.tla and specTrace.cfg from existing TLA+ specification.
+        
+        This step is generic across all systems - it converts TLA+ specs to trace format.
         
         Args:
             task_name: Name of the task
@@ -239,12 +249,19 @@ class TraceValidationEvaluator(BaseEvaluator):
             spec_file = spec_files[0]  # Use first found spec file
             print(f"Using TLA+ specification: {spec_file}")
             
-            # Read TLA+ specification
-            with open(spec_file, 'r', encoding='utf-8') as f:
-                tla_content = f.read()
+            # Find corresponding CFG file
+            cfg_files = list(self.spec_dir.glob(f"{task_name}/*.cfg"))
+            if not cfg_files:
+                return {
+                    "success": False,
+                    "error": f"No CFG configuration found for task: {task_name}"
+                }
+            
+            cfg_file = cfg_files[0]  # Use first found cfg file
+            print(f"Using CFG configuration: {cfg_file}")
             
             # Generate configuration using LLM
-            config_data = generate_config_from_tla(tla_content, task_name, "gpt-4")
+            config_data = generate_config_from_tla(str(spec_file), str(cfg_file), "gpt-4")
             
             # Save configuration for debugging
             config_path = self.spec_dir / task_name / f"trace_config_{timestamp}.yaml"
@@ -287,61 +304,11 @@ class TraceValidationEvaluator(BaseEvaluator):
                 "error": f"specTrace generation failed: {str(e)}"
             }
     
-    def _convert_trace_to_spec_format(self, sys_trace_path: Path, timestamp: str) -> Dict[str, Any]:
-        """
-        Convert system trace to TLA+ specification-compatible format.
-        
-        This converts the raw system trace (NDJSON) to the format expected
-        by TLA+ specifications for trace validation.
-        
-        Args:
-            sys_trace_path: Path to system-generated trace file
-            timestamp: Timestamp for output file naming
-            
-        Returns:
-            Dictionary with conversion results
-        """
-        try:
-            # Create output directory for converted traces
-            converted_traces_dir = Path("data/traces/etcd")
-            converted_traces_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate output path for converted trace
-            converted_trace_path = converted_traces_dir / f"etcd_converted_{timestamp}.ndjson"
-            
-            print(f"Converting trace from {sys_trace_path} to {converted_trace_path}")
-            
-            # Initialize trace converter
-            converter = TraceConverter()
-            
-            # Perform conversion
-            result = converter.convert_trace(
-                input_trace_path=str(sys_trace_path),
-                output_trace_path=str(converted_trace_path)
-            )
-            
-            if result["success"]:
-                return {
-                    "success": True,
-                    "input_events": result["input_events"],
-                    "output_transitions": result["output_transitions"],
-                    "converted_trace": result["output_file"]
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": result["error"]
-                }
-                
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Trace conversion failed: {str(e)}"
-            }
-    
     def _run_tlc_verification(self, trace_path: Path, spec_dir: str) -> Dict[str, Any]:
         """
         Run TLC verification of trace against converted specification.
+        
+        This step is generic across all systems.
         
         Args:
             trace_path: Path to the trace file
@@ -384,34 +351,47 @@ class TraceValidationEvaluator(BaseEvaluator):
     
     def get_supported_tasks(self):
         """Get list of tasks supported by this evaluator."""
-        return ["etcd"]  # Currently only supports etcd raft
+        return list(get_available_systems().keys())
     
-    def get_default_config(self) -> Dict[str, Any]:
-        """Get default configuration for trace validation evaluation."""
+    def get_default_config(self, system_name: str = None) -> Dict[str, Any]:
+        """
+        Get default configuration for trace validation evaluation.
+        
+        Args:
+            system_name: Optional system name to get system-specific defaults
+            
+        Returns:
+            Default configuration dictionary
+        """
+        if system_name and is_system_supported(system_name):
+            system_module = get_system(system_name)
+            if system_module:
+                trace_generator = system_module.get_trace_generator()
+                return trace_generator.get_default_config()
+        
+        # Generic defaults if system not specified or not found
         return {
-            "node_count": 3,
             "duration_seconds": 60,
-            "client_qps": 10.0,
-            "fault_rate": 0.1,
-            "scenario": "normal_operation",
-            "enable_network_faults": True,
-            "enable_node_restart": True
+            "scenario": "normal_operation"
         }
     
-    def get_available_scenarios(self) -> Dict[str, Dict[str, Any]]:
-        """Get available predefined scenarios."""
-        # Create a dummy driver to get scenario configs
-        dummy_cluster = None
-        driver = RandomEventDriver(dummy_cluster, {})
+    def get_available_scenarios(self, system_name: str = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Get available predefined scenarios.
         
-        scenarios = {}
-        scenario_names = ["normal_operation", "light_faults", "heavy_faults", 
-                         "high_load", "partition_focused"]
-        
-        for name in scenario_names:
-            scenarios[name] = driver.get_scenario_config(name)
+        Args:
+            system_name: Optional system name to get system-specific scenarios
             
-        return scenarios
+        Returns:
+            Dictionary mapping scenario names to their configurations
+        """
+        if system_name and is_system_supported(system_name):
+            system_module = get_system(system_name)
+            if system_module:
+                trace_generator = system_module.get_trace_generator()
+                return trace_generator.get_available_scenarios()
+        
+        return {}
     
     def _get_evaluation_type(self) -> str:
         """Return the evaluation type identifier"""
@@ -421,8 +401,7 @@ class TraceValidationEvaluator(BaseEvaluator):
 # Convenience function for backward compatibility
 def create_trace_validation_evaluator(
     spec_dir: str = "data/spec",
-    traces_dir: str = "data/sys_traces/etcd",
-    raft_repo_dir: str = "data/repositories/raft",
+    traces_dir: str = "data/sys_traces",
     timeout: int = 600
 ) -> TraceValidationEvaluator:
     """
@@ -430,11 +409,10 @@ def create_trace_validation_evaluator(
     
     Args:
         spec_dir: Directory containing TLA+ specifications
-        traces_dir: Directory to store generated traces
-        raft_repo_dir: Directory containing etcd raft repository
+        traces_dir: Base directory to store generated traces
         timeout: Timeout for evaluation operations in seconds
         
     Returns:
-        TraceValidationEvaluator instance
+        GenericTraceValidationEvaluator instance
     """
-    return TraceValidationEvaluator(spec_dir, traces_dir, raft_repo_dir, timeout)
+    return TraceValidationEvaluator(spec_dir, traces_dir, timeout)

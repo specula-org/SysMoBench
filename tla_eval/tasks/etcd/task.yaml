@@ -26,16 +26,9 @@ specModule: "etcdraft"
 metadata:
   original_project: "etcd"
   version: "v3.5.12"  # Fixed for stability
-  complexity: "high"
-  focus_areas:
-    - "distributed consensus"
-    - "key-value operations" 
-    - "leader election"
-    - "log replication"
-  
+
 # Phase 3 specific configuration
 phase3:
   trace_generation: true
   patch_required: false  # No patch needed - TraceLogger is built-in
-  build_tags: ["with_tla"]  # Go build tags required for trace support
   description: "etcd raft has built-in TraceLogger support, just needs with_tla build tag"

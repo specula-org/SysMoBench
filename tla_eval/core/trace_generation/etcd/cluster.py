@@ -73,6 +73,19 @@ class RaftCluster:
         
         self.process = None
     
+    def start(self) -> bool:
+        """
+        Start the raft cluster.
+        
+        Returns:
+            True if cluster started successfully, False otherwise
+        """
+        return self.start_cluster()
+    
+    def stop(self):
+        """Stop the raft cluster and cleanup resources."""
+        self.stop_cluster()
+    
     def generate_trace(self, 
                       duration_seconds: int = 60,
                       client_qps: float = 10.0,
@@ -269,3 +282,17 @@ class FileTraceLogger:
     def close(self):
         """Close the trace logger."""
         pass  # Nothing to close in this implementation
+    
+    def get_event_count(self) -> int:
+        """
+        Get the number of events logged.
+        
+        Returns:
+            Number of events in the trace file
+        """
+        try:
+            with open(self.output_file, 'r') as f:
+                count = sum(1 for line in f if line.strip())
+            return count
+        except FileNotFoundError:
+            return 0
