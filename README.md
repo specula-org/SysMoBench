@@ -43,7 +43,12 @@ This benchmark framework implements a rigorous four-phase evaluation methodology
 pip install -r requirements.txt
 ```
 
-2. Set up environment variables for LLM models:
+2. Setup TLA+ tools:
+```bash
+python3 -m scripts.setup_tools
+```
+
+3. Set up environment variables for LLM models:
 ```bash
 # For OpenAI models
 export OPENAI_API_KEY="your-api-key"
@@ -55,7 +60,7 @@ export ANTHROPIC_API_KEY="your-api-key"
 export GENAI_API_KEY="your-api-key"
 ```
 
-3. Initialize TLA+ tools (automatic on first run):
+4. Initialize TLA+ tools (automatic on first run):
 ```bash
 python3 scripts/run_benchmark.py --list-metrics
 ```
