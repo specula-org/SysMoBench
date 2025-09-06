@@ -1,4 +1,4 @@
-# TLA+ Benchmark Framework
+# SysSpecBench
 
 A comprehensive benchmark framework for evaluating AI agents' capability in formally specifying real-world concurrent and distributed systems using TLA+ specifications.
 
