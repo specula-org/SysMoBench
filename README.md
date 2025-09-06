@@ -57,7 +57,7 @@ export GENAI_API_KEY="your-api-key"
 
 3. Initialize TLA+ tools (automatic on first run):
 ```bash
-python scripts/run_benchmark.py --list-metrics
+python3 scripts/run_benchmark.py --list-metrics
 ```
 
 ## Usage
@@ -65,7 +65,7 @@ python scripts/run_benchmark.py --list-metrics
 ### Basic Usage Pattern
 
 ```bash
-python scripts/run_benchmark.py --task <task> --method <method> --model <model> --metric <metric>
+python3 scripts/run_benchmark.py --task <task> --method <method> --model <model> --metric <metric>
 ```
 
 ### Available Tasks
@@ -115,12 +115,12 @@ These metrics are fully automated and can test any TLA+ specification:
 
 ```bash
 # Test syntax validation
-python scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric compilation_check
-python scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric action_decomposition
+python3 scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric compilation_check
+python3 scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric action_decomposition
 
 # Test semantic execution  
-python scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric runtime_check
-python scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric coverage
+python3 scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric runtime_check
+python3 scripts/run_benchmark.py --task spin --method direct_call --model gpt5 --metric coverage
 ```
 
 ### Phase 3-4: System-Specific Evaluation
@@ -129,28 +129,28 @@ These metrics require task-specific configurations:
 
 ```bash
 # Correctness verification (requires task-specific invariants)
-python scripts/run_benchmark.py --task etcd --method direct_call --model openai_gpt4 --metric invariant_verification
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model openai_gpt4 --metric invariant_verification
 
 # Behavioral conformance (requires manual instrumentation alignment)
-python scripts/run_benchmark.py --task etcd --method direct_call --model openai_gpt4 --metric trace_validation
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model openai_gpt4 --metric trace_validation
 ```
 
 ### Using Existing Specifications
 
 ```bash
 # Test your own TLA+ specification with universal metrics
-python scripts/run_benchmark.py --task spin --method direct_call --model with_exist_spec --metric runtime_check --spec-file your_spec.tla
+python3 scripts/run_benchmark.py --task spin --method direct_call --model with_exist_spec --metric runtime_check --spec-file your_spec.tla
 
 # Use existing spec with existing config
-python scripts/run_benchmark.py --task spin --method direct_call --model with_exist_spec --metric runtime_check --spec-file your_spec.tla --config-file your_config.cfg
+python3 scripts/run_benchmark.py --task spin --method direct_call --model with_exist_spec --metric runtime_check --spec-file your_spec.tla --config-file your_config.cfg
 ```
 
 ### List Available Options
 
 ```bash
-python scripts/run_benchmark.py --list-metrics  # All metrics
-python scripts/run_benchmark.py --list-models   # Supported models  
-python scripts/run_benchmark.py --list-tasks    # Available tasks
+python3 scripts/run_benchmark.py --list-metrics  # All metrics
+python3 scripts/run_benchmark.py --list-models   # Supported models  
+python3 scripts/run_benchmark.py --list-tasks    # Available tasks
 ```
 
 ## Framework Architecture
@@ -189,6 +189,8 @@ The framework supports systematic addition of new concurrent and distributed sys
 1. **Task Formulation**: Create specification prompts describing modules requiring formal modeling
 2. **Invariant Template Design**: Develop invariant templates capturing domain-specific correctness requirements
 3. **System Instrumentation**: Implement execution harnesses and instrumentation aligned with modeling granularity
+
+For detailed instructions on adding new systems to the framework, see [docs/add_new_system.md](docs/add_new_system.md) which provides guidance.
 
 See the existing `etcd` and `spin` tasks as examples.
 
