@@ -47,6 +47,11 @@ class ConfigGenerator:
             Tuple of (success, generated_config, error_message)
         """
         try:
+            # Special handling for with_exist_spec - generate basic config instead of using LLM
+            if model_name == "with_exist_spec":
+                return self._generate_basic_config(tla_content, invariants)
+            
+            # Use the original config-based approach for compatibility with existing models
             model = get_configured_model(model_name)
             
             # Load task-specific prompt for config generation
@@ -115,6 +120,84 @@ class ConfigGenerator:
             
             return False, "", str(e)
     
+    def _generate_basic_config(self, tla_content: str, invariants: str) -> Tuple[bool, str, str]:
+        """
+        Generate a basic TLC configuration for with_exist_spec model.
+        
+        Args:
+            tla_content: TLA+ specification content
+            invariants: Invariants to include (can be empty)
+            
+        Returns:
+            Tuple of (success, config_content, error_message)
+        """
+        try:
+            import re
+            
+            # Parse the module name from TLA+ specification (handle ---- MODULE name ---- format)
+            module_match = re.search(r'^\s*-*\s*MODULE\s+(\w+)\s*-*\s*$', tla_content, re.MULTILINE)
+            if not module_match:
+                return False, "", "Cannot find MODULE declaration in TLA+ specification"
+            
+            module_name = module_match.group(1)
+            
+            # Extract variables from VARIABLES declaration
+            var_match = re.search(r'^\s*VARIABLES?\s+(.+?)$', tla_content, re.MULTILINE)
+            variables = []
+            if var_match:
+                var_text = var_match.group(1).strip()
+                # Handle both single variables and comma-separated lists
+                var_text = re.sub(r'\s+', ' ', var_text)  # Normalize whitespace
+                var_text = var_text.replace(',', ' ')
+                variables = [v.strip() for v in var_text.split() if v.strip()]
+            
+            # Find Init and Next predicates
+            init_match = re.search(r'^\s*Init\s*==', tla_content, re.MULTILINE)
+            next_match = re.search(r'^\s*Next\s*==', tla_content, re.MULTILINE)
+            
+            if not init_match:
+                return False, "", "Cannot find Init predicate in TLA+ specification"
+            if not next_match:
+                return False, "", "Cannot find Next predicate in TLA+ specification"
+            
+            # Generate basic configuration
+            config_lines = [
+                f"SPECIFICATION Spec",
+                f"",
+                f"\\* Basic constraints for model checking",
+            ]
+            
+            # Add variable type constraints if we found variables
+            if variables:
+                config_lines.append(f"\\* Variables: {', '.join(variables)}")
+                config_lines.append(f"")
+            
+            # Add invariants if provided
+            if invariants and invariants.strip():
+                config_lines.append(f"\\* Generated invariants:")
+                for line in invariants.strip().split('\n'):
+                    if line.strip():
+                        config_lines.append(f"INVARIANT {line.strip()}")
+                config_lines.append(f"")
+            
+            # Basic model checking settings
+            config_lines.extend([
+                f"\\* Model checking constraints",
+                f"CONSTANTS",
+                f"\\* Add any necessary constant definitions here",
+                f"",
+                f"\\* State constraints to limit state space",
+                f"\\* CONSTRAINT StateConstraint"
+            ])
+            
+            config_content = '\n'.join(config_lines)
+            logger.info(f"Generated basic config for module {module_name}")
+            return True, config_content, None
+            
+        except Exception as e:
+            logger.error(f"Basic config generation failed: {e}")
+            return False, "", str(e)
+    
     def _load_config_prompt(self, task_name: str) -> str:
         """Load task-specific prompt for config generation"""
         from ...tasks.loader import get_task_loader
@@ -151,7 +234,7 @@ class TLCRunner:
         from ...utils.setup_utils import get_tla_tools_path
         return get_tla_tools_path()
     
-    def run_model_checking(self, spec_file: str, config_file: str, record_stats: bool = True) -> Tuple[bool, str, int]:
+    def run_model_checking(self, spec_file: str, config_file: str, record_stats: bool = True, use_deadlock_flag: bool = False) -> Tuple[bool, str, int]:
         """
         Run TLC model checking.
         
@@ -159,6 +242,7 @@ class TLCRunner:
             spec_file: Path to TLA+ specification file
             config_file: Path to TLC configuration file
             record_stats: Whether to record error statistics (default True for safety)
+            use_deadlock_flag: Whether to add -deadlock flag for invariant checking (default False)
             
         Returns:
             Tuple of (success, output, exit_code)
@@ -178,9 +262,14 @@ class TLCRunner:
                 "java",
                 "-cp", str(self.tla_tools_path),
                 "tlc2.TLC",
-                "-config", config_filename,
-                spec_filename
+                "-config", config_filename
             ]
+            
+            # Add -deadlock flag for invariant checking context
+            if use_deadlock_flag:
+                cmd.append("-deadlock")
+            
+            cmd.append(spec_filename)
             
             logger.debug(f"Running TLC in {working_dir}: {' '.join(cmd)}")
             
@@ -249,35 +338,55 @@ class TLCRunner:
             # For large state spaces, timeout without violations should be considered success
             # Parse partial output to check for violations AND configuration errors
             partial_output = ""
+            partial_stdout = ""
+            partial_stderr = ""
+            
             try:
                 # Try to get partial output from the process
                 if hasattr(e, 'stdout') and e.stdout:
-                    partial_output += e.stdout.decode() if isinstance(e.stdout, bytes) else str(e.stdout)
+                    partial_stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else str(e.stdout)
+                    partial_output += partial_stdout
                 if hasattr(e, 'stderr') and e.stderr:
-                    partial_output += e.stderr.decode() if isinstance(e.stderr, bytes) else str(e.stderr)
+                    partial_stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else str(e.stderr)
+                    partial_output += partial_stderr
             except:
                 # If we can't get partial output, just use empty string
                 partial_output = ""
+                partial_stdout = ""
+                partial_stderr = ""
             
-            # Check for configuration errors that prevent TLC from starting
-            config_errors = [
-                "is not defined in the specification",
-                "Error: The constraint",
-                "Error: The init predicate",
-                "Error: The next-state relation",
-                "Error: The invariant",
-                "TLC Bug",
-                "Parse error",
-                "Semantic error"
-            ]
+            if record_stats:
+                # Use modern error classification system for timeout cases too
+                if self.error_stats_manager:
+                    # Use custom error statistics manager
+                    error_info = self.error_stats_manager.classify_and_record_tlc_result(
+                        -1,  # Timeout exit code
+                        partial_stdout, 
+                        partial_stderr, 
+                        context="runtime_timeout"
+                    )
+                else:
+                    # Use global error statistics manager
+                    error_info = classify_and_record_tlc_result(
+                        -1,  # Timeout exit code
+                        partial_stdout, 
+                        partial_stderr, 
+                        context="runtime_timeout"
+                    )
+                
+                # Check if this is a real configuration error based on modern classification
+                if error_info.category != TLCErrorCategory.SUCCESS and not error_info.is_violation:
+                    # This is a configuration/compilation error, not a genuine timeout during state exploration
+                    return False, f"TLC failed due to {error_info.category.value} (not timeout): {error_info.description}", -1
+            else:
+                # Fallback: Parse the partial output for violations and deadlocks without classification
+                violations, deadlock_found, states_explored = self.parse_tlc_output(partial_output)
+                
+                if violations or deadlock_found:
+                    # Found violations or deadlocks - this is a real failure
+                    return False, f"TLC found violations/deadlocks before timeout after {self.timeout} seconds:\n{partial_output}", -1
             
-            has_config_error = any(error in partial_output for error in config_errors)
-            
-            if has_config_error:
-                # This is a configuration error, not a genuine timeout during state exploration
-                return False, f"TLC failed due to configuration error (not timeout): {partial_output}", -1
-            
-            # Parse the partial output for violations and deadlocks
+            # Parse the partial output for violations and deadlocks for logging
             violations, deadlock_found, states_explored = self.parse_tlc_output(partial_output)
             
             if violations or deadlock_found:
@@ -368,7 +477,9 @@ class RuntimeCheckEvaluator(BaseEvaluator):
                 task_name: str,
                 method_name: str,
                 model_name: str,
-                spec_module: str = None) -> SemanticEvaluationResult:
+                spec_module: str = None,
+                spec_file_path: Optional[str] = None,
+                config_file_path: Optional[str] = None) -> SemanticEvaluationResult:
         """
         Evaluate a TLA+ specification using model checking.
         
@@ -378,6 +489,8 @@ class RuntimeCheckEvaluator(BaseEvaluator):
             method_name: Name of the generation method
             model_name: Name of the model used
             spec_module: Optional TLA+ module name
+            spec_file_path: Optional path to existing .tla file (use instead of generation_result)
+            config_file_path: Optional path to existing .cfg file (use instead of generating new one)
             
         Returns:
             SemanticEvaluationResult with model checking results
@@ -402,19 +515,36 @@ class RuntimeCheckEvaluator(BaseEvaluator):
             result.generation_time = generation_result.metadata['latency_seconds']
         
         try:
-            # Step 1: Get specification from generation result
-            if not generation_result.success:
-                logger.error("Generation failed, cannot perform semantic evaluation")
-                result.error_message = "Generation failed"
-                return result
+            # Step 1: Determine input source and get TLA+ content
+            if spec_file_path and Path(spec_file_path).exists():
+                # Use existing spec file
+                logger.info(f"Using existing spec file: {spec_file_path}")
+                try:
+                    with open(spec_file_path, 'r', encoding='utf-8') as f:
+                        tla_content = f.read()
+                except Exception as e:
+                    logger.error(f"Failed to read spec file: {e}")
+                    result.error_message = f"Cannot read spec file: {e}"
+                    return result
+            else:
+                # Use generated content
+                if not generation_result.success:
+                    logger.error("Generation failed, cannot perform semantic evaluation")
+                    result.error_message = "Generation failed"
+                    return result
+                
+                tla_content = generation_result.generated_text
+                if not tla_content.strip():
+                    logger.error("Empty TLA+ specification from generation result")
+                    result.error_message = "Empty specification"
+                    return result
+                
+                logger.info("✓ Specification content loaded from generation result")
             
-            tla_content = generation_result.generated_text
             if not tla_content.strip():
-                logger.error("Empty TLA+ specification from generation result")
+                logger.error("Empty TLA+ specification content")
                 result.error_message = "Empty specification"
                 return result
-            
-            logger.info("✓ Specification content loaded from generation result")
             
             # Step 1.5: Check if specification passed syntax validation (for agent_based method)
             # If agent_based method failed correction after 3 attempts, skip expensive semantic evaluation
@@ -459,33 +589,57 @@ class RuntimeCheckEvaluator(BaseEvaluator):
             result.generated_invariants = []  # No generated invariants
             result.invariant_generation_error = None
             
-            # Step 3: Generate TLC configuration (without generated invariants)
-            logger.info("Generating TLC configuration...")
-            start_time = time.time()
-            
-            # Use empty invariants string since we're not generating new invariants
-            cfg_success, config, cfg_error = self.config_generator.generate_config(
-                tla_content, "", task_name, model_name  # Empty invariants
-            )
-            
-            result.config_generation_time = time.time() - start_time
-            result.config_generation_successful = cfg_success
-            result.config_generation_error = cfg_error
-            
-            if not cfg_success:
-                logger.error(f"✗ Config generation failed: {cfg_error}")
-                return result
-            
-            # Save config file to structured output directory
-            config_file_path = output_dir / f"{module_name}.cfg"
-            
-            logger.debug(f"Writing config to {config_file_path}, length: {len(config)} chars")
-            logger.debug(f"Config content preview: {config[:200]}...")
-            with open(config_file_path, 'w', encoding='utf-8') as f:
-                f.write(config)
-            
-            result.config_file_path = str(config_file_path)
-            logger.info(f"✓ TLC config generated in {result.config_generation_time:.2f}s")
+            # Step 3: Handle TLC configuration (use existing or generate new)
+            if config_file_path and Path(config_file_path).exists():
+                # Use existing config file
+                logger.info(f"Using existing config file: {config_file_path}")
+                try:
+                    with open(config_file_path, 'r', encoding='utf-8') as f:
+                        config = f.read()
+                    
+                    # Copy to output directory for consistency
+                    output_config_path = output_dir / f"{module_name}.cfg"
+                    with open(output_config_path, 'w', encoding='utf-8') as f:
+                        f.write(config)
+                    
+                    result.config_file_path = str(output_config_path)
+                    result.config_generation_time = 0.0
+                    result.config_generation_successful = True
+                    result.config_generation_error = None
+                    logger.info("✓ Using existing config file")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to read config file: {e}")
+                    result.config_generation_error = f"Cannot read config file: {e}"
+                    return result
+            else:
+                # Generate new TLC configuration
+                logger.info("Generating TLC configuration...")
+                start_time = time.time()
+                
+                # Use empty invariants string since we're not generating new invariants
+                cfg_success, config, cfg_error = self.config_generator.generate_config(
+                    tla_content, "", task_name, model_name  # Empty invariants
+                )
+                
+                result.config_generation_time = time.time() - start_time
+                result.config_generation_successful = cfg_success
+                result.config_generation_error = cfg_error
+                
+                if not cfg_success:
+                    logger.error(f"✗ Config generation failed: {cfg_error}")
+                    return result
+                
+                # Save config file to structured output directory
+                config_file_path = output_dir / f"{module_name}.cfg"
+                
+                logger.debug(f"Writing config to {config_file_path}, length: {len(config)} chars")
+                logger.debug(f"Config content preview: {config[:200]}...")
+                with open(config_file_path, 'w', encoding='utf-8') as f:
+                    f.write(config)
+                
+                result.config_file_path = str(config_file_path)
+                logger.info(f"✓ TLC config generated in {result.config_generation_time:.2f}s")
             
             # Step 4: Run TLC model checking
             logger.info("Running TLC model checking...")

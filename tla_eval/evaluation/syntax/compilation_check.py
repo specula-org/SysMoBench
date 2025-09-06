@@ -7,7 +7,8 @@ successfully using the TLA tools (SANY parser).
 
 import logging
 import time
-from typing import Dict, List, Any, Tuple
+from pathlib import Path
+from typing import Dict, List, Any, Tuple, Optional
 
 from ...core.verification.validators import TLAValidator, ValidationResult
 from ...models.base import GenerationResult
@@ -45,7 +46,9 @@ class CompilationCheckEvaluator(BaseEvaluator):
                 task_name: str,
                 method_name: str,
                 model_name: str,
-                spec_module: str = None) -> SyntaxEvaluationResult:
+                spec_module: str = None,
+                spec_file_path: Optional[str] = None,
+                config_file_path: Optional[str] = None) -> SyntaxEvaluationResult:
         """
         Evaluate a single generation result for compilation success.
         
@@ -55,6 +58,8 @@ class CompilationCheckEvaluator(BaseEvaluator):
             method_name: Name of the generation method
             model_name: Name of the model used
             spec_module: Optional TLA+ module name for the specification
+            spec_file_path: Optional path to existing .tla file (use instead of generation_result)
+            config_file_path: Optional path to existing .cfg file (unused but kept for interface consistency)
             
         Returns:
             SyntaxEvaluationResult with evaluation metrics
@@ -75,19 +80,41 @@ class CompilationCheckEvaluator(BaseEvaluator):
         eval_result = SyntaxEvaluationResult(task_name, method_name, model_name)
         self._set_generation_result(eval_result, generation_result)
         
-        # If generation failed, no need to validate
-        if not generation_result.success:
-            logger.warning(f"Generation failed, skipping validation: {generation_result.error_message}")
-            # Create a dummy validation result
-            validation_result = ValidationResult(
-                success=False,
-                output="Generation failed - no specification to validate",
-                syntax_errors=[],
-                semantic_errors=["Generation failed"],
-                compilation_time=0.0
-            )
-            self._set_validation_result(eval_result, validation_result)
-            return eval_result
+        # Determine input source and get TLA+ content
+        if spec_file_path and Path(spec_file_path).exists():
+            # Use existing spec file
+            logger.info(f"Using existing spec file: {spec_file_path}")
+            try:
+                with open(spec_file_path, 'r', encoding='utf-8') as f:
+                    tla_content = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read spec file: {e}")
+                validation_result = ValidationResult(
+                    success=False,
+                    output=f"Failed to read spec file: {e}",
+                    syntax_errors=[f"Cannot read spec file: {e}"],
+                    semantic_errors=[],
+                    compilation_time=0.0
+                )
+                self._set_validation_result(eval_result, validation_result)
+                return eval_result
+        else:
+            # Use generated content
+            if not generation_result.success:
+                logger.warning(f"Generation failed, cannot proceed: {generation_result.error_message}")
+                validation_result = ValidationResult(
+                    success=False,
+                    output="Generation failed - no specification to validate",
+                    syntax_errors=[],
+                    semantic_errors=["Generation failed"],
+                    compilation_time=0.0
+                )
+                self._set_validation_result(eval_result, validation_result)
+                return eval_result
+            tla_content = generation_result.generated_text
+        
+        # Set the actual content being evaluated (may be from file or generation)
+        eval_result.generated_specification = tla_content
         
         # Validate the generated specification
         try:
@@ -95,7 +122,7 @@ class CompilationCheckEvaluator(BaseEvaluator):
             # Save specification to structured output directory
             spec_file_path = output_dir / f"{spec_module or 'UnnamedModule'}.tla"
             with open(spec_file_path, 'w', encoding='utf-8') as spec_file:
-                spec_file.write(generation_result.generated_text)
+                spec_file.write(tla_content)
             
             # Validate using the saved file path
             validation_result = self.validator.validate_file(str(spec_file_path))
@@ -129,11 +156,11 @@ class CompilationCheckEvaluator(BaseEvaluator):
             self._set_validation_result(eval_result, validation_result)
         
         # Save TLA specification to output directory
-        if generation_result.success and generation_result.generated_text:
+        if tla_content:
             module_name = spec_module or task_name
             spec_file_path = output_dir / f"{module_name}.tla"
             with open(spec_file_path, 'w', encoding='utf-8') as f:
-                f.write(generation_result.generated_text)
+                f.write(tla_content)
             logger.info(f"Saved specification to: {spec_file_path}")
         
         # Save results and metadata

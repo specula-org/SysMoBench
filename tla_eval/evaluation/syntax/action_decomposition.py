@@ -70,7 +70,9 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                 task_name: str,
                 method_name: str,
                 model_name: str,
-                spec_module: str = None) -> SyntaxEvaluationResult:
+                spec_module: str = None,
+                spec_file_path: Optional[str] = None,
+                config_file_path: Optional[str] = None) -> SyntaxEvaluationResult:
         """
         Evaluate a generation result using action decomposition.
         
@@ -80,6 +82,8 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             method_name: Name of the generation method
             model_name: Name of the model used
             spec_module: Optional TLA+ module name for the specification
+            spec_file_path: Optional path to existing .tla file (use instead of generation_result)
+            config_file_path: Optional path to existing .cfg file (unused but kept for interface consistency)
             
         Returns:
             SyntaxEvaluationResult with detailed action-level evaluation metrics
@@ -90,18 +94,41 @@ class ActionDecompositionEvaluator(BaseEvaluator):
         eval_result = SyntaxEvaluationResult(task_name, method_name, model_name)
         self._set_generation_result(eval_result, generation_result)
         
-        # If generation failed, no need to validate
-        if not generation_result.success:
-            logger.warning(f"Generation failed, skipping validation: {generation_result.error_message}")
-            validation_result = ValidationResult(
-                success=False,
-                output="Generation failed - no specification to validate",
-                syntax_errors=[],
-                semantic_errors=["Generation failed"],
-                compilation_time=0.0
-            )
-            self._set_validation_result(eval_result, validation_result)
-            return eval_result
+        # Determine input source and get TLA+ content
+        if spec_file_path and Path(spec_file_path).exists():
+            # Use existing spec file
+            logger.info(f"Using existing spec file: {spec_file_path}")
+            try:
+                with open(spec_file_path, 'r', encoding='utf-8') as f:
+                    tla_content = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read spec file: {e}")
+                validation_result = ValidationResult(
+                    success=False,
+                    output=f"Failed to read spec file: {e}",
+                    syntax_errors=[f"Cannot read spec file: {e}"],
+                    semantic_errors=[],
+                    compilation_time=0.0
+                )
+                self._set_validation_result(eval_result, validation_result)
+                return eval_result
+        else:
+            # Use generated content
+            if not generation_result.success:
+                logger.warning(f"Generation failed, cannot proceed: {generation_result.error_message}")
+                validation_result = ValidationResult(
+                    success=False,
+                    output="Generation failed - no specification to validate",
+                    syntax_errors=[],
+                    semantic_errors=["Generation failed"],
+                    compilation_time=0.0
+                )
+                self._set_validation_result(eval_result, validation_result)
+                return eval_result
+            tla_content = generation_result.generated_text
+        
+        # Set the actual content being evaluated (may be from file or generation)
+        eval_result.generated_specification = tla_content
         
         try:
             # Create temporary directory for action files
@@ -110,7 +137,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             
             # Step 1: Decompose specification into actions
             logger.debug("Starting action decomposition...")
-            actions = self._decompose_specification(generation_result.generated_text)
+            actions = self._decompose_specification(tla_content)
             logger.info(f"Decomposed specification into {len(actions)} actions")
             
             # Step 2: Create standalone TLA+ files for each action
@@ -137,7 +164,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             # Step 4: Overall validation of original specification
             logger.debug("Validating original specification...")
             overall_validation = self.validator.validate_specification(
-                generation_result.generated_text,
+                tla_content,
                 module_name=spec_module,
                 task_name=task_name,
                 context="action_decomposition"

@@ -85,7 +85,8 @@ class MetricRegistry:
             name="action_decomposition", 
             dimension="syntax",
             description="Evaluate individual actions separately for better granularity",
-            evaluator_class=ActionDecompositionEvaluator
+            evaluator_class=ActionDecompositionEvaluator,
+            default_params={"validation_timeout": 30, "keep_temp_files": False}
         ))
         
         # self.register_metric(MetricInfo(
@@ -194,6 +195,11 @@ def create_evaluator(metric_name: str, **kwargs):
     """Create an evaluator instance for the given metric"""
     registry = get_metric_registry()
     metric_info = registry.get_metric(metric_name)
+    
+    # Handle parameter mapping for specific evaluators
+    if metric_name == "action_decomposition" and "tlc_timeout" in kwargs:
+        # ActionDecompositionEvaluator expects validation_timeout, not tlc_timeout
+        kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
     
     # Merge default params with provided kwargs
     params = {**metric_info.default_params, **kwargs}
