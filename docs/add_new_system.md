@@ -15,12 +15,12 @@ Create a system configuration file containing:
 
 ### prompts directory
 Create prompt files based on etcd naming convention:
-- `agent_based.txt` - Agent-based generation prompts
-- `direct_call.txt` - Direct call prompts
-- `phase2_config.txt` - Phase 2 configuration
-- `phase2_invariants.txt` - Phase 2 invariants
-- `phase3_invariant_implementation.txt` - Phase 3 invariant implementation
-- `trace_config_generation.txt` - Trace configuration generation
+- `agent_based.txt` - Agent-based generation prompt
+- `direct_call.txt` - Direct call prompt
+- `phase2_config.txt` - .cfg configuration file generation prompt
+- `phase2_invariants.txt` - invariants generation prompt(unused)
+- `phase3_invariant_implementation.txt` - invariant translation prompt
+- `trace_config_generation.txt` - Trace configuration generation prompt
 
 ## 2. Create Invariant Templates
 

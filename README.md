@@ -134,10 +134,10 @@ These metrics require task-specific configurations:
 
 ```bash
 # Correctness verification (requires task-specific invariants)
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model openai_gpt4 --metric invariant_verification
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt5 --metric invariant_verification
 
 # Behavioral conformance (requires manual instrumentation alignment)
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model openai_gpt4 --metric trace_validation
+python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt5 --metric trace_validation
 ```
 
 ### Using Existing Specifications

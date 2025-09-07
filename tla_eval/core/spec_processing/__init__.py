@@ -9,6 +9,5 @@ This module handles the processing and conversion of TLA+ specifications:
 
 from .spec_converter import SpecTraceGenerator, generate_config_from_tla
 from .config_generation import generate_config_from_tla as config_gen
-from .trace_converter import TraceConverter
 
-__all__ = ['SpecTraceGenerator', 'generate_config_from_tla', 'TraceConverter']
+__all__ = ['SpecTraceGenerator', 'generate_config_from_tla']

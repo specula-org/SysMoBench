@@ -1,8 +1,8 @@
 """
-Trace Converter Module
+ETCD Trace Converter Implementation
 
-This module handles conversion of system traces to specification-compatible formats.
-This is Step 3 in the Phase 3 pipeline - converting sys_traces to spec-acceptable format.
+Internal implementation class for ETCD trace conversion.
+This was moved from spec_processing to avoid architecture conflicts.
 """
 
 import json
@@ -11,11 +11,12 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 from collections import defaultdict
 
-class TraceConverter:
+
+class ETCDTraceConverterImpl:
     """
-    Converts system traces to specification-compatible formats.
+    Internal implementation for ETCD trace conversion.
     
-    This handles the conversion from raw system traces (NDJSON format)
+    This handles the conversion from raw ETCD traces (NDJSON format)
     to the format expected by TLA+ specifications for validation.
     """
     
@@ -228,5 +229,3 @@ class TraceConverter:
                 "success": False,
                 "error": f"Trace conversion failed: {str(e)}"
             }
-
-__all__ = ['TraceConverter']
