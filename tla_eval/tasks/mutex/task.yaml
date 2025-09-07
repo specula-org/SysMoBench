@@ -23,12 +23,6 @@ specModule: "mutex"
 # Metadata
 metadata:
   original_project: "asterinas"
-  complexity: "medium"
-  focus_areas:
-    - "mutual exclusion"
-    - "critical sections"
-    - "thread synchronization"
-    - "deadlock prevention"
   
 # Phase 3 specific configuration
 phase3:

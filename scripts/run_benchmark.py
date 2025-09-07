@@ -488,7 +488,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         elif metric == "trace_validation":
             # Consistency evaluation: Trace generation and validation
             # Use default configuration for consistency evaluation
-            consistency_config = evaluator.get_default_config()
+            consistency_config = evaluator.get_default_config(task_name)
             
             evaluation_result = evaluator.evaluate(task_name, consistency_config)
             logger.info(f"Trace validation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
@@ -513,7 +513,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                             task.spec_module, spec_file, config_file
                         )
                     elif metric_info.dimension == "consistency":
-                        consistency_config = evaluator.get_default_config() if hasattr(evaluator, 'get_default_config') else {}
+                        consistency_config = evaluator.get_default_config(task_name) if hasattr(evaluator, 'get_default_config') else {}
                         evaluation_result = evaluator.evaluate(task_name, consistency_config)
                     elif metric_info.dimension == "composite":
                         # Composite metrics perform iterative evaluation and improvement

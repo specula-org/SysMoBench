@@ -23,12 +23,6 @@ specModule: "rwmutex"
 # Metadata
 metadata:
   original_project: "asterinas"
-  complexity: "high"
-  focus_areas:
-    - "read-write synchronization"
-    - "multiple readers single writer"
-    - "concurrent access control"
-    - "reader-writer fairness"
   
 # Phase 3 specific configuration
 phase3:

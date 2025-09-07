@@ -23,12 +23,6 @@ specModule: "spin"
 # Metadata
 metadata:
   original_project: "asterinas"
-  complexity: "low"
-  focus_areas:
-    - "spinlock synchronization"
-    - "atomic operations"
-    - "busy-waiting"
-    - "mutual exclusion"
   
 # Phase 3 specific configuration
 phase3:
