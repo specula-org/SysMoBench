@@ -2,16 +2,13 @@
 Asterinas RwMutex system implementation for trace generation and conversion.
 
 This module implements the system-specific interfaces for Asterinas RwMutex
-trace generation and format conversion using real kernel tests.
-
-NOTE: This is a template for future RwMutex implementation. 
-Currently Asterinas SpinLock instrumentation is implemented.
-RwMutex instrumentation would need similar modifications to ostd/src/sync/rw_lock.rs
+trace generation and format conversion using pre-generated traces.
 """
 
 import subprocess
 import json
 import tempfile
+import shutil
 from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
@@ -24,43 +21,74 @@ class RwMutexTraceGenerator(TraceGenerator):
     
     def generate_trace(self, config: Dict[str, Any], output_path: Path) -> Dict[str, Any]:
         """
-        Generate runtime trace using real Asterinas RwMutex kernel tests.
-        
-        NOTE: This requires implementing TLA+ tracing instrumentation in 
-        ostd/src/sync/rw_lock.rs similar to what we did for SpinLock.
+        Generate runtime traces using pre-generated RwMutex traces.
         
         Args:
             config: Configuration for trace generation
-            output_path: Path where trace file should be saved
+            output_path: Base path where trace files should be saved
             
         Returns:
-            Dictionary with generation results
+            Dictionary with generation results including list of traces
         """
         try:
             # Extract configuration parameters with defaults
-            duration = config.get("duration_seconds", 10)
-            reader_count = config.get("reader_count", 2)
-            writer_count = config.get("writer_count", 1)
-            iterations = config.get("iterations_per_thread", 5)
+            trace_ids = config.get("trace_ids", list(range(1, 21)))  # All 20 by default
+            batch_size = config.get("batch_size", 20)
+            scenario_type = config.get("scenario_type", "all")
             
-            print(f"Generating RwMutex trace: {reader_count} readers, {writer_count} writers, {iterations} iterations each")
-            print("NOTE: Requires RwMutex instrumentation to be implemented in ostd/src/sync/rw_lock.rs")
+            # Handle different generation modes
+            if scenario_type == "all":
+                trace_ids = list(range(1, 21))
+            elif isinstance(trace_ids, int):
+                trace_ids = [trace_ids]
+            elif not trace_ids:
+                trace_ids = list(range(1, min(batch_size + 1, 21)))
             
-            # TODO: Implement RwMutex instrumentation in Asterinas
-            # Similar to what we did for SpinLock in ostd/src/sync/spin.rs
-            # RwMutex has more complex semantics: read_lock, write_lock, etc.
+            print(f"Generating {len(trace_ids)} RwMutex traces: {trace_ids}")
             
-            return {
-                "success": False,
-                "error": "RwMutex trace generation not yet implemented - requires instrumentation in ostd/src/sync/rw_lock.rs",
-                "metadata": {
-                    "reader_count": reader_count,
-                    "writer_count": writer_count,
-                    "iterations_per_thread": iterations,
-                    "sync_primitive": "rwmutex",
-                    "implementation_status": "TODO - needs rwmutex instrumentation"
+            # Start batch generation
+            start_time = datetime.now()
+            results = self._load_multiple_traces(trace_ids, output_path, config)
+            generation_duration = (datetime.now() - start_time).total_seconds()
+            
+            if results["success"]:
+                # For backward compatibility with single-trace evaluators
+                total_events = sum(trace.get("event_count", 0) for trace in results["traces"])
+                
+                # Create a combined trace file if multiple traces exist
+                if len(results["traces"]) == 1:
+                    single_trace = results["traces"][0]
+                    primary_trace_file = single_trace["trace_file"]
+                else:
+                    combined_trace_path = output_path.parent / f"{output_path.stem}_combined.jsonl"
+                    self._create_combined_trace_file(results["traces"], combined_trace_path)
+                    primary_trace_file = str(combined_trace_path)
+                
+                return {
+                    "success": True,
+                    # Batch interface (new)
+                    "traces": results["traces"],
+                    "total_traces": len(results["traces"]),
+                    "total_events": total_events,
+                    # Single trace interface (backward compatibility)
+                    "event_count": total_events,
+                    "trace_file": primary_trace_file,
+                    # Common fields
+                    "duration": generation_duration,
+                    "metadata": {
+                        "batch_size": len(trace_ids),
+                        "sync_primitive": "rwmutex",
+                        "source": "pre_generated",
+                        "generation_mode": scenario_type
+                    }
                 }
-            }
+            else:
+                return {
+                    "success": False,
+                    "error": results["error"],
+                    "duration": generation_duration,
+                    "partial_results": results.get("traces", [])
+                }
             
         except Exception as e:
             return {
@@ -68,48 +96,208 @@ class RwMutexTraceGenerator(TraceGenerator):
                 "error": f"RwMutex trace generation failed: {str(e)}"
             }
     
+    def _load_multiple_traces(self, trace_ids: list, base_output_path: Path, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Load multiple pre-generated RwMutex traces from the data directory."""
+        try:
+            traces = []
+            errors = []
+            
+            # Ensure output directory exists
+            if base_output_path.is_file():
+                output_dir = base_output_path.parent
+                base_name = base_output_path.stem
+            else:
+                output_dir = base_output_path
+                base_name = "rwmutex_trace"
+                output_dir.mkdir(parents=True, exist_ok=True)
+            
+            for trace_id in trace_ids:
+                try:
+                    # Create individual output file
+                    output_file = output_dir / f"{base_name}_{trace_id:02d}.jsonl"
+                    
+                    # Load individual trace
+                    result = self._load_pregenerated_trace(trace_id, output_file, config)
+                    
+                    if result["success"]:
+                        traces.append({
+                            "trace_id": trace_id,
+                            "trace_file": str(output_file),
+                            "event_count": result["event_count"],
+                            "scenario_type": result.get("scenario_type", "Unknown"),
+                            "source_file": result.get("source_file", "")
+                        })
+                        print(f"Successfully loaded trace {trace_id} with {result['event_count']} events")
+                    else:
+                        errors.append(f"Trace {trace_id}: {result['error']}")
+                        print(f"Failed to load trace {trace_id}: {result['error']}")
+                        
+                except Exception as e:
+                    error_msg = f"Trace {trace_id}: {str(e)}"
+                    errors.append(error_msg)
+                    print(f"Error loading trace {trace_id}: {str(e)}")
+            
+            if traces:
+                return {
+                    "success": True,
+                    "traces": traces,
+                    "errors": errors if errors else []
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No traces could be loaded. Errors: {'; '.join(errors)}",
+                    "traces": []
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to load multiple traces: {str(e)}",
+                "traces": []
+            }
+    
+    def _create_combined_trace_file(self, traces: list, combined_path: Path) -> None:
+        """Create a combined trace file from multiple individual trace files."""
+        try:
+            with open(combined_path, 'w') as combined_file:
+                # Add header
+                combined_file.write("# Combined trace file from multiple RwMutex traces\n")
+                
+                global_seq = 0
+                for trace_info in traces:
+                    trace_file = Path(trace_info["trace_file"])
+                    if trace_file.exists():
+                        combined_file.write(f"# === TRACE_{trace_info['trace_id']}: {trace_info['scenario_type']} ===\n")
+                        
+                        with open(trace_file, 'r') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    try:
+                                        # Parse and renumber sequence for global ordering
+                                        event = json.loads(line)
+                                        event['seq'] = global_seq
+                                        event['original_trace_id'] = trace_info['trace_id']
+                                        combined_file.write(json.dumps(event) + '\n')
+                                        global_seq += 1
+                                    except json.JSONDecodeError:
+                                        continue
+                        
+                        combined_file.write(f"# === End of TRACE_{trace_info['trace_id']} ===\n")
+                        
+        except Exception as e:
+            print(f"Warning: Failed to create combined trace file: {e}")
+    
+    def _load_pregenerated_trace(self, trace_id, output_path: Path, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Load a pre-generated RwMutex trace from the data directory."""
+        try:
+            # Ensure trace_id is within valid range
+            trace_id = max(1, min(20, int(trace_id)))
+            
+            # Path to pre-generated traces (go up to project root, then to data)
+            project_root = Path(__file__).parent.parent.parent.parent.parent  # Go up to project root
+            traces_dir = project_root / "data" / "sys_traces" / "rwmutex"
+            trace_file = traces_dir / f"trace_{trace_id:02d}.jsonl"
+            
+            if not trace_file.exists():
+                return {
+                    "success": False,
+                    "error": f"Pre-generated trace file not found: {trace_file}"
+                }
+            
+            # Load trace events
+            trace_events = []
+            scenario_type = "Unknown"
+            
+            with open(trace_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('#'):
+                        # Extract scenario type from header
+                        if 'RwMutex' in line:
+                            scenario_type = line.split('RwMutex', 1)[1].strip()
+                        continue
+                    elif line:
+                        try:
+                            event = json.loads(line)
+                            trace_events.append(event)
+                        except json.JSONDecodeError:
+                            continue
+            
+            # Copy trace to output file
+            shutil.copy2(trace_file, output_path)
+            
+            event_count = len(trace_events)
+            
+            if event_count > 0:
+                print(f"Successfully loaded {event_count} trace events from {trace_file}")
+                return {
+                    "success": True,
+                    "event_count": event_count,
+                    "scenario_type": scenario_type,
+                    "source_file": str(trace_file)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No valid trace events found in {trace_file}",
+                    "event_count": 0
+                }
+                    
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to load pre-generated trace: {str(e)}"
+            }
+    
     def get_default_config(self) -> Dict[str, Any]:
         """Get default configuration for RwMutex trace generation."""
         return {
-            "duration_seconds": 10,
-            "reader_count": 2,
-            "writer_count": 1,
-            "iterations_per_thread": 5,
-            "contention_level": "medium",
-            "asterinas_path": "/home/ubuntu/LLM_Gen_TLA_benchmark_framework/data/repositories/asterinas",
+            "trace_ids": list(range(1, 21)),  # All 20 pre-generated traces
+            "batch_size": 20,
+            "scenario_type": "all",
+            "source": "pre_generated",
             "enable_tla_trace": True
         }
     
     def get_available_scenarios(self) -> Dict[str, Dict[str, Any]]:
         """Get available predefined scenarios for RwMutex testing."""
         return {
+            "all_traces": {
+                "trace_ids": list(range(1, 21)),
+                "scenario_type": "all",
+                "description": "All 20 pre-generated RwMutex traces"
+            },
             "read_heavy": {
-                "reader_count": 4,
-                "writer_count": 1,
-                "iterations_per_thread": 5,
-                "duration_seconds": 10,
-                "contention_level": "read_heavy"
+                "trace_ids": [1, 5, 9, 13, 17],  # Read Heavy Operations
+                "scenario_type": "Read Heavy Operations",
+                "description": "Multiple readers with few writers scenarios"
             },
             "write_heavy": {
-                "reader_count": 1,
-                "writer_count": 3,
-                "iterations_per_thread": 5,
-                "duration_seconds": 10,
-                "contention_level": "write_heavy"
+                "trace_ids": [2, 6, 10, 14, 18],  # Write Heavy Operations
+                "scenario_type": "Write Heavy Operations",
+                "description": "Multiple competing writers scenarios"
             },
-            "balanced": {
-                "reader_count": 2,
-                "writer_count": 2,
-                "iterations_per_thread": 5,
-                "duration_seconds": 10,
-                "contention_level": "balanced"
+            "read_write_contention": {
+                "trace_ids": [3, 7, 11, 15, 19],  # Read Write Contention
+                "scenario_type": "Read Write Contention",
+                "description": "Mixed reader-writer contention scenarios"
             },
-            "high_contention": {
-                "reader_count": 5,
-                "writer_count": 3,
-                "iterations_per_thread": 8,
-                "duration_seconds": 15,
-                "contention_level": "high"
+            "complex_patterns": {
+                "trace_ids": [4, 8, 12, 16, 20],  # Complex Multi RwMutex
+                "scenario_type": "Complex Multi RwMutex Patterns",
+                "description": "Complex patterns with multiple RwMutexes"
+            },
+            "sample_set": {
+                "trace_ids": [1, 2, 3, 8, 12, 15, 18, 20],
+                "scenario_type": "sample",
+                "description": "Representative sample of different RwMutex scenarios"
+            },
+            "single_trace": {
+                "trace_ids": [1],
+                "scenario_type": "single",
+                "description": "Single trace for quick testing"
             }
         }
 
@@ -136,11 +324,37 @@ class RwMutexTraceConverter(TraceConverter):
         try:
             print(f"Converting RwMutex trace from {input_path} to {output_path}")
             
-            # TODO: Implement actual conversion logic once RwMutex instrumentation exists
-            # Will need to handle read vs write operations differently
+            # Read input trace events
+            events = []
+            with open(input_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        try:
+                            event = json.loads(line)
+                            events.append(event)
+                        except json.JSONDecodeError:
+                            continue
+            
+            if not events:
+                return {
+                    "success": False,
+                    "error": "No valid trace events found in input file"
+                }
+            
+            # Convert to TLA+ format
+            tla_transitions = self._convert_to_tla_format(events)
+            
+            # Write converted trace
+            with open(output_path, 'w') as f:
+                for transition in tla_transitions:
+                    f.write(json.dumps(transition) + '\n')
+            
             return {
-                "success": False,
-                "error": "RwMutex trace conversion not yet implemented - depends on RwMutex instrumentation"
+                "success": True,
+                "input_events": len(events),
+                "output_transitions": len(tla_transitions),
+                "output_file": str(output_path)
             }
                 
         except Exception as e:
@@ -148,6 +362,51 @@ class RwMutexTraceConverter(TraceConverter):
                 "success": False,
                 "error": f"RwMutex trace conversion failed: {str(e)}"
             }
+    
+    def _convert_to_tla_format(self, events: list) -> list:
+        """Convert raw RwMutex events to TLA+ state transitions."""
+        transitions = []
+        
+        # Map of action names to TLA+ equivalents for RwMutex
+        action_map = {
+            "ReadLock": "RequestReadLock",
+            "ReadAcquired": "ReadLockAcquired", 
+            "ReadUnlock": "ReleaseReadLock",
+            "WriteLock": "RequestWriteLock",
+            "WriteAcquired": "WriteLockAcquired",
+            "WriteUnlock": "ReleaseWriteLock",
+            "ReadWaiting": "WaitForReadLock",
+            "WriteWaiting": "WaitForWriteLock",
+            "ReadTimeout": "ReadLockTimeout",
+            "WriteTimeout": "WriteLockTimeout"
+        }
+        
+        for event in events:
+            tla_event = {
+                "step": event.get("seq", 0),
+                "actor": f"Thread{event.get('thread', 0)}",
+                "rwmutex": f"RwMutex{event.get('rwmutex', 0)}",
+                "action": action_map.get(event.get('action', ''), event.get('action', '')),
+                "state": event.get("state", ""),
+                "lock_type": self._get_lock_type(event.get('action', '')),
+                "metadata": {
+                    "original_action": event.get('action', ''),
+                    "sync_primitive": "RwMutex",
+                    "original_trace_id": event.get("original_trace_id")
+                }
+            }
+            transitions.append(tla_event)
+        
+        return transitions
+    
+    def _get_lock_type(self, action: str) -> str:
+        """Determine if action is read or write related."""
+        if any(read_action in action for read_action in ['Read', 'read']):
+            return "read"
+        elif any(write_action in action for write_action in ['Write', 'write']):
+            return "write"
+        else:
+            return "unknown"
 
 
 class RwMutexSystemModule(SystemModule):

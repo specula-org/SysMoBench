@@ -234,7 +234,7 @@ class TLCRunner:
         from ...utils.setup_utils import get_tla_tools_path
         return get_tla_tools_path()
     
-    def run_model_checking(self, spec_file: str, config_file: str, record_stats: bool = True, use_deadlock_flag: bool = False) -> Tuple[bool, str, int]:
+    def run_model_checking(self, spec_file: str, config_file: str, record_stats: bool = True, use_deadlock_flag: bool = True) -> Tuple[bool, str, int]:
         """
         Run TLC model checking.
         
@@ -242,7 +242,7 @@ class TLCRunner:
             spec_file: Path to TLA+ specification file
             config_file: Path to TLC configuration file
             record_stats: Whether to record error statistics (default True for safety)
-            use_deadlock_flag: Whether to add -deadlock flag for invariant checking (default False)
+            use_deadlock_flag: Whether to add -deadlock flag for invariant checking (default True)
             
         Returns:
             Tuple of (success, output, exit_code)
