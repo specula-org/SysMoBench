@@ -59,7 +59,7 @@ class TraceValidationEvaluator(BaseEvaluator):
         # Ensure base traces directory exists
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         
-    def evaluate(self, task_name: str, config: Dict[str, Any]) -> ConsistencyEvaluationResult:
+    def evaluate(self, task_name: str, config: Dict[str, Any], spec_file_path: str = None, config_file_path: str = None) -> ConsistencyEvaluationResult:
         """
         Run trace validation evaluation for a given task.
         
@@ -117,7 +117,7 @@ class TraceValidationEvaluator(BaseEvaluator):
             # Step 2: Generate specTrace.tla from TLA+ spec (LLM + static analysis)
             print("Step 2: Generating specTrace.tla from TLA+ spec...")
             step2_start = datetime.now()
-            spectrace_result = self._generate_spectrace_from_tla(task_name, timestamp)
+            spectrace_result = self._generate_spectrace_from_tla(task_name, timestamp, spec_file_path, config_file_path)
             
             print(f"DEBUG: Step 2 result: {spectrace_result}")
             
@@ -233,7 +233,7 @@ class TraceValidationEvaluator(BaseEvaluator):
                 "error": f"System trace conversion failed: {str(e)}"
             }
     
-    def _generate_spectrace_from_tla(self, task_name: str, timestamp: str) -> Dict[str, Any]:
+    def _generate_spectrace_from_tla(self, task_name: str, timestamp: str, spec_file_path: str = None, config_file_path: str = None) -> Dict[str, Any]:
         """
         Generate specTrace.tla and specTrace.cfg from existing TLA+ specification.
         
@@ -247,27 +247,44 @@ class TraceValidationEvaluator(BaseEvaluator):
             Dictionary with generation results
         """
         try:
-            # Find TLA+ specification file
-            spec_files = list(self.spec_dir.glob(f"{task_name}/*.tla"))
-            if not spec_files:
-                return {
-                    "success": False,
-                    "error": f"No TLA+ specification found for task: {task_name}"
-                }
+            # Use user-specified files if provided, otherwise find files by task name
+            if spec_file_path:
+                spec_file = Path(spec_file_path)
+                if not spec_file.exists():
+                    return {
+                        "success": False,
+                        "error": f"Specified TLA+ specification file not found: {spec_file_path}"
+                    }
+                print(f"Using user-specified TLA+ specification: {spec_file}")
+            else:
+                # Find TLA+ specification file by task name
+                spec_files = list(Path(self.spec_dir).glob(f"{task_name}/*.tla"))
+                if not spec_files:
+                    return {
+                        "success": False,
+                        "error": f"No TLA+ specification found for task: {task_name}"
+                    }
+                spec_file = spec_files[0]  # Use first found spec file
+                print(f"Using TLA+ specification: {spec_file}")
             
-            spec_file = spec_files[0]  # Use first found spec file
-            print(f"Using TLA+ specification: {spec_file}")
-            
-            # Find corresponding CFG file
-            cfg_files = list(self.spec_dir.glob(f"{task_name}/*.cfg"))
-            if not cfg_files:
-                return {
-                    "success": False,
-                    "error": f"No CFG configuration found for task: {task_name}"
-                }
-            
-            cfg_file = cfg_files[0]  # Use first found cfg file
-            print(f"Using CFG configuration: {cfg_file}")
+            if config_file_path:
+                cfg_file = Path(config_file_path)
+                if not cfg_file.exists():
+                    return {
+                        "success": False,
+                        "error": f"Specified CFG configuration file not found: {config_file_path}"
+                    }
+                print(f"Using user-specified CFG configuration: {cfg_file}")
+            else:
+                # Find corresponding CFG file by task name
+                cfg_files = list(Path(self.spec_dir).glob(f"{task_name}/*.cfg"))
+                if not cfg_files:
+                    return {
+                        "success": False,
+                        "error": f"No CFG configuration found for task: {task_name}"
+                    }
+                cfg_file = cfg_files[0]  # Use first found cfg file
+                print(f"Using CFG configuration: {cfg_file}")
             
             # Generate configuration using LLM
             print(f"DEBUG: Calling generate_config_from_tla with spec_file={spec_file}, cfg_file={cfg_file}")
