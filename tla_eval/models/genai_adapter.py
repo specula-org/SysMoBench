@@ -229,12 +229,15 @@ class GenAIAdapter(ModelAdapter):
             
             # Collect streaming response
             generated_text = ""
+            last_chunk = None
             for chunk in stream:
                 if hasattr(chunk, 'text') and chunk.text:
                     generated_text += chunk.text
                     # Optional: Add progress logging every 1000 chars
                     if len(generated_text) % 1000 == 0:
                         logger.debug(f"Generated {len(generated_text)} characters...")
+                # Keep reference to last chunk for metadata extraction
+                last_chunk = chunk
             
             end_time = time.time()
             
@@ -248,8 +251,8 @@ class GenAIAdapter(ModelAdapter):
             finish_reason = "unknown"
             
             try:
-                if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                    usage_meta = response.usage_metadata
+                if last_chunk and hasattr(last_chunk, 'usage_metadata') and last_chunk.usage_metadata:
+                    usage_meta = last_chunk.usage_metadata
                     usage_data = {
                         "prompt_tokens": getattr(usage_meta, 'prompt_token_count', 0),
                         "completion_tokens": getattr(usage_meta, 'candidates_token_count', 0),
@@ -259,8 +262,8 @@ class GenAIAdapter(ModelAdapter):
                 logger.warning(f"Could not extract usage metadata: {e}")
             
             try:
-                if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
-                    finish_reason = getattr(response.candidates[0], 'finish_reason', 'unknown')
+                if last_chunk and hasattr(last_chunk, 'candidates') and last_chunk.candidates and len(last_chunk.candidates) > 0:
+                    finish_reason = getattr(last_chunk.candidates[0], 'finish_reason', 'unknown')
             except Exception as e:
                 logger.warning(f"Could not extract finish reason: {e}")
             

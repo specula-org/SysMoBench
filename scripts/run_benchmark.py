@@ -468,7 +468,11 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             )
         
         # Create evaluator using metric registry
-        evaluator = create_evaluator(metric, **metric_params)
+        # For trace_validation, pass model_name to use the specified model for specTrace generation
+        if metric == "trace_validation":
+            evaluator = create_evaluator(metric, model_name=model_name, **metric_params)
+        else:
+            evaluator = create_evaluator(metric, **metric_params)
         
         # Evaluate based on metric type
         evaluation_result = None
@@ -526,8 +530,9 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         evaluation_result = evaluator.evaluate(task_name, consistency_config)
                     elif metric_info.dimension == "composite":
                         # Composite metrics perform iterative evaluation and improvement
-                        # Load method for composite evaluation
-                        method = get_method(method_name) if not spec_file else None
+                        # Always load method for composite evaluation to support correction iterations
+                        # even when using --spec-file
+                        method = get_method(method_name)
                         evaluation_result = evaluator.evaluate(
                             generation_result, task_name, method_name, model_name, task.spec_module,
                             task=task, method=method

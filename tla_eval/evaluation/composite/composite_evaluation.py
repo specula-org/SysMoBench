@@ -202,9 +202,16 @@ class CompositeEvaluator(BaseEvaluator):
                 # Phase 3: Runtime Check (only if compilation passed)
                 if compilation_result.overall_success:
                     logger.info(f"Iteration {iteration} - Phase 3/3: Runtime Check")
+                    
+                    # Ensure config file is available for runtime check
+                    enhanced_generation_result, auto_config_file_path = self._ensure_config_file(
+                        current_generation_result, task_name, method_name, model_name
+                    )
+                    
                     try:
                         runtime_result = self.runtime_check_evaluator.evaluate(
-                            current_generation_result, task_name, method_name, model_name, spec_module
+                            enhanced_generation_result, task_name, method_name, model_name, spec_module,
+                            config_file_path=auto_config_file_path
                         )
                         iteration_data['runtime_result'] = runtime_result
                         
@@ -1010,6 +1017,112 @@ class CompositeEvaluator(BaseEvaluator):
             logger.info(f"  Phase 4 (Manual Invariants): ⚠ NOT EXECUTED")
         
         logger.info("=" * 70)
+
+    def _ensure_config_file(self, generation_result, task_name: str, method_name: str, model_name: str):
+        """
+        Ensure that a config file is available for runtime check.
+        If no config file is provided in metadata, generate one automatically.
+        
+        Args:
+            generation_result: The current GenerationResult
+            task_name: Name of the task
+            method_name: Name of the method
+            model_name: Name of the model
+            
+        Returns:
+            Tuple of (generation_result, config_file_path) where config_file_path is None if no config available
+        """
+        # Check if config file is already provided
+        if (generation_result.metadata and 
+            generation_result.metadata.get('config_file') and
+            generation_result.metadata.get('config_file') != 'None'):
+            config_file_path = generation_result.metadata['config_file']
+            logger.info(f"Using existing config file: {config_file_path}")
+            return generation_result, config_file_path
+        
+        # Generate config file automatically
+        logger.info("No config file provided, generating one automatically...")
+        
+        try:
+            # Import ConfigGenerator
+            from ..semantics.runtime_check import ConfigGenerator
+            config_generator = ConfigGenerator()
+            
+            # Get TLA+ content from generation result
+            tla_content = generation_result.generated_text
+            if not tla_content or not tla_content.strip():
+                logger.warning("No TLA+ content available for config generation")
+                return generation_result, None
+            
+            # Generate basic invariants from the spec (simple approach)
+            invariants = self._extract_basic_invariants(tla_content)
+            
+            # Generate config file
+            success, config_content, error = config_generator.generate_config(
+                tla_content, invariants, task_name, model_name
+            )
+            
+            if success and config_content:
+                logger.info("✓ Config file generated successfully")
+                
+                # Create temporary config file
+                import tempfile
+                import os
+                
+                # Create temp file in same directory as other outputs for consistency  
+                temp_dir = tempfile.gettempdir()
+                config_file_fd, config_file_path = tempfile.mkstemp(
+                    suffix='.cfg', 
+                    prefix=f'{task_name}_{model_name}_auto_',
+                    dir=temp_dir
+                )
+                
+                # Write config content to file
+                with os.fdopen(config_file_fd, 'w', encoding='utf-8') as f:
+                    f.write(config_content)
+                
+                logger.info(f"Auto-generated config saved to: {config_file_path}")
+                return generation_result, config_file_path
+            else:
+                logger.warning(f"Config generation failed: {error}")
+                return generation_result, None
+                
+        except Exception as e:
+            logger.warning(f"Failed to generate config file: {e}")
+            return generation_result, None
+    
+    def _extract_basic_invariants(self, tla_content: str) -> str:
+        """
+        Extract basic invariants from TLA+ specification.
+        This is a simple heuristic approach.
+        
+        Args:
+            tla_content: The TLA+ specification content
+            
+        Returns:
+            String containing basic invariants
+        """
+        # Simple approach: look for common invariant patterns
+        invariants = []
+        
+        lines = tla_content.split('\n')
+        for line in lines:
+            line = line.strip()
+            # Look for variable declarations
+            if line.startswith('VARIABLES'):
+                # Add type invariants for variables
+                continue
+            # Look for Init predicate
+            elif 'Init ==' in line:
+                invariants.append("TypeOK")
+                invariants.append("Init")
+                break
+        
+        # Add some common invariants
+        if not invariants:
+            invariants = ["TypeOK"]
+        
+        return "\n".join([f"INVARIANT {inv}" for inv in invariants])
 
 
 # Convenience function for backward compatibility

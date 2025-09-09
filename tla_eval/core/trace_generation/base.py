@@ -6,7 +6,7 @@ must provide for trace validation.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 
 
@@ -19,25 +19,38 @@ class TraceGenerator(ABC):
     """
     
     @abstractmethod
-    def generate_trace(self, config: Dict[str, Any], output_path: Path) -> Dict[str, Any]:
+    def generate_traces(self, config: Dict[str, Any], output_dir: Path, name_prefix: str = "trace") -> List[Dict[str, Any]]:
         """
-        Generate a runtime trace for the system.
+        Generate runtime traces for the system.
         
         Args:
-            config: System-specific configuration parameters
-            output_path: Path where the trace file should be saved
+            config: System-specific configuration parameters (including 'num_traces' if relevant)
+            output_dir: Directory where trace files should be saved
+            name_prefix: Prefix for trace file names
             
         Returns:
-            Dictionary with generation results:
-            {
-                "success": bool,
-                "trace_file": str,  # Path to generated trace file
-                "event_count": int,
-                "duration": float,
-                "metadata": Dict[str, Any]  # System-specific metadata
-            }
+            List of dictionaries with generation results for each trace:
+            [
+                {
+                    "success": bool,
+                    "trace_file": str,  # Path to generated trace file
+                    "event_count": int,
+                    "duration": float,
+                    "metadata": Dict[str, Any]  # System-specific metadata
+                },
+                ...
+            ]
         """
         pass
+    
+    def generate_trace(self, config: Dict[str, Any], output_path: Path) -> Dict[str, Any]:
+        """
+        Generate a single runtime trace (backward compatibility).
+        
+        Default implementation calls generate_traces() and returns first result.
+        """
+        results = self.generate_traces(config, output_path.parent, output_path.stem)
+        return results[0] if results else {"success": False, "error": "No traces generated"}
     
     @abstractmethod
     def get_default_config(self) -> Dict[str, Any]:
