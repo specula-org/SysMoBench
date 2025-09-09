@@ -412,10 +412,19 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 logger.error(f"Specified config file does not exist: {config_file}")
                 return {"success": False, "error": f"Config file not found: {config_file}"}
             
-            # Create a dummy GenerationResult for existing files
+            # Create a GenerationResult with spec file content for existing files
             from tla_eval.models.base import GenerationResult
+            
+            # Read the spec file content
+            try:
+                with open(spec_file, 'r', encoding='utf-8') as f:
+                    spec_content = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read spec file {spec_file}: {e}")
+                return {"success": False, "error": f"Failed to read spec file: {e}"}
+            
             generation_result = GenerationResult(
-                generated_text="",  # Not needed for existing files
+                generated_text=spec_content,  # Include the actual spec content
                 metadata={
                     'method': method_name,
                     'latency_seconds': 0.0,
