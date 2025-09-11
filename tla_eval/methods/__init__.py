@@ -8,11 +8,13 @@ from source code, including direct LLM calls and agent-based methods.
 from .base import TLAGenerationMethod
 from .direct_call import DirectCallMethod
 from .agent_based import AgentBasedMethod
+from .trace_based import TraceBasedMethod
 
 # Method registry
 _METHODS = {
     "direct_call": DirectCallMethod,
     "agent_based": AgentBasedMethod,
+    "trace_based": TraceBasedMethod,
 }
 
 def get_method(method_name: str) -> TLAGenerationMethod:
@@ -32,6 +34,7 @@ __all__ = [
     "TLAGenerationMethod",
     "DirectCallMethod",
     "AgentBasedMethod",
+    "TraceBasedMethod",
     "get_method",
     "list_available_methods",
 ]

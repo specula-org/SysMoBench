@@ -326,6 +326,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         metric: Optional[str] = None,
                         phase: Optional[int] = None,  # Legacy support
                         source_file: Optional[str] = None,
+                        traces_folder: Optional[str] = None,
                         spec_file: Optional[str] = None,
                         config_file: Optional[str] = None,
                         generation_config: Optional[GenerationConfig] = None,
@@ -341,6 +342,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         metric: Specific metric to run (if None, uses default for evaluation_type)
         phase: Legacy evaluation phase (1=syntax, 2=semantics, 3=consistency)
         source_file: Optional specific source file
+        traces_folder: Optional specific traces folder
         spec_file: Optional path to existing TLA+ specification file
         config_file: Optional path to existing TLC configuration file
         generation_config: Optional generation configuration
@@ -383,7 +385,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
     try:
         # Load task
         task_loader = get_task_loader()
-        task = task_loader.load_task(task_name, source_file)
+        task = task_loader.load_task(task_name, source_file, traces_folder)
         logger.info(f"Loaded task: {task.task_name} ({task.system_type})")
         
         # Setup repository if needed for consistency evaluation
@@ -723,6 +725,7 @@ Examples:
     parser.add_argument("--method", help="Single method name")  
     parser.add_argument("--model", help="Single model name")
     parser.add_argument("--source-file", help="Specific source file within task")
+    parser.add_argument("--traces-folder", help="Specific traces folder within task")
     
     # Existing specification files (for reusing existing TLA+ specifications)
     parser.add_argument("--spec-file", help="Path to existing TLA+ specification file (.tla)")
@@ -866,6 +869,7 @@ Examples:
         result = run_single_benchmark(
             args.task, args.method, args.model, evaluation_type, args.metric,
             source_file=args.source_file,
+            traces_folder=args.traces_folder,
             spec_file=args.spec_file,
             config_file=args.config_file,
             generation_config=generation_config,

@@ -8,7 +8,7 @@ and preparing them as generation tasks with appropriate prompts.
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import yaml
 from ..methods.base import GenerationTask
 
@@ -27,15 +27,16 @@ class TaskLoader:
         self.tasks_dir = Path(tasks_dir)
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
-    def load_task(self, task_name: str, source_file: str = None) -> GenerationTask:
+
+    def load_task(self, task_name: str, source_file: str = None, traces_folder: str = None) -> GenerationTask:
         """
         Load a specific task by name, automatically cloning repository if needed.
         
         Args:
             task_name: Name of the task (e.g., "etcd")
             source_file: Specific source file path, or None for default
-            
+            traces_folder: Path to the folder containing traces, or None if not available
+
         Returns:
             GenerationTask instance with source code and appropriate prompt
         """
@@ -56,6 +57,8 @@ class TaskLoader:
         # Determine which source file to use
         if source_file is None:
             source_file = metadata['default_source_file']
+
+        traces_folder = traces_folder or metadata.get('traces_folder')
         
         # Find source file info
         source_file_info = None
@@ -70,9 +73,11 @@ class TaskLoader:
         
         # Clone repository and get source code
         source_code = self._get_source_code(metadata['repository'], source_file)
+        traces = self._get_traces(traces_folder) if traces_folder else None
         
         return GenerationTask(
             source_code=source_code,
+            traces=traces,
             task_name=task_name,
             system_type=metadata['system_type'],
             language=metadata['language'],
@@ -82,7 +87,8 @@ class TaskLoader:
             extra_info={
                 'file_path': source_file,
                 'focus': source_file_info['description'],
-                'repository_url': metadata['repository']['url']
+                'repository_url': metadata['repository']['url'],
+                'trace_format': metadata.get('trace_format')
             }
         )
     
@@ -134,7 +140,42 @@ class TaskLoader:
         
         with open(source_file_path, 'r', encoding='utf-8') as f:
             return f.read()
-    
+        
+    def _get_traces(self, traces_folder: str) -> List[List[Tuple[str, str]]]:
+        """
+        Load execution traces from the specified folder.
+        
+        Args:
+            traces_folder: Path to the folder containing trace files
+        
+        Returns:
+            List of list of traces, where each sublist is a set of distributed traces
+        
+        Raises:
+            FileNotFoundError: If traces folder or files are not found
+        """
+        traces_path = Path(traces_folder)
+        if not traces_path.exists() or not traces_path.is_dir():
+            raise FileNotFoundError(f"Traces folder not found: {traces_folder}")
+        
+        all_traces = []
+        for subfolder in traces_path.iterdir():
+            if subfolder.is_dir():
+                trace_files = sorted(subfolder.glob("*.txt"))
+                if not trace_files:
+                    continue
+                
+                distributed_trace = []
+                for trace_file in trace_files:
+                    with open(trace_file, 'r', encoding='utf-8') as f:
+                        trace_content = f.read().strip()
+                        if trace_content:
+                            distributed_trace.append((trace_file.name, trace_content))
+                
+                if distributed_trace:
+                    all_traces.append(distributed_trace)
+        return all_traces
+
     def get_task_prompt(self, task_name: str, method_name: str) -> str:
         """
         Get the appropriate prompt template for a task and method.
@@ -223,6 +264,6 @@ def get_task_loader() -> TaskLoader:
         _task_loader = TaskLoader()
     return _task_loader
 
-def load_task(task_name: str, source_file: str = None) -> GenerationTask:
+def load_task(task_name: str, source_file: str = None, traces_folder: str = None) -> GenerationTask:
     """Convenience function to load a task."""
-    return get_task_loader().load_task(task_name, source_file)
+    return get_task_loader().load_task(task_name, source_file, traces_folder)

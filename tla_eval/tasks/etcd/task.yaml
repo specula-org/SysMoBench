@@ -22,6 +22,10 @@ default_source_file: "raft.go"
 # TLA+ specification module name
 specModule: "etcdraft"
 
+# Traces folder location
+traces_folder: "data/sys_traces/etcd"
+trace_format: "tracelink_based" # TODO: should be inria_based later
+
 # Metadata
 metadata:
   original_project: "etcd"
