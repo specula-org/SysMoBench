@@ -26,6 +26,7 @@ class SpinLockTraceGenerator(TraceGenerator):
         self.docker_image = "asterinas/asterinas:0.16.0-20250822"
         self.workspace_path = "/workspace"
         self.timeout_seconds = 600  # 10 minutes for full build + test process
+        self._cached_traces = {}  # Cache parsed traces to avoid re-running Docker
     
     def generate_traces(self, config: Dict[str, Any], output_dir: Path, name_prefix: str = "trace") -> List[Dict[str, Any]]:
         """
@@ -42,7 +43,8 @@ class SpinLockTraceGenerator(TraceGenerator):
         try:
             # Extract configuration parameters
             test_name = config.get("test_name", "tla_trace_simple")
-            num_runs = config.get("num_runs", 1)
+            # Use num_traces if provided (from trace_validation), otherwise fall back to num_runs
+            num_runs = config.get("num_traces", config.get("num_runs", 1))
             scenario_type = config.get("scenario_type", "real_kernel_test")
             
             print(f"Generating REAL SpinLock traces using Asterinas kernel test: {test_name}")
@@ -79,37 +81,108 @@ class SpinLockTraceGenerator(TraceGenerator):
             start_time = datetime.now()
             trace_results = []
             
-            for run_id in range(num_runs):
-                print(f"Running kernel test {run_id + 1}/{num_runs}...")
+            # Special handling for test_spin_trace which generates 20 traces in one run
+            if test_name == "test_spin_trace":
+                print(f"Special handling for test_spin_trace: will generate 20 traces in one Docker run")
                 
-                # Create output path for this run
-                output_path = output_dir / f"{name_prefix}_{run_id:02d}.jsonl"
+                # Check if we have cached traces for this test
+                cache_key = f"{test_name}_{asterinas_path}"
                 
-                result = self._run_real_kernel_test(
-                    asterinas_path, 
-                    test_name, 
-                    output_path, 
-                    run_id
-                )
-                
-                # Add duration for this individual run
-                result["duration"] = result.get("execution_time", 0.0)
-                
-                if result["success"]:
-                    result["metadata"] = {
-                        "sync_primitive": "spinlock",
-                        "source": "asterinas_kernel_real",
-                        "test_name": test_name,
-                        "generation_mode": scenario_type,
-                        "docker_image": self.docker_image,
-                        "run_id": run_id
-                    }
-                    print(f"Successfully generated {result['event_count']} trace events")
+                if cache_key not in self._cached_traces:
+                    # Run the test once to get all 20 traces
+                    print(f"Running kernel test to generate 20 traces...")
+                    
+                    # Run kernel test and parse all traces
+                    all_traces = self._run_and_parse_all_traces(
+                        asterinas_path,
+                        test_name
+                    )
+                    
+                    if not all_traces:
+                        # If failed, return error for all traces
+                        for i in range(num_runs):
+                            trace_results.append({
+                                "success": False,
+                                "error": "Failed to generate traces from kernel test",
+                                "trace_file": "",
+                                "event_count": 0,
+                                "duration": 0.0,
+                                "metadata": {"run_id": i, "failed": True}
+                            })
+                        return trace_results
+                    
+                    # Cache the parsed traces
+                    self._cached_traces[cache_key] = all_traces
+                    print(f"Cached {len(all_traces)} traces from kernel test")
                 else:
-                    result["metadata"] = {"run_id": run_id, "failed": True}
-                    print(f"Failed to generate trace for run {run_id + 1}: {result['error']}")
+                    print(f"Using cached traces from previous run")
+                    all_traces = self._cached_traces[cache_key]
                 
-                trace_results.append(result)
+                # Now save individual trace files
+                for run_id in range(min(num_runs, len(all_traces))):
+                    output_path = output_dir / f"trace_{run_id+1:02d}.jsonl"
+                    
+                    trace_events = all_traces[run_id]
+                    
+                    # Save this specific trace to file
+                    with open(output_path, 'w') as f:
+                        f.write(f"# TRACE_{run_id + 1}: SpinLock Single Lock, 3-Thread Contention\n")
+                        f.write(f"# Generated from test_spin_trace, Timestamp: {datetime.now().isoformat()}\n")
+                        for event in trace_events:
+                            f.write(json.dumps(event) + '\n')
+                    
+                    result = {
+                        "success": True,
+                        "trace_file": str(output_path),
+                        "event_count": len(trace_events),
+                        "duration": 0.5,  # Approximate time per trace
+                        "metadata": {
+                            "sync_primitive": "spinlock",
+                            "source": "asterinas_kernel_real",
+                            "test_name": test_name,
+                            "generation_mode": scenario_type,
+                            "docker_image": self.docker_image,
+                            "run_id": run_id,
+                            "trace_index": run_id + 1
+                        }
+                    }
+                    
+                    print(f"Successfully saved trace {run_id + 1}/{num_runs} with {len(trace_events)} events")
+                    trace_results.append(result)
+            
+            else:
+                # Regular handling for other tests
+                for run_id in range(num_runs):
+                    print(f"Running kernel test {run_id + 1}/{num_runs}...")
+                    
+                    # Create output path for this run
+                    output_path = output_dir / f"trace_{run_id+1:02d}.jsonl"
+                    
+                    result = self._run_real_kernel_test(
+                        asterinas_path, 
+                        test_name, 
+                        output_path, 
+                        run_id
+                    )
+                    
+                    # Add duration for this individual run
+                    result["duration"] = result.get("execution_time", 0.0)
+                    
+                    if result["success"]:
+                        result["metadata"] = {
+                            "sync_primitive": "spinlock",
+                            "source": "asterinas_kernel_real",
+                            "test_name": test_name,
+                            "generation_mode": scenario_type,
+                            "docker_image": self.docker_image,
+                            "run_id": run_id
+                        }
+                        print(f"Successfully generated {result['event_count']} trace events")
+                    else:
+                        result["metadata"] = {"run_id": run_id, "failed": True}
+                        print(f"Failed to generate trace for run {run_id + 1}: {result['error']}")
+                    
+                    trace_results.append(result)
             
             total_duration = (datetime.now() - start_time).total_seconds()
             print(f"Total generation time: {total_duration:.2f}s")
@@ -175,6 +248,59 @@ class SpinLockTraceGenerator(TraceGenerator):
             print(f"Failed to prepare Asterinas repository: {e}")
             return None
     
+    def _run_and_parse_all_traces(self, asterinas_path: Path, test_name: str) -> List[List[Dict[str, Any]]]:
+        """Run kernel test once and parse all traces from the output."""
+        try:
+            # Build Docker run command
+            docker_cmd = [
+                "docker", "run", "--rm",
+                "--privileged", "--network", "host",
+                "-v", f"{asterinas_path}:/workspace",
+                self.docker_image,
+                "/bin/bash", "-c",
+                f"""
+                cd /workspace && 
+                export PATH=/nix/store/4zpvbvn0cvmmn9k05b1qgr5xh7i6r9ka-nix-2.31.1/bin:$PATH &&
+                echo 'connect-timeout = 60000' >> /etc/nix/nix.conf &&
+                make install_osdk &&
+                make initramfs &&
+                cd ostd && 
+                timeout {self.timeout_seconds} cargo osdk test --features tla-trace --target-arch x86_64 --qemu-args="-accel tcg" {test_name} 2>&1
+                """
+            ]
+            
+            print(f"Running Docker command for kernel test {test_name}...")
+            
+            # Run the Docker container with kernel test
+            start_time = time.time()
+            result = subprocess.run(
+                docker_cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds + 120
+            )
+            execution_time = time.time() - start_time
+            
+            print(f"Docker execution completed in {execution_time:.2f}s")
+            print(f"Return code: {result.returncode}")
+            
+            # Parse and split traces from output
+            all_traces = self._parse_and_split_traces(result.stdout)
+            
+            if not all_traces:
+                print("No traces parsed from kernel output")
+                return []
+            
+            print(f"Successfully parsed {len(all_traces)} traces from kernel output")
+            return all_traces
+            
+        except subprocess.TimeoutExpired:
+            print(f"Kernel test {test_name} timed out")
+            return []
+        except Exception as e:
+            print(f"Failed to run kernel test: {e}")
+            return []
+    
     def _run_real_kernel_test(self, asterinas_path: Path, test_name: str, output_path: Path, run_id: int) -> Dict[str, Any]:
         """Run real Asterinas kernel test in Docker container and extract traces."""
         try:
@@ -223,10 +349,10 @@ class SpinLockTraceGenerator(TraceGenerator):
             print(result.stderr)
             print(f"=== END OUTPUT ===\n")
             
-            # Extract trace events from the output
-            trace_events = self._parse_real_trace_output(result.stdout)
+            # Extract and split trace events from the output
+            all_traces = self._parse_and_split_traces(result.stdout)
             
-            if not trace_events:
+            if not all_traces:
                 print("No trace events found in output")
                 return {
                     "success": False,
@@ -234,23 +360,52 @@ class SpinLockTraceGenerator(TraceGenerator):
                     "execution_time": execution_time
                 }
             
-            # Save trace events to file
-            with open(run_output_path, 'w') as f:
-                f.write(f"# Real-time SpinLock trace from Asterinas kernel test: {test_name}\n")
-                f.write(f"# Run ID: {run_id}, Timestamp: {datetime.now().isoformat()}\n")
-                for event in trace_events:
-                    f.write(json.dumps(event) + '\n')
-            
-            print(f"Saved {len(trace_events)} trace events to {run_output_path}")
-            
-            return {
-                "success": True,
-                "trace_file": str(run_output_path),
-                "event_count": len(trace_events),
-                "execution_time": execution_time,
-                "test_name": test_name,
-                "run_id": run_id
-            }
+            # For test_spin_trace which generates 20 traces, we'll save them separately
+            # Otherwise save as a single trace
+            if test_name == "test_spin_trace" and len(all_traces) == 20:
+                # Return info about the first trace (this will be called 20 times with different run_id)
+                trace_index = run_id % 20
+                if trace_index < len(all_traces):
+                    trace_events = all_traces[trace_index]
+                    
+                    # Save this specific trace to file
+                    with open(run_output_path, 'w') as f:
+                        f.write(f"# TRACE_{trace_index + 1}: SpinLock Single Lock, 3-Thread Contention\n")
+                        f.write(f"# Run ID: {run_id}, Timestamp: {datetime.now().isoformat()}\n")
+                        for event in trace_events:
+                            f.write(json.dumps(event) + '\n')
+                    
+                    print(f"Saved trace {trace_index + 1} with {len(trace_events)} events to {run_output_path}")
+                    
+                    return {
+                        "success": True,
+                        "trace_file": str(run_output_path),
+                        "event_count": len(trace_events),
+                        "execution_time": execution_time,
+                        "test_name": test_name,
+                        "run_id": run_id,
+                        "trace_index": trace_index + 1
+                    }
+            else:
+                # For other tests, save all events as a single trace
+                trace_events = [event for trace in all_traces for event in trace]
+                
+                with open(run_output_path, 'w') as f:
+                    f.write(f"# Real-time SpinLock trace from Asterinas kernel test: {test_name}\n")
+                    f.write(f"# Run ID: {run_id}, Timestamp: {datetime.now().isoformat()}\n")
+                    for event in trace_events:
+                        f.write(json.dumps(event) + '\n')
+                
+                print(f"Saved {len(trace_events)} trace events to {run_output_path}")
+                
+                return {
+                    "success": True,
+                    "trace_file": str(run_output_path),
+                    "event_count": len(trace_events),
+                    "execution_time": execution_time,
+                    "test_name": test_name,
+                    "run_id": run_id
+                }
             
         except subprocess.TimeoutExpired:
             return {
@@ -262,6 +417,130 @@ class SpinLockTraceGenerator(TraceGenerator):
                 "success": False,
                 "error": f"Failed to run kernel test {test_name}: {str(e)}"
             }
+    
+    def _parse_and_split_traces(self, output: str) -> List[List[Dict[str, Any]]]:
+        """Parse and split multiple traces from Asterinas kernel test output."""
+        all_traces = []
+        current_trace = []
+        trace_number = 0
+        
+        print(f"Parsing and splitting output of {len(output)} characters")
+        
+        lines = output.split('\n')
+        print(f"Processing {len(lines)} lines")
+        
+        for line_num, line in enumerate(lines):
+            line = line.strip()
+            
+            # Look for trace markers like "=== TRACE_1 ===" or "Starting trace 1"
+            if '=== TRACE_' in line or 'Starting trace' in line:
+                # Save previous trace if it has events
+                if current_trace:
+                    all_traces.append(current_trace)
+                    print(f"Completed trace {trace_number} with {len(current_trace)} events")
+                current_trace = []
+                trace_number += 1
+                print(f"Starting trace {trace_number}")
+                continue
+            
+            # Skip empty lines
+            if not line:
+                continue
+            
+            # Look for JSON patterns using regex (handles both complete lines and embedded JSON)
+            import re
+            json_pattern = r'\{"seq":\d+[^}]*"action":"[^"]*"[^}]*\}'
+            matches = re.findall(json_pattern, line)
+            for match in matches:
+                try:
+                    event = json.loads(match)
+                    if all(field in event for field in ['seq', 'action']):
+                        if 'actor' not in event and 'thread' in event:
+                            event['actor'] = event['thread']
+                        
+                        # Reset sequence numbers for each trace
+                        if current_trace:
+                            first_seq = current_trace[0].get('seq', 0)
+                            event['seq'] = event['seq'] - first_seq + len(current_trace)
+                        else:
+                            event['seq'] = 0
+                            
+                        current_trace.append(event)
+                        print(f"Line {line_num}: Found JSON event: {event}")
+                except json.JSONDecodeError:
+                    continue
+            
+            # Handle concatenated JSON (like: }{"seq":... )
+            if '}{' in line:
+                # Sometimes events get concatenated
+                for part in line.split('}{'):
+                    if not part.startswith('{'):
+                        part = '{' + part
+                    if not part.endswith('}'):
+                        part = part + '}'
+                    try:
+                        event = json.loads(part)
+                        if all(field in event for field in ['seq', 'action']):
+                            if 'actor' not in event and 'thread' in event:
+                                event['actor'] = event['thread']
+                            
+                            # Reset sequence numbers for each trace
+                            if current_trace:
+                                first_seq = current_trace[0].get('seq', 0)
+                                event['seq'] = event['seq'] - first_seq + len(current_trace)
+                            else:
+                                event['seq'] = 0
+                                
+                            current_trace.append(event)
+                            print(f"Line {line_num}: Found concatenated JSON: {event}")
+                    except json.JSONDecodeError:
+                        continue
+        
+        # Don't forget the last trace
+        if current_trace:
+            all_traces.append(current_trace)
+            print(f"Completed trace {trace_number} with {len(current_trace)} events")
+        
+        # If we didn't find trace markers, try to split by sequence resets
+        if len(all_traces) <= 1 and current_trace:
+            print("No trace markers found, trying to split by sequence resets...")
+            all_traces = self._split_by_sequence_resets(current_trace)
+        
+        print(f"Parsed {len(all_traces)} separate traces")
+        for i, trace in enumerate(all_traces):
+            if trace:
+                print(f"  Trace {i+1}: {len(trace)} events, seq {trace[0].get('seq', 0)}-{trace[-1].get('seq', 0)}")
+        
+        return all_traces
+    
+    def _split_by_sequence_resets(self, events: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+        """Split a list of events into multiple traces based on sequence number resets."""
+        traces = []
+        current_trace = []
+        last_seq = -1
+        
+        for event in events:
+            seq = event.get('seq', 0)
+            
+            # Detect sequence reset (seq goes back to 0 or a small number after a larger one)
+            if seq < last_seq and last_seq > 10:  # Allow for some tolerance
+                if current_trace:
+                    traces.append(current_trace)
+                current_trace = [event]
+            else:
+                current_trace.append(event)
+            
+            last_seq = seq
+        
+        # Add the last trace
+        if current_trace:
+            traces.append(current_trace)
+        
+        # If we got exactly 20 traces, it's likely the test_spin_trace output
+        if len(traces) == 20:
+            print(f"Successfully split into 20 traces by sequence resets")
+        
+        return traces
     
     def _parse_real_trace_output(self, output: str) -> List[Dict[str, Any]]:
         """Parse real trace events from Asterinas kernel test output."""
