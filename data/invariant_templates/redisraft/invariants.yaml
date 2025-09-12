@@ -193,10 +193,3 @@ metadata:
   liveness_invariants: 2
   core_raft_invariants: 3  # LogInv, MoreThanOneLeaderInv, LogMatchingInv
   raft_server_specific_invariants: 13  # All others are raft_server.c-specific based on actual implementation
-  quality_level: "high"
-  concrete_predicates: true
-  follows_tla_best_practices: true
-  based_on_actual_code: true
-  variable_definitions_included: true
-  no_undefined_helpers: true
-  source_file: "deps/raft/src/raft_server.c"
