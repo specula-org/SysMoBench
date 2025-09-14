@@ -17,7 +17,7 @@ class GenerationTask:
     system_type: str  # e.g., "distributed", "concurrent"
     language: str     # e.g., "go", "java", "c++"
     description: str
-    traces: List[List[Tuple[str, str]]] = None
+    traces: List[List[Tuple[str, str]] | Tuple[str, str]] = None
     spec_module: str = None  # TLA+ module name for the specification
     extra_info: Dict[str, Any] = None  # Additional task-specific information
     

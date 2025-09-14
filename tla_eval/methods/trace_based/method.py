@@ -6,6 +6,7 @@ syntax and semantic errors using iterative LLM feedback.
 """
 
 import logging
+from random import sample
 import time
 from typing import Dict, Any
 from pathlib import Path
@@ -127,16 +128,25 @@ class TraceBasedMethod(TLAGenerationMethod):
         task_loader = get_task_loader()
         prompt_template = task_loader.get_task_prompt(task.task_name, "trace_based") 
 
-        trace_str = ""
-        for i, distributed_trace in enumerate(task.traces):
-            trace_str += f"## Execution #{i+1}:\n"
-            for trace_name, trace_content in distributed_trace:
-                trace_str += f"{trace_name}:\n```\n{trace_content}\n```\n"
-            trace_str += "\n"
-
         trace_format = task.extra_info.get("trace_format")
         if not trace_format:
             raise ValueError("trace_format must be provided in task.extra_info for trace_based method")
+
+        traces = task.traces
+        if trace_format == "etcd_based":
+            traces = sample(traces, 3) # etcd traces are large, so sample a few randomly to avoid overflowing context
+
+        trace_str = ""
+        for i, distributed_trace in enumerate(task.traces):
+            if isinstance(distributed_trace, list):
+                trace_str += f"## Execution #{i+1}:\n"
+                for trace_name, trace_content in distributed_trace:
+                    trace_str += f"{trace_name}:\n```\n{trace_content}\n```\n"
+                trace_str += "\n"
+            elif isinstance(distributed_trace, tuple):
+                trace_name, trace_content = distributed_trace
+                trace_str += f"## Execution #{i+1}:\n{trace_name}:\n```\n{trace_content}\n```\n\n"
+
         trace_format_file = Path(f"data/trace_based/{trace_format}.txt")
         trace_format_info = trace_format_file.read_text(encoding='utf-8')
         

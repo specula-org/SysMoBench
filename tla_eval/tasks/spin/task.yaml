@@ -20,10 +20,14 @@ default_source_file: "ostd/src/sync/spin.rs"
 # TLA+ specification module name
 specModule: "spin"
 
+# Traces folder location
+traces_folder: "data/sys_traces/spin"
+trace_format: "asterinas_based"
+
 # Metadata
 metadata:
   original_project: "asterinas"
-  
+
 # Phase 3 specific configuration
 phase3:
   trace_generation: false

@@ -73,8 +73,12 @@ class TaskLoader:
         
         # Clone repository and get source code
         source_code = self._get_source_code(metadata['repository'], source_file)
-        traces = self._get_traces(traces_folder) if traces_folder else None
-        
+
+        # Load traces
+        if metadata.get('trace_format', None) is None:
+            raise ValueError("trace_format must be specified in task.yaml metadata")
+        traces = self._get_traces(traces_folder, metadata['trace_format']) if traces_folder else None
+
         return GenerationTask(
             source_code=source_code,
             traces=traces,
@@ -141,7 +145,7 @@ class TaskLoader:
         with open(source_file_path, 'r', encoding='utf-8') as f:
             return f.read()
         
-    def _get_traces(self, traces_folder: str) -> List[List[Tuple[str, str]]]:
+    def _get_traces(self, traces_folder: str, trace_format: str) -> List[List[Tuple[str, str]] | Tuple[str, str]]:
         """
         Load execution traces from the specified folder.
         
@@ -149,7 +153,8 @@ class TaskLoader:
             traces_folder: Path to the folder containing trace files
         
         Returns:
-            List of list of traces, where each sublist is a set of distributed traces
+            List of list of traces, where each sublist is a set of distributed traces (TraceLink-based) OR
+            List of traces, where each trace records a distributed execution (Etcd or Asterinas-based)
         
         Raises:
             FileNotFoundError: If traces folder or files are not found
@@ -158,23 +163,42 @@ class TaskLoader:
         if not traces_path.exists() or not traces_path.is_dir():
             raise FileNotFoundError(f"Traces folder not found: {traces_folder}")
         
-        all_traces = []
-        for subfolder in traces_path.iterdir():
-            if subfolder.is_dir():
-                trace_files = sorted(subfolder.glob("*.txt"))
-                if not trace_files:
-                    continue
-                
-                distributed_trace = []
-                for trace_file in trace_files:
-                    with open(trace_file, 'r', encoding='utf-8') as f:
-                        trace_content = f.read().strip()
-                        if trace_content:
-                            distributed_trace.append((trace_file.name, trace_content))
-                
-                if distributed_trace:
-                    all_traces.append(distributed_trace)
-        return all_traces
+        if trace_format == "tracelink_based":
+            all_traces = []
+            for subfolder in traces_path.iterdir():
+                if subfolder.is_dir():
+                    trace_files = sorted(subfolder.glob("*.txt"))
+                    if not trace_files:
+                        continue
+                    
+                    distributed_trace = []
+                    for trace_file in trace_files:
+                        with open(trace_file, 'r', encoding='utf-8') as f:
+                            trace_content = f.read().strip()
+                            if trace_content:
+                                distributed_trace.append((trace_file.name, trace_content))
+                    
+                    if distributed_trace:
+                        all_traces.append(distributed_trace)
+            return all_traces
+        else:
+            all_traces = []
+            patterns = [
+            "etcd_trace_*.ndjson",
+                "trace_*.jsonl",
+                "*_combined.jsonl",
+                "traces_summary.json",
+            ]
+            trace_files = sorted({f for pat in patterns for f in Path(traces_folder).glob(pat)})
+            if not trace_files:
+                raise FileNotFoundError(f"No trace files found in folder: {traces_folder}")
+            
+            for trace_file in trace_files:
+                with open(trace_file, 'r', encoding='utf-8') as f:
+                    trace_content = f.read().strip()
+                    if trace_content:
+                        all_traces.append((trace_file.name, trace_content))
+            return all_traces
 
     def get_task_prompt(self, task_name: str, method_name: str) -> str:
         """
