@@ -134,10 +134,14 @@ class TraceBasedMethod(TLAGenerationMethod):
 
         traces = task.traces
         if trace_format == "etcd_based":
-            traces = sample(traces, 3) # etcd traces are large, so sample a few randomly to avoid overflowing context
+            # etcd traces are large; sample a few to avoid overflowing request size/context
+            sample_size = task.extra_info.get("trace_sample") or 3
+            if isinstance(traces, list) and len(traces) > sample_size:
+                traces = sample(traces, sample_size)
 
         trace_str = ""
-        for i, distributed_trace in enumerate(task.traces):
+        # Iterate over the possibly-sampled traces, not the original task.traces
+        for i, distributed_trace in enumerate(traces):
             if isinstance(distributed_trace, list):
                 trace_str += f"## Execution #{i+1}:\n"
                 for trace_name, trace_content in distributed_trace:

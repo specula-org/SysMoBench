@@ -92,7 +92,8 @@ class TaskLoader:
                 'file_path': source_file,
                 'focus': source_file_info['description'],
                 'repository_url': metadata['repository']['url'],
-                'trace_format': metadata.get('trace_format')
+                'trace_format': metadata.get('trace_format'),
+                'trace_sample': metadata.get('trace_sample')
             }
         )
     

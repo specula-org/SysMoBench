@@ -25,6 +25,7 @@ specModule: "etcdraft"
 # Traces folder location
 traces_folder: "data/sys_traces/etcd"
 trace_format: "etcd_based"
+trace_sample: 1
 
 # Metadata
 metadata:
