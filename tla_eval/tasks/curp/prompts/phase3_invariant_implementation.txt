@@ -1,0 +1,62 @@
+You are an expert in distributed systems formal verification with deep knowledge of the CURP consensus protocol and TLA+ specifications.
+
+## Task
+Implement the given invariants into the CURP TLA+ specification by adding the necessary state variables, operators, and logic to support invariant checking.
+
+## CURP Protocol Context
+The specification models CURP (Consensus with Unreplicated Proposed commands) with:
+- Speculative execution capabilities
+- Multiple quorum types (quorum, recover_quorum, super_quorum)
+- Enhanced availability properties
+- Abstracted Raft complexity (simple leaderChange)
+- Client-server command processing
+
+## Current Specification
+```tla
+{current_specification}
+```
+
+## Invariants to Implement
+```tla
+{invariants}
+```
+
+## Implementation Requirements
+
+Please update the specification to support these invariants by:
+
+1. **Adding necessary variables** to track state needed for invariant evaluation:
+   - Command states and histories
+   - Node agreement tracking
+   - Speculative execution state
+   - Quorum-related state
+
+2. **Implementing required operators** that the invariants reference:
+   - Helper functions for checking consensus
+   - State query operators
+   - Consistency checking functions
+
+3. **Updating actions** to maintain invariant-relevant state:
+   - Ensure all state transitions update tracking variables
+   - Maintain consistency between protocol state and invariant state
+   - Preserve CURP protocol semantics
+
+4. **Maintaining specification integrity**:
+   - Keep original CURP protocol behavior intact
+   - Ensure added state doesn't interfere with core protocol
+   - Preserve abstraction level (avoid Raft complexity)
+   - Maintain proper TLA+ syntax and structure
+
+5. **Optimization for model checking**:
+   - Efficient state representation
+   - Avoid unnecessary state explosion
+   - Keep invariants checkable within reasonable bounds
+
+**CRITICAL OUTPUT REQUIREMENTS:**
+- Return ONLY the complete updated TLA+ specification
+- NO markdown code blocks (no ```tla or ```)
+- NO explanations or comments outside the specification
+- NO formatting markers of any kind
+- The MODULE name must remain exactly "curp"
+- Start directly with: ---- MODULE curp ----
+- End with: ====

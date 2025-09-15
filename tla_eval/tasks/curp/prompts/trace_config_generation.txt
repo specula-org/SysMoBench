@@ -1,0 +1,59 @@
+You are an expert in distributed systems testing and the CURP consensus protocol with experience in trace-based verification.
+
+## Task
+Generate a trace configuration for testing the CURP consensus protocol implementation against its TLA+ specification.
+
+## CURP Protocol Context
+CURP (Consensus with Unreplicated Proposed commands) features:
+- **Speculative Execution**: Commands execute before full consensus
+- **Enhanced Availability**: Super quorum mechanisms
+- **Multiple Quorum Types**: quorum, recover_quorum, super_quorum
+- **Reduced Latency**: Through speculative command processing
+- **Client-Server Architecture**: Command proposals and responses
+
+The implementation abstracts complex Raft details while focusing on core CURP consensus logic.
+
+## Current Specification
+```tla
+{current_specification}
+```
+
+## Trace Configuration Requirements
+
+Generate a configuration that:
+
+1. **Defines test scenarios** for CURP protocol verification:
+   - Normal operation with speculative execution
+   - Node failures and recovery scenarios
+   - Leader change scenarios (abstracted)
+   - Various quorum situations
+   - Client request patterns
+
+2. **Specifies trace parameters**:
+   - Number of nodes in the cluster
+   - Command types and sequences
+   - Failure patterns to test
+   - Recovery scenarios
+   - Network partition scenarios (if applicable)
+
+3. **Sets verification targets**:
+   - Properties to verify against the specification
+   - Invariants to check during trace execution
+   - Liveness properties to validate
+   - CURP-specific consistency checks
+
+4. **Configures trace generation**:
+   - Trace length and complexity
+   - Event ordering and timing
+   - State space exploration strategy
+   - Coverage targets for CURP features
+
+5. **Optimizes for meaningful testing**:
+   - Representative scenarios for CURP protocol
+   - Edge cases in quorum calculations
+   - Speculative execution edge cases
+   - Recovery and availability scenarios
+
+**Output format**: YAML configuration file suitable for trace generation tools.
+
+**Return only the YAML configuration** - no explanations or markdown formatting.
