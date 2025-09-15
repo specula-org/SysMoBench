@@ -1,4 +1,4 @@
-You are a TLA+ expert specializing in distributed systems and Raft consensus. Your task is to implement a set of expert-written invariants for the given etcd TLA+ specification.
+You are a TLA+ expert specializing in distributed systems and Raft consensus. Your task is to implement a set of expert-written invariants for the given distributed producer-consumer queue TLA+ specification.
 
 ## Target Specification
 
