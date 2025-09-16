@@ -5,7 +5,9 @@ This method generates TLA+ specifications and automatically detects and corrects
 syntax and semantic errors using iterative LLM feedback.
 """
 
+import json
 import logging
+import re
 from random import sample
 import time
 from typing import Dict, Any
@@ -145,11 +147,21 @@ class TraceBasedMethod(TLAGenerationMethod):
             if isinstance(distributed_trace, list):
                 trace_str += f"## Execution #{i+1}:\n"
                 for trace_name, trace_content in distributed_trace:
-                    trace_str += f"{trace_name}:\n```\n{trace_content}\n```\n"
+                    formatted_trace = trace_content
+                    if trace_name.endswith(('.ndjson', '.jsonl')):
+                        converted = self._convert_ndjson_to_tsv(trace_content)
+                        if converted:
+                            formatted_trace = converted
+                    trace_str += f"{trace_name}:\n```\n{formatted_trace}\n```\n"
                 trace_str += "\n"
             elif isinstance(distributed_trace, tuple):
                 trace_name, trace_content = distributed_trace
-                trace_str += f"## Execution #{i+1}:\n{trace_name}:\n```\n{trace_content}\n```\n\n"
+                formatted_trace = trace_content
+                if trace_name.endswith(('.ndjson', '.jsonl')):
+                    converted = self._convert_ndjson_to_tsv(trace_content)
+                    if converted:
+                        formatted_trace = converted
+                trace_str += f"## Execution #{i+1}:\n{trace_name}:\n```\n{formatted_trace}\n```\n\n"
 
         trace_format_file = Path(f"data/trace_based/{trace_format}.txt")
         trace_format_info = trace_format_file.read_text(encoding='utf-8')
@@ -173,6 +185,149 @@ class TraceBasedMethod(TLAGenerationMethod):
     def _generate_correction(self, task, current_spec: str, all_errors: list, model_obj):
         from ..agent_based import AgentBasedMethod
         return AgentBasedMethod._generate_correction(self, task, current_spec, all_errors, model_obj)
+
+    def _convert_ndjson_to_tsv(self, ndjson_str: str) -> str:
+        """Convert NDJSON payload into TSV while abbreviating long capitalized values."""
+
+        value_to_abbreviation: Dict[str, str] = {}
+        abbreviation_order: list[tuple[str, str]] = []
+        used_abbreviations: set[str] = set()
+
+        def should_abbreviate(text: str) -> bool:
+            return len(text) >= 5 and text[:1].isupper()
+
+        def segment_value(text: str) -> list[str]:
+            normalized = re.sub(r"[_-]+", " ", text)
+            if " " in normalized:
+                return [seg for seg in normalized.split() if seg]
+            segments = re.findall(r"[A-Z][a-z0-9]*|[0-9]+", normalized)
+            return segments or [normalized]
+
+        def build_abbreviation(text: str) -> str:
+            existing = value_to_abbreviation.get(text)
+            if existing:
+                return existing
+
+            segments = segment_value(text)
+            positions = [1] * len(segments)
+
+            def make_candidate() -> str:
+                return "".join(seg[:pos].upper() for seg, pos in zip(segments, positions)) or text[:1].upper()
+
+            candidate = make_candidate()
+            while not candidate or candidate in used_abbreviations:
+                progressed = False
+                for idx in range(len(segments)):
+                    if positions[idx] < len(segments[idx]):
+                        positions[idx] += 1
+                        progressed = True
+                        break
+                if not progressed:
+                    suffix = 2
+                    base = candidate or text[:1].upper() or "V"
+                    while f"{base}{suffix}" in used_abbreviations:
+                        suffix += 1
+                    candidate = f"{base}{suffix}"
+                    break
+                else:
+                    candidate = make_candidate()
+
+            used_abbreviations.add(candidate)
+            value_to_abbreviation[text] = candidate
+            abbreviation_order.append((candidate, text))
+            return candidate
+
+        def sanitize_scalar(value: Any) -> str:
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if value is None:
+                return ""
+            if isinstance(value, str):
+                sanitized = value.replace("\t", " ").replace("\n", " ").strip()
+                if should_abbreviate(sanitized):
+                    return build_abbreviation(sanitized)
+                return sanitized
+            sanitized = str(value)
+            return sanitized.replace("\t", " ").replace("\n", " ").strip()
+
+        def list_to_string(items: list[Any]) -> str:
+            if not items:
+                return "[]"
+            parts = []
+            for item in items:
+                if isinstance(item, dict):
+                    nested_parts = []
+                    for key, nested_val in item.items():
+                        nested_str = sanitize_scalar(nested_val)
+                        if nested_str:
+                            nested_parts.append(f"{key} {nested_str}")
+                        else:
+                            nested_parts.append(str(key))
+                    parts.append(" ".join(nested_parts).strip())
+                elif isinstance(item, list):
+                    parts.append(list_to_string(item))
+                else:
+                    parts.append(sanitize_scalar(item))
+            return "|".join(filter(None, parts))
+
+        def flatten_value(prefix: str, value: Any, collector: Dict[str, str]) -> None:
+            if isinstance(value, dict):
+                if value:
+                    for key, nested_val in value.items():
+                        child_prefix = f"{prefix}.{key}" if prefix else str(key)
+                        flatten_value(child_prefix, nested_val, collector)
+                else:
+                    collector[prefix] = "{}"
+                return
+            if isinstance(value, list):
+                collector[prefix] = list_to_string(value)
+                return
+            collector[prefix] = sanitize_scalar(value)
+
+        lines = [line for line in ndjson_str.splitlines() if line.strip() and not line.startswith("#")]
+        if not lines:
+            return ""
+
+        records: list[Dict[str, str]] = []
+        field_order: list[str] = []
+        for line in lines:
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                logger.debug("Skipping malformed NDJSON line: %s", line)
+                continue
+            if not isinstance(obj, dict):
+                continue
+            flat_record: Dict[str, str] = {}
+            for key, value in obj.items():
+                flatten_value(str(key), value, flat_record)
+            records.append(flat_record)
+            for column_name in flat_record.keys():
+                if column_name not in field_order:
+                    field_order.append(column_name)
+
+        if not records:
+            return ""
+
+        header = "\t".join(field_order)
+        rows = [header]
+
+        for record in records:
+            row_values = []
+            for field in field_order:
+                value = record.get(field)
+                if value is None:
+                    value = ""
+                row_values.append(value)
+            rows.append("\t".join(row_values))
+
+        if not abbreviation_order:
+            return "\n".join(rows)
+
+        mapping = "**Abbreviations key** " + " ".join(f"{abbr}:{original}" for abbr, original in abbreviation_order)
+        rows.append("")
+        rows.append(mapping)
+        return "\n".join(rows)
 
     
     
