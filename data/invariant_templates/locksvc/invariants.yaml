@@ -1,0 +1,62 @@
+invariants:
+  - name: "LockSafety"
+    natural_language: "At most one client holds the lock at any time."
+    tla_example: |
+      LockSafety ==
+          \A i, j \in ClientSet:
+              (/\ i # j
+               /\ hasLock[i])
+              => ~ hasLock[j]
+
+  - name: "NoPriorityInversion"
+    natural_language: "A later client cannot finish its critical section before an earlier waiter due to inversion."
+    tla_example: |
+      NoPriorityInversion ==
+          \A i, j \in NodeSet :
+              i # j =>
+              [](
+                  /\ pc[i] = "acquireLock"
+                  /\ pc[j] = "criticalSection"
+                  => ~<>(
+                      /\ pc[i] = "unlock"
+                      /\ pc[j] = "criticalSection"
+                  )
+              )
+
+  - name: "ProgressOK"
+    type: "liveness"
+    scope: "per-node"
+    natural_language: "Each node that tries to acquire eventually enters CS, then eventually unlocks."
+    tla_example: |
+      ProgressOK(i) == pc[i] = "acquireLock" ~> (pc[i] = "criticalSection" ~> pc[i] = "unlock")
+
+  - name: "SystemLiveness"
+    type: "liveness"
+    natural_language: "All nodes satisfy ProgressOK."
+    tla_example: |
+      Liveness == \A i \in NodeSet: ProgressOK(i)
+  
+  - name: "ServerIsIdle"
+    type: "liveness"
+    natural_language: "Server may idle (no state change), allowing stuttering steps."
+    tla_example: |
+      ServerIsIdle ==
+          \E self \in ServerSet :
+              /\ pc[self] = "serverReceive"
+              /\ UNCHANGED vars
+
+  - name: "SpecNoDeadlock"
+    type: "liveness"
+    natural_language: "Initialization, step relation with idling, and weak fairness prevent deadlock."
+    tla_example: |
+      SpecNoDeadlock ==
+          /\ Init
+          /\ [][Next \/ ServerIsIdle]_vars
+          /\ \A self \in ServerSet : WF_vars(Server(self))
+          /\ \A self \in ClientSet : WF_vars(client(self))
+
+
+metadata:
+  total_invariants: 6 
+  safety_invariants: 2
+  liveness_invariants: 4
