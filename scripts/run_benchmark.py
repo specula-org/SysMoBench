@@ -15,10 +15,10 @@ Usage Examples:
     python scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu
     
     # Use existing TLA+ specification files (coverage evaluation)
-    python scripts/run_benchmark.py --task etcd --method agent_based --model my_claude --metric coverage --spec-file path/to/spec.tla --config-file path/to/config.cfg
+    python scripts/run_benchmark.py --task etcd --method agent_based --model claude --metric coverage --spec-file path/to/spec.tla --config-file path/to/config.cfg
     
     # Use only existing TLA+ file, generate config automatically
-    python scripts/run_benchmark.py --task etcd --method agent_based --model my_claude --metric coverage --spec-file path/to/spec.tla
+    python scripts/run_benchmark.py --task etcd --method agent_based --model claude --metric coverage --spec-file path/to/spec.tla
     
     # Batch evaluation with multiple combinations
     python scripts/run_benchmark.py --tasks etcd raft --methods direct_call agent_based --models gpt-4 claude-3 --output results/
@@ -713,8 +713,8 @@ Examples:
                        help="Granularity level for progressive metrics")
     parser.add_argument("--tlc-timeout", type=int,
                        help="Timeout for TLC model checking in seconds (for coverage and runtime metrics)")
-    parser.add_argument("--with-exist-traces", type=int, metavar="N", 
-                       help="Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new traces (max 99)")
+    parser.add_argument("--with-exist-traces", type=int, metavar="N",
+                       help="Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new traces (max 100)")
     parser.add_argument("--with-exist-specTrace", action="store_true",
                        help="Use existing specTrace.tla and specTrace.cfg files from the same directory as --spec-file (requires --spec-file)")
     
@@ -851,8 +851,8 @@ Examples:
     if args.tlc_timeout is not None:
         metric_params['tlc_timeout'] = args.tlc_timeout
     if getattr(args, 'with_exist_traces', None) is not None:
-        if args.with_exist_traces < 1 or args.with_exist_traces > 99:
-            print("Error: --with-exist-traces must be between 1 and 99")
+        if args.with_exist_traces < 1 or args.with_exist_traces > 100:
+            print("Error: --with-exist-traces must be between 1 and 100")
             sys.exit(1)
         metric_params['with_exist_traces'] = args.with_exist_traces
     if getattr(args, 'with_exist_specTrace', None):

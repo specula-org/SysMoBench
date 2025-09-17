@@ -2,16 +2,7 @@
 # Based on deep analysis of Xline CURP implementation with concrete state predicates
 
 invariants:
-  # Safety Invariants
-  - name: "EpochLeadershipUniquenessInv"
-    type: "safety"
-    natural_language: "Each epoch has at most one elected leader"
-    formal_description: "Each epoch maps to exactly one leader or no leader."
-    tla_example: |
-      EpochLeadershipUniquenessInv ==
-        \A e \in epoches :
-          leader[e] \in (replicas \cup {noLeader})
-
+  # Safety Invariant
   - name: "SpeculativeConflictInv"
     type: "safety"
     natural_language: "Conflicting commands cannot coexist in speculative pools"
@@ -49,15 +40,6 @@ invariants:
         \A i \in 1..Len(committedCmds) :
           committedCmds[i] \in proposedCmds
 
-  - name: "EpochValidityInv"
-    type: "safety"
-    natural_language: "Current epoch is valid"
-    formal_description: "The current epoch must be within the defined epoch space."
-    tla_example: |
-      EpochValidityInv ==
-        /\ epoch \in epoches
-        /\ epoch >= 1
-
   - name: "CommitMessageValidityInv"
     type: "safety"
     natural_language: "Commit messages contain only committed commands"
@@ -90,12 +72,6 @@ invariants:
             (cmd \notin specPools[r])
 
 metadata:
-  total_invariants: 9
-  safety_invariants: 7
+  total_invariants: 7
+  safety_invariants: 5
   liveness_invariants: 2
-  quality_level: "high"
-  concrete_predicates: true
-  follows_tla_best_practices: true
-  based_on_actual_protocol: true
-  variable_definitions_included: true
-  no_undefined_helpers: true
