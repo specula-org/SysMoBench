@@ -35,10 +35,10 @@ class DirectCallMethod(TLAGenerationMethod):
         try:
             # Get configured model
             model = get_configured_model(model_name)
-            
+
             # Create prompt
             prompt = self._create_prompt(task)
-            
+
             # Create generation config from model's YAML configuration
             from ...models.base import GenerationConfig
             generation_config = GenerationConfig(
