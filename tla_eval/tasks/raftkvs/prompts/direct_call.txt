@@ -39,3 +39,4 @@ CRITICAL OUTPUT REQUIREMENTS:
 5. End your response with the closing ====
 6. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - focus on modeling the system behavior
 7. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags
+8. **MANDATORY Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (e.g., WF_Vars for unlock operations or overall progress) to ensure liveness properties.
