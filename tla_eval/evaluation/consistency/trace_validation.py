@@ -119,7 +119,11 @@ class TraceValidationEvaluator(BaseEvaluator):
             system_traces_dir.mkdir(parents=True, exist_ok=True)
             
             # Get number of traces to generate from config
-            num_traces = config.get('num_traces', 20)
+            # For rwmutex, default to 100 traces to match the kernel test
+            if task_name == 'rwmutex':
+                num_traces = config.get('num_traces', 100)
+            else:
+                num_traces = config.get('num_traces', 20)
             timestamp = start_time.strftime("%Y%m%d_%H%M%S")
             
             # Step 1: Get traces (either load existing or generate new ones)
@@ -199,13 +203,19 @@ class TraceValidationEvaluator(BaseEvaluator):
             result.trace_validation_successful = all(vr["success"] for vr in verification_results)
             result.validated_events = sum(cr['output_transitions'] for cr in conversion_results)
             
+            # Calculate and display success rate
+            successful_count = sum(1 for vr in verification_results if vr["success"])
+            total_count = len(verification_results)
+            success_rate = (successful_count / total_count * 100) if total_count > 0 else 0
+
+            print(f"Step 4 results: {successful_count}/{total_count} traces verified successfully ({success_rate:.1f}%)")
+
             if not result.trace_validation_successful:
                 failed_verifications = [vr.get("error", "TLC verification failed") for vr in verification_results if not vr["success"]]
                 print(f"ERROR: Step 4 failed with errors: {failed_verifications}")
                 result.trace_validation_error = f"Failed to verify some traces: {failed_verifications}"
             else:
-                successful_count = sum(1 for vr in verification_results if vr["success"])
-                print(f"Step 4 completed: Successfully verified {successful_count}/{len(verification_results)} traces")
+                print(f"Step 4 completed: All traces verified successfully")
             
             # Update overall success
             result.overall_success = (
@@ -218,10 +228,11 @@ class TraceValidationEvaluator(BaseEvaluator):
             result.output_directory = str(output_dir)
             
             if result.overall_success:
-                print("Trace validation evaluation: PASS")
+                print("Trace validation evaluation: ✓ PASS")
                 print(f"Complete validation framework saved to: {output_dir}")
             else:
-                print("Trace validation evaluation: FAIL")
+                print("Trace validation evaluation: ✗ FAIL")
+                print(f"[INFO] Trace validation: ✗ FAIL ({success_rate:.1f}%)")
                 print(f"Partial results saved to: {output_dir}")
             
             return result
@@ -321,10 +332,11 @@ class TraceValidationEvaluator(BaseEvaluator):
             Dictionary with conversion results
         """
         try:
-            # Create output directory for converted traces
-            converted_traces_dir = Path("data/traces") / system_name
+            # Create output directory for converted traces with date folder
+            date_folder = timestamp.split('_')[0]  # Extract date part (YYYYMMDD)
+            converted_traces_dir = Path("data/traces") / system_name / date_folder
             converted_traces_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Generate output path for converted trace
             converted_trace_path = converted_traces_dir / f"{system_name}_converted_{timestamp}.ndjson"
             
@@ -365,10 +377,11 @@ class TraceValidationEvaluator(BaseEvaluator):
             try:
                 input_trace_path = Path(trace_result["trace_file"])
                 
-                # Create output directory for converted traces
-                converted_traces_dir = Path("data/traces") / system_name
+                # Create output directory for converted traces with date folder
+                date_folder = timestamp.split('_')[0]  # Extract date part (YYYYMMDD)
+                converted_traces_dir = Path("data/traces") / system_name / date_folder
                 converted_traces_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 # Generate unique output path for each converted trace
                 converted_trace_path = converted_traces_dir / f"{system_name}_converted_{timestamp}_{i+1}.ndjson"
                 

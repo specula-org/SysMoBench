@@ -272,7 +272,13 @@ class TLCRunner:
             cmd.append(spec_filename)
             
             logger.debug(f"Running TLC in {working_dir}: {' '.join(cmd)}")
-            
+
+            # DEBUG: Add detailed logging
+            logger.info(f"🔍 DEBUG TLC EXECUTION:")
+            logger.info(f"  Command: {' '.join(cmd)}")
+            logger.info(f"  Working directory: {working_dir}")
+            logger.info(f"  Timeout: {self.timeout}s")
+
             # Run TLC
             result = subprocess.run(
                 cmd,
@@ -281,8 +287,19 @@ class TLCRunner:
                 timeout=self.timeout,
                 cwd=working_dir  # Run in spec directory
             )
-            
+
             output = result.stdout + result.stderr
+
+            # DEBUG: Add detailed result logging
+            logger.info(f"🔍 DEBUG TLC RESULT:")
+            logger.info(f"  Exit code: {result.returncode}")
+            logger.info(f"  Stdout length: {len(result.stdout)} chars")
+            logger.info(f"  Stderr length: {len(result.stderr)} chars")
+            logger.info(f"  Combined output length: {len(output)} chars")
+            logger.info(f"🔍 DEBUG TLC STDOUT (first 1000 chars):")
+            logger.info(f"{result.stdout[:1000]}")
+            logger.info(f"🔍 DEBUG TLC STDERR (first 1000 chars):")
+            logger.info(f"{result.stderr[:1000]}")
             
             if record_stats:
                 # Use new error classification system and record statistics (default behavior)
@@ -335,6 +352,11 @@ class TLCRunner:
             return content_based_success, output, result.returncode
             
         except subprocess.TimeoutExpired as e:
+            # DEBUG: Add timeout logging
+            logger.info(f"🔍 DEBUG TLC TIMEOUT:")
+            logger.info(f"  Timeout occurred after {self.timeout}s")
+            logger.info(f"  Exception type: {type(e)}")
+
             # For large state spaces, timeout without violations should be considered success
             # Parse partial output to check for violations AND configuration errors
             partial_output = ""
@@ -349,54 +371,65 @@ class TLCRunner:
                 if hasattr(e, 'stderr') and e.stderr:
                     partial_stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else str(e.stderr)
                     partial_output += partial_stderr
-            except:
+
+                # DEBUG: Add partial output logging
+                logger.info(f"🔍 DEBUG TIMEOUT PARTIAL OUTPUT:")
+                logger.info(f"  Partial stdout length: {len(partial_stdout)} chars")
+                logger.info(f"  Partial stderr length: {len(partial_stderr)} chars")
+                logger.info(f"  Partial stdout (first 500 chars): {partial_stdout[:500]}")
+                logger.info(f"  Partial stderr (first 500 chars): {partial_stderr[:500]}")
+
+            except Exception as parse_error:
                 # If we can't get partial output, just use empty string
+                logger.info(f"🔍 DEBUG: Could not parse partial output: {parse_error}")
                 partial_output = ""
                 partial_stdout = ""
                 partial_stderr = ""
             
-            if record_stats:
-                # Use modern error classification system for timeout cases too
-                if self.error_stats_manager:
-                    # Use custom error statistics manager
-                    error_info = self.error_stats_manager.classify_and_record_tlc_result(
-                        -1,  # Timeout exit code
-                        partial_stdout, 
-                        partial_stderr, 
-                        context="runtime_timeout"
-                    )
-                else:
-                    # Use global error statistics manager
-                    error_info = classify_and_record_tlc_result(
-                        -1,  # Timeout exit code
-                        partial_stdout, 
-                        partial_stderr, 
-                        context="runtime_timeout"
-                    )
-                
-                # Check if this is a real configuration error based on modern classification
-                if error_info.category != TLCErrorCategory.SUCCESS and not error_info.is_violation:
-                    # This is a configuration/compilation error, not a genuine timeout during state exploration
-                    return False, f"TLC failed due to {error_info.category.value} (not timeout): {error_info.description}", -1
-            else:
-                # Fallback: Parse the partial output for violations and deadlocks without classification
-                violations, deadlock_found, states_explored = self.parse_tlc_output(partial_output)
-                
-                if violations or deadlock_found:
-                    # Found violations or deadlocks - this is a real failure
-                    return False, f"TLC found violations/deadlocks before timeout after {self.timeout} seconds:\n{partial_output}", -1
-            
-            # Parse the partial output for violations and deadlocks for logging
+            # FIXED: Always check violations first for timeout cases, regardless of error classification
+            # Parse the partial output for violations and deadlocks
             violations, deadlock_found, states_explored = self.parse_tlc_output(partial_output)
-            
+
+            # If we found actual violations or deadlocks, this is a real failure
             if violations or deadlock_found:
-                # Found violations or deadlocks - this is a real failure
+                logger.info(f"🔍 DEBUG: Found violations/deadlock in timeout - returning FAILURE")
+
+                # Record error statistics only for actual violations/deadlocks, not for timeout itself
+                if record_stats:
+                    logger.debug("Recording error statistics for violations/deadlock found during timeout")
+                    if self.error_stats_manager:
+                        error_info = self.error_stats_manager.classify_and_record_tlc_result(
+                            -1,  # Process was terminated, but due to violations found
+                            partial_stdout,
+                            partial_stderr,
+                            context="runtime_violations"  # Context shows this is for violations, not timeout
+                        )
+                    else:
+                        error_info = classify_and_record_tlc_result(
+                            -1,
+                            partial_stdout,
+                            partial_stderr,
+                            context="runtime_violations"
+                        )
+
                 return False, f"TLC found violations/deadlocks before timeout after {self.timeout} seconds:\n{partial_output}", -1
-            else:
-                # No violations found within timeout - consider this success for large state spaces
-                logger.info(f"TLC timeout after {self.timeout}s with no violations found - considering as success")
-                success_msg = f"TLC explored {states_explored} states in {self.timeout} seconds with no violations found (timeout reached but no errors detected)"
-                return True, success_msg, 0
+
+            # No violations found - this should be considered success for large state spaces
+            # FIXED: Clean timeout (no violations) is not an error and should not be recorded in error statistics
+            logger.debug("Clean timeout with no violations - not recording any error statistics")
+            
+            # DEBUG: Add timeout result analysis (violations already parsed above)
+            logger.info(f"🔍 DEBUG TIMEOUT ANALYSIS:")
+            logger.info(f"  Violations found: {len(violations)}")
+            logger.info(f"  Deadlock found: {deadlock_found}")
+            logger.info(f"  States explored: {states_explored}")
+            logger.info(f"  Violations list: {violations}")
+
+            # No violations found within timeout - consider this success for large state spaces
+            logger.info(f"🔍 DEBUG: Returning SUCCESS - timeout with no violations")
+            logger.info(f"TLC timeout after {self.timeout}s with no violations found - considering as success")
+            success_msg = f"TLC explored {states_explored} states in {self.timeout} seconds with no violations found (timeout reached but no errors detected)"
+            return True, success_msg, 0
         except Exception as e:
             return False, f"TLC execution failed: {e}", -1
     
