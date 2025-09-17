@@ -34,7 +34,7 @@ class ModelFactory:
         # OpenAI models
         "openai_gpt4": {
             "provider": "openai",
-            "model_name": "my_claude",
+            "model_name": "claude",
             "temperature": 0.1,
         },
         "openai_gpt4_turbo": {

@@ -21,7 +21,7 @@ Usage:
     model = get_model_adapter("openai_gpt4")
     
     # Using custom configuration
-    model = get_model_adapter("openai", model_name="my_claude", temperature=0.2)
+    model = get_model_adapter("openai", model_name="claude", temperature=0.2)
     
     # All adapters automatically retry on service unavailable errors
     result = model.generate_tla_specification(source_code, prompt_template)
