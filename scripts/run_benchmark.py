@@ -527,7 +527,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         )
                     elif metric_info.dimension == "consistency":
                         consistency_config = evaluator.get_default_config(task_name) if hasattr(evaluator, 'get_default_config') else {}
-                        evaluation_result = evaluator.evaluate(task_name, consistency_config)
+                        evaluation_result = evaluator.evaluate(task_name, consistency_config, spec_file_path=spec_file, config_file_path=config_file)
                     elif metric_info.dimension == "composite":
                         # Composite metrics perform iterative evaluation and improvement
                         # Always load method for composite evaluation to support correction iterations
