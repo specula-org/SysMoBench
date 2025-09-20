@@ -80,69 +80,69 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
         Returns:
             ConsistencyEvaluationResult with evaluation results
         """
-        with tempfile.TemporaryDirectory(delete=False) as temp_dir:
-            src_dir = Path(f"tla_eval/core/trace_generation/{task_name}")
-            shutil.copytree(src=src_dir / "traces_found", dst=temp_dir, dirs_exist_ok=True)
-            traces_dirs = [Path(p) for p in Path(temp_dir).iterdir()]
-            if not config_file_path:
-                raise ValueError("config_file_path must be provided for PGo trace validation")
+        traces_out_dir = Path(f"data/spec/{task_name}/{self.model_name}/traces_found")
+        src_dir = Path(f"tla_eval/core/trace_generation/{task_name}")
+        shutil.copytree(src=src_dir / "traces_found", dst=traces_out_dir, dirs_exist_ok=True)
+        traces_dirs = [Path(p) for p in Path(traces_out_dir).iterdir() if Path(p).is_dir()]
+        if not config_file_path:
+            raise ValueError("config_file_path must be provided for PGo trace validation")
 
-            cfg_source_path = Path(config_file_path)
-            if cfg_source_path and not cfg_source_path.exists():
-                raise FileNotFoundError(f"Config file '{config_file_path}' not found for trace validation")
-            spec_source_path = Path(spec_file_path)
-            spec_text = spec_source_path.read_text()
+        cfg_source_path = Path(config_file_path)
+        if cfg_source_path and not cfg_source_path.exists():
+            raise FileNotFoundError(f"Config file '{config_file_path}' not found for trace validation")
+        spec_source_path = Path(spec_file_path)
+        spec_text = spec_source_path.read_text()
+        for traces_dir in traces_dirs:
+            subprocess.run([
+                "java", "-jar", self.pgo_exe, "tracegen",
+                src_dir / f"{task_name}.tla",
+                "--noall-paths", "--cfg-file", config_file_path, traces_dir,
+            ], check=True)
+
+            # patch out cfg parts
+            cfg_path_tmp = Path(traces_dir) / f"{task_name}Validate.cfg"
+            cfg_lines = cfg_path_tmp.read_text().splitlines()
+            def cfg_lines_pred(line):
+                if line.startswith("SPECIFICATION"):
+                    return line == "SPECIFICATION __Spec"
+                elif line.startswith("INIT "):
+                    return False
+                elif line.startswith("NEXT "):
+                    return False
+                else:
+                    return True
+            cfg_lines = filter(cfg_lines_pred, cfg_lines)
+            cfg_lines = list(cfg_lines) + (src_dir / f"{task_name}Validate.cfg").read_text().splitlines()
+            cfg_path_tmp.write_text('\n'.join(cfg_lines))
+
+            # overwrite TLA+
+            (Path(traces_dir) / f"{task_name}.tla").write_text(spec_text)
+
+            shutil.copy(cfg_source_path, Path(traces_dir) / f"{task_name}.cfg")
+
+        refinement_mapping = ""
+        if traces_dirs:
+            sample_dir = traces_dirs[0]
+            refinement_mapping = self._generate_refinement_mapping(
+                task_name,
+                sample_dir / f"{task_name}.tla",
+                sample_dir / f"{task_name}.cfg",
+                sample_dir / f"{task_name}Validate.tla",
+            )
             for traces_dir in traces_dirs:
-                subprocess.run([
-                    "java", "-jar", self.pgo_exe, "tracegen",
-                    src_dir / f"{task_name}.tla",
-                    "--noall-paths", "--cfg-file", config_file_path, traces_dir,
-                ], check=True)
-
-                # patch out cfg parts
-                cfg_path_tmp = Path(traces_dir) / f"{task_name}Validate.cfg"
-                cfg_lines = cfg_path_tmp.read_text().splitlines()
-                def cfg_lines_pred(line):
-                    if line.startswith("SPECIFICATION"):
-                        return line == "SPECIFICATION __Spec"
-                    elif line.startswith("INIT "):
-                        return False
-                    elif line.startswith("NEXT "):
-                        return False
-                    else:
-                        return True
-                cfg_lines = filter(cfg_lines_pred, cfg_lines)
-                cfg_lines = list(cfg_lines) + (src_dir / f"{task_name}Validate.cfg").read_text().splitlines()
-                cfg_path_tmp.write_text('\n'.join(cfg_lines))
-
-                # overwrite TLA+
-                (Path(traces_dir) / f"{task_name}.tla").write_text(spec_text)
-
-                shutil.copy(cfg_source_path, Path(traces_dir) / f"{task_name}.cfg")
-
-            refinement_mapping = ""
-            if traces_dirs:
-                sample_dir = traces_dirs[0]
-                refinement_mapping = self._generate_refinement_mapping(
+                self._inject_refinement_mapping(
+                    traces_dir / f"{task_name}Validate.tla",
+                    refinement_mapping,
                     task_name,
-                    sample_dir / f"{task_name}.tla",
-                    sample_dir / f"{task_name}.cfg",
-                    sample_dir / f"{task_name}Validate.tla",
                 )
-                for traces_dir in traces_dirs:
-                    self._inject_refinement_mapping(
-                        traces_dir / f"{task_name}Validate.tla",
-                        refinement_mapping,
-                        task_name,
-                    )
 
-            print(f"generated validation setups for {len(traces_dirs)} traces")
+        print(f"generated validation setups for {len(traces_dirs)} traces")
 
-            for traces_dir in traces_dirs:
-                subprocess.run([
-                    "java", "-jar", self.pgo_exe, "tlc",
-                    "--dfs", Path(traces_dir) / f"{task_name}Validate.tla",
-                ], check=True)
+        for traces_dir in traces_dirs:
+            subprocess.run([
+                "java", "-jar", self.pgo_exe, "tlc",
+                "--dfs", Path(traces_dir) / f"{task_name}Validate.tla",
+            ], check=True)
 
         print("oh hey there!")
         raise Exception("TODO")
