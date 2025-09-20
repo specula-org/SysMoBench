@@ -24,6 +24,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ...core.trace_generation.registry import get_system, get_available_systems, is_system_supported
 from ...core.spec_processing import SpecTraceGenerator, generate_config_from_tla
 from ...core.verification import TLCRunner
+from ...config import get_configured_model
+from ...models.base import GenerationConfig
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import ConsistencyEvaluationResult
 
@@ -70,7 +72,7 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
     def evaluate(self, task_name: str, config: Dict[str, Any], spec_file_path: str, config_file_path: str) -> ConsistencyEvaluationResult:
         """
         Run trace validation evaluation for a given task.
-        
+
         Args:
             task_name: Name of the task/system (e.g., "etcd", "asterinas")
             config: Configuration parameters for trace generation
@@ -78,10 +80,18 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
         Returns:
             ConsistencyEvaluationResult with evaluation results
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory(delete=False) as temp_dir:
             src_dir = Path(f"tla_eval/core/trace_generation/{task_name}")
             shutil.copytree(src=src_dir / "traces_found", dst=temp_dir, dirs_exist_ok=True)
-            traces_dirs = list(Path(temp_dir).iterdir())
+            traces_dirs = [Path(p) for p in Path(temp_dir).iterdir()]
+            if not config_file_path:
+                raise ValueError("config_file_path must be provided for PGo trace validation")
+
+            cfg_source_path = Path(config_file_path)
+            if cfg_source_path and not cfg_source_path.exists():
+                raise FileNotFoundError(f"Config file '{config_file_path}' not found for trace validation")
+            spec_source_path = Path(spec_file_path)
+            spec_text = spec_source_path.read_text()
             for traces_dir in traces_dirs:
                 subprocess.run([
                     "java", "-jar", self.pgo_exe, "tracegen",
@@ -106,8 +116,26 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
                 cfg_path_tmp.write_text('\n'.join(cfg_lines))
 
                 # overwrite TLA+
-                (Path(traces_dir) / f"{task_name}.tla").write_text(Path(spec_file_path).read_text())
-        
+                (Path(traces_dir) / f"{task_name}.tla").write_text(spec_text)
+
+                shutil.copy(cfg_source_path, Path(traces_dir) / f"{task_name}.cfg")
+
+            refinement_mapping = ""
+            if traces_dirs:
+                sample_dir = traces_dirs[0]
+                refinement_mapping = self._generate_refinement_mapping(
+                    task_name,
+                    sample_dir / f"{task_name}.tla",
+                    sample_dir / f"{task_name}.cfg",
+                    sample_dir / f"{task_name}Validate.tla",
+                )
+                for traces_dir in traces_dirs:
+                    self._inject_refinement_mapping(
+                        traces_dir / f"{task_name}Validate.tla",
+                        refinement_mapping,
+                        task_name,
+                    )
+
             print(f"generated validation setups for {len(traces_dirs)} traces")
 
             for traces_dir in traces_dirs:
@@ -118,125 +146,7 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
 
         print("oh hey there!")
         raise Exception("TODO")
-        # start_time = datetime.now()
-        
-        # print(f"Starting trace validation evaluation for task: {task_name}")
-        # print(f"Configuration: {config}")
-        
-        # # Create evaluation result
-        # result = ConsistencyEvaluationResult(task_name, "trace_validation", "system")
-        
-        # # Check if system is supported
-        # if not is_system_supported(task_name):
-        #     result.trace_generation_error = f"System '{task_name}' is not supported. Available systems: {list(get_available_systems().keys())}"
-        #     return result
-        
-        # # Get system implementation
-        # system_module = get_system(task_name)
-        # if not system_module:
-        #     result.trace_generation_error = f"Failed to load system module for '{task_name}'"
-        #     return result
-        
-        # try:
-        #     # Create system-specific traces directory
-        #     system_traces_dir = self.traces_dir / task_name
-        #     system_traces_dir.mkdir(parents=True, exist_ok=True)
-            
-        #     # Get number of traces to generate from config
-        #     num_traces = config.get('num_traces', 20)
-        #     timestamp = start_time.strftime("%Y%m%d_%H%M%S")
-            
-        #     # Step 1: Generate multiple runtime traces using system-specific implementation
-        #     print(f"Step 1: Generating {num_traces} runtime traces using system-specific implementation...")
-        #     trace_results = self._generate_multiple_system_traces(system_module, config, system_traces_dir, task_name, timestamp, num_traces)
-            
-        #     result.trace_generation_time = (datetime.now() - start_time).total_seconds()
-        #     result.trace_generation_successful = all(tr["success"] for tr in trace_results)
-            
-        #     if not result.trace_generation_successful:
-        #         failed_traces = [tr["error"] for tr in trace_results if not tr["success"]]
-        #         result.trace_generation_error = f"Failed to generate some traces: {failed_traces}"
-        #         return result
-            
-        #     result.generated_trace_count = sum(tr["event_count"] for tr in trace_results)
-        #     result.raw_trace_files = [tr["trace_file"] for tr in trace_results]
-        #     total_events = sum(tr["event_count"] for tr in trace_results)
-        #     print(f"Step 1 completed: {len(trace_results)} traces generated with {total_events} total events")
-            
-        #     # Step 2: Generate specTrace.tla from TLA+ spec (LLM + static analysis)
-        #     print("Step 2: Generating specTrace.tla from TLA+ spec...")
-        #     step2_start = datetime.now()
-        #     spectrace_result = self._generate_spectrace_from_tla(task_name, timestamp, spec_file_path, config_file_path, self.model_name)
-            
-        #     print(f"DEBUG: Step 2 result: {spectrace_result}")
-            
-        #     if not spectrace_result["success"]:
-        #         print(f"ERROR: Step 2 failed with error: {spectrace_result['error']}")
-        #         result.trace_generation_error = spectrace_result["error"]
-        #         return result
-            
-        #     result.specification_files = [spectrace_result.get("config_file", "")]
-        #     print("Step 2 completed: specTrace.tla and specTrace.cfg generated")
-            
-        #     # Step 3: Convert multiple sys_traces to spec-compatible format using system-specific implementation
-        #     print(f"Step 3: Converting {len(trace_results)} sys_traces to spec-compatible format using system-specific implementation...")
-        #     step3_start = datetime.now()
-            
-        #     conversion_results = self._convert_multiple_system_traces(system_module, trace_results, task_name, timestamp)
-            
-        #     print(f"DEBUG: Step 3 results: {len(conversion_results)} conversions attempted")
-            
-        #     result.trace_conversion_time = (datetime.now() - step3_start).total_seconds()
-        #     result.trace_conversion_successful = all(cr["success"] for cr in conversion_results)
-            
-        #     if not result.trace_conversion_successful:
-        #         failed_conversions = [cr["error"] for cr in conversion_results if not cr["success"]]
-        #         print(f"ERROR: Step 3 failed with errors: {failed_conversions}")
-        #         result.trace_conversion_error = f"Failed to convert some traces: {failed_conversions}"
-        #         return result
-            
-        #     result.converted_trace_files = [cr["output_file"] for cr in conversion_results]
-        #     total_input_events = sum(cr["input_events"] for cr in conversion_results)
-        #     total_output_transitions = sum(cr["output_transitions"] for cr in conversion_results)
-        #     print(f"Step 3 completed: Converted {total_input_events} events to {total_output_transitions} transitions across {len(conversion_results)} traces")
-            
-        #     # Step 4: Run TLC verification concurrently for multiple traces
-        #     print(f"Step 4: Running TLC verification for {len(conversion_results)} traces using {self.max_workers} workers...")
-        #     step4_start = datetime.now()
-        #     verification_results = self._run_concurrent_tlc_verification(conversion_results, spectrace_result["output_dir"])
-            
-        #     print(f"DEBUG: Step 4 results: {len(verification_results)} verifications completed")
-            
-        #     result.trace_validation_time = (datetime.now() - step4_start).total_seconds()
-        #     result.trace_validation_successful = all(vr["success"] for vr in verification_results)
-        #     result.validated_events = sum(cr['output_transitions'] for cr in conversion_results)
-            
-        #     if not result.trace_validation_successful:
-        #         failed_verifications = [vr.get("error", "TLC verification failed") for vr in verification_results if not vr["success"]]
-        #         print(f"ERROR: Step 4 failed with errors: {failed_verifications}")
-        #         result.trace_validation_error = f"Failed to verify some traces: {failed_verifications}"
-        #     else:
-        #         successful_count = sum(1 for vr in verification_results if vr["success"])
-        #         print(f"Step 4 completed: Successfully verified {successful_count}/{len(verification_results)} traces")
-            
-        #     # Update overall success
-        #     result.overall_success = (
-        #         result.trace_generation_successful and
-        #         result.trace_conversion_successful and
-        #         result.trace_validation_successful
-        #     )
-            
-        #     if result.overall_success:
-        #         print("✓ Trace validation evaluation: PASS")
-        #     else:
-        #         print("✗ Trace validation evaluation: FAIL")
-            
-        #     return result
-            
-        # except Exception as e:
-        #     result.trace_validation_error = f"Trace validation evaluation failed: {str(e)}"
-        #     return result
-    
+
     def get_evaluation_name(self) -> str:
         """Get the name of this evaluation method."""
         return "pgo_trace_validation"
@@ -265,10 +175,106 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
         #         return trace_generator.get_available_scenarios()
         
         return {}
-    
+
     def _get_evaluation_type(self) -> str:
         """Return the evaluation type identifier"""
         return "consistency_pgo_trace_validation"
+
+    def _generate_refinement_mapping(self, task_name: str, spec_path: Path, cfg_path: Path, validate_path: Path) -> str:
+        prompt_path = Path("data/tracelink_prompts/prompt.txt")
+        prompt_template = prompt_path.read_text()
+
+        spec_contents = self._extract_declaration_lines(spec_path)
+        validate_contents = self._extract_declaration_lines(validate_path)
+        cfg_contents = cfg_path.read_text() if cfg_path.exists() else ""
+
+        prompt = prompt_template.format(
+            spec_file=str(spec_path),
+            spec_cfg=str(cfg_path),
+            spec_validate_file=str(validate_path),
+            spec_file_contents=spec_contents,
+            spec_cfg_contents=cfg_contents,
+            spec_validate_file_contents=validate_contents,
+        )
+
+        model = get_configured_model(self.model_name)
+        generation_config = GenerationConfig()
+        result = model.generate_direct(prompt, generation_config)
+
+        if not result.success:
+            raise RuntimeError(f"Failed to generate refinement mapping: {result.error_message}")
+
+        mapping_text = result.generated_text.strip()
+
+        if not mapping_text:
+            raise RuntimeError("Model returned empty refinement mapping")
+
+        return mapping_text
+
+    def _extract_declaration_lines(self, file_path: Path) -> str:
+        if not file_path.exists():
+            return ""
+
+        relevant_keywords = {"CONSTANT", "CONSTANTS", "VARIABLE", "VARIABLES"}
+        lines: List[str] = []
+        for line in file_path.read_text().splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            keyword = stripped.split(maxsplit=1)[0]
+            if keyword in relevant_keywords:
+                lines.append(line.rstrip())
+
+        return "\n".join(lines)
+
+    def _inject_refinement_mapping(self, validate_path: Path, mapping_text: str, task_name: str) -> None:
+        insert_lines = self._prepare_refinement_lines(mapping_text, task_name)
+        if not insert_lines:
+            return
+
+        lines = validate_path.read_text().splitlines()
+        target_line = f"__instance == INSTANCE {task_name}"
+
+        try:
+            target_index = next(i for i, line in enumerate(lines) if line.strip() == target_line)
+        except StopIteration as exc:
+            raise RuntimeError(f"Could not locate '{target_line}' in {validate_path}") from exc
+
+        if lines[target_index + 1: target_index + 1 + len(insert_lines)] == insert_lines:
+            return
+
+        updated_lines = lines[: target_index + 1] + insert_lines + lines[target_index + 1 :]
+        validate_path.write_text("\n".join(updated_lines) + "\n")
+
+    def _prepare_refinement_lines(self, mapping_text: str, task_name: str) -> List[str]:
+        lines = [line.rstrip() for line in mapping_text.splitlines()]
+
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        instance_line = f"INSTANCE {task_name}"
+        for index, line in enumerate(list(lines)):
+            if line.strip() == instance_line:
+                lines.pop(index)
+                break
+
+        target_line = f"__instance == INSTANCE {task_name}"
+        cleaned_lines: List[str] = []
+        target_removed = False
+        for line in lines:
+            if not target_removed and line.strip() == target_line:
+                target_removed = True
+                continue
+            cleaned_lines.append(line)
+
+        while cleaned_lines and not cleaned_lines[0].strip():
+            cleaned_lines.pop(0)
+        while cleaned_lines and not cleaned_lines[-1].strip():
+            cleaned_lines.pop()
+
+        return cleaned_lines
 
 
 # Convenience function for backward compatibility
