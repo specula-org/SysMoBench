@@ -3,9 +3,16 @@
 {
 	"name": "SysSpecBench",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-	"features": {
-		"ghcr.io/devcontainers/features/python:1": {}
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"tlaplus.vscode-ide"
+			]
+		}
 	}
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
