@@ -13,6 +13,7 @@ from .syntax.action_decomposition import ActionDecompositionEvaluator
 from .semantics.runtime_check import RuntimeCheckEvaluator
 from .semantics.manual_invariant_evaluator import ManualInvariantEvaluator
 from .consistency.trace_validation import TraceValidationEvaluator
+from .pgo.trace_validation import PGoTraceValidationEvaluator
 from .composite.composite_evaluation import CompositeEvaluator
 
 # Base classes and result types
@@ -35,6 +36,7 @@ __all__ = [
     "RuntimeCheckEvaluator",
     "ManualInvariantEvaluator", 
     "TraceValidationEvaluator",
+    "PGoTraceValidationEvaluator",
     "CompositeEvaluator",
     
     # Base classes and result types
