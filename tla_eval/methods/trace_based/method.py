@@ -20,6 +20,8 @@ from ...models.base import GenerationConfig
 
 logger = logging.getLogger(__name__)
 
+MAX_TRACE_SIZE_BYTES = 512 * 1024  # 1 MB cap when sampling traces
+
 
 class TraceBasedMethod(TLAGenerationMethod):
     """
@@ -135,11 +137,30 @@ class TraceBasedMethod(TLAGenerationMethod):
             raise ValueError("trace_format must be provided in task.extra_info for trace_based method")
 
         traces = task.traces
-        if trace_format == "etcd_based":
+        if trace_format == "etcd_based" or task.extra_info.get("trace_sample", None) is not None:
             # etcd traces are large; sample a few to avoid overflowing request size/context
             sample_size = task.extra_info.get("trace_sample") or 3
-            if isinstance(traces, list) and len(traces) > sample_size:
-                traces = sample(traces, sample_size)
+            if isinstance(traces, list):
+                def trace_size_bytes(trace_item: Any) -> int:
+                    """Return approximate size of a trace item in bytes for filtering."""
+                    if isinstance(trace_item, list):
+                        return sum(len(content.encode("utf-8")) for _, content in trace_item)
+                    if isinstance(trace_item, tuple) and len(trace_item) >= 2:
+                        return len(trace_item[1].encode("utf-8"))
+                    return 0
+
+                eligible_traces = [trace for trace in traces if trace_size_bytes(trace) <= MAX_TRACE_SIZE_BYTES]
+                if len(eligible_traces) < len(traces):
+                    logger.info(
+                        "Filtered %d trace(s) over %d bytes for task %s",
+                        len(traces) - len(eligible_traces),
+                        MAX_TRACE_SIZE_BYTES,
+                        task.task_name,
+                    )
+
+                traces = eligible_traces
+                if len(traces) > sample_size:
+                    traces = sample(traces, sample_size)
 
         trace_str = ""
         # Iterate over the possibly-sampled traces, not the original task.traces

@@ -187,6 +187,7 @@ class TaskLoader:
             patterns = [
             "etcd_trace_*.ndjson",
                 "trace_*.jsonl",
+                "trace-*.ndjson",
                 "*_combined.jsonl",
                 "traces_summary.json",
             ]

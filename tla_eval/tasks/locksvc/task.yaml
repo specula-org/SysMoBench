@@ -20,6 +20,10 @@ default_source_file: "systems/locksvc/locksvc.go"
 # TLA+ specification module name
 specModule: "locksvc"
 
+# Traces folder location
+traces_folder: "data/sys_traces/locksvc"
+trace_format: "tracelink_based"
+
 # Metadata
 metadata:
   original_project: "DistCompiler/pgo"
