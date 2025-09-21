@@ -634,7 +634,9 @@ class RuntimeCheckEvaluator(BaseEvaluator):
                     output_config_path = output_dir / f"{module_name}.cfg"
                     with open(output_config_path, 'w', encoding='utf-8') as f:
                         f.write(config)
-                    
+
+                    # Ensure downstream TLC runner uses the copied config in the output directory
+                    config_file_path = output_config_path
                     result.config_file_path = str(output_config_path)
                     result.config_generation_time = 0.0
                     result.config_generation_successful = True
