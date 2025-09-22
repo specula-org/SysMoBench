@@ -1,163 +1,97 @@
-You are an expert in trace generation and validation for mutex synchronization primitives.
+Generate a YAML configuration file from the provided TLA+ specification (.tla) and configuration (.cfg) files. Extract information according to the following rules:
 
-Given the following TLA+ specification for mutex synchronization, generate configuration for trace generation and validation.
+## Task Description
+Parse the TLA+ specification and configuration files to create a structured YAML configuration that captures the specification name, constants, variables, actions, and interactions.
 
-TLA+ Specification:
-{tla_spec}
+## Extraction Rules
 
-For mutex synchronization primitives, trace generation focuses on:
+### spec_name
+Extract from the module declaration line: `---- MODULE <ModuleName> ----`
+The spec_name is the ModuleName between "---- MODULE" and "----".
 
-1. **Mutex Operation Traces:**
-   - lock() acquisition attempts and outcomes
-   - unlock() operations and lock releases
-   - try_lock() non-blocking attempts
-   - Lock timeout operations (if supported)
+### constants
+Extract from the CONSTANTS section in the .cfg file.
+- name: The constant identifier
+- value: The assigned value, formatted as:
+  - Sets: Wrap in single quotes, e.g., '{s1, s2, s3}' becomes '{"s1", "s2", "s3"}'
+  - Strings: Wrap in single quotes with double quotes inside, e.g., Nil becomes '"Nil"'
+  - Numbers: Wrap in single quotes as string, e.g., 5 becomes '5'
 
-2. **Mutex State Transition Traces:**
-   - State changes: UNLOCKED → LOCKED → UNLOCKED
-   - Owner assignment and tracking
-   - Critical section entry and exit events
-   - Lock contention and waiting events
+### variables
+Extract from the Init operator definition in the .tla file.
+For each variable assignment in Init:
+- name: The variable name
+- default_value: The initial value expression (preserve TLA+ syntax, escape backslashes)
 
-3. **Thread Synchronization Traces:**
-   - Thread blocking and unblocking events
-   - Waiting queue management (FIFO, priority, etc.)
-   - Thread scheduling and context switches
-   - Deadlock detection and prevention events
+### actions
+Extract from the Next operator definition. Include only direct action calls (not numbered interactions).
+For each action:
+- name: The action/operator name
+- parameters: List of parameters with:
+  - name: Parameter variable name
+  - source: Where the parameter comes from (e.g., Server, messages)
+- stmt: The complete statement as it appears in Next (including any conditions)
 
-4. **Critical Section Traces:**
-   - Critical section entry and exit
-   - Protected resource access patterns
-   - Nested locking scenarios (if supported)
-   - Priority inversion handling
+### interactions
+Extract from the Next operator definition. Include only numbered intermediate actions.
+Just list the names (e.g., HandletickElection_1, HandletickHeartbeat_1)
 
-Generate a comprehensive trace configuration for mutex verification:
+## Example
+Given this TLA+ specification:
+
+---- MODULE SimpleSpec ----
+...
+Init ==
+/\ x = 0
+/\ y = [s \in Server |-> 0]
+
+Next ==
+\/ \E s \in Server : Action1(s)
+\/ \E m \in messages : Action2(m)
+\/ IntermediateAction_1
+
+And this configuration:
+
+CONSTANTS
+Server = {s1, s2}
+MaxValue = 10
+
+Generate this YAML:
 
 ```yaml
-trace_config:
-  system: "asterinas_mutex"
-  focus: "mutual_exclusion_synchronization"
-  
-  # Event types specific to mutex operations
-  events:
-    lock_operations:
-      - event_type: "MUTEX_LOCK_ATTEMPT"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} current_owner:{owner}"
-        description: "Thread attempts to acquire mutex lock"
-        
-      - event_type: "MUTEX_LOCK_ACQUIRED"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} wait_time:{duration}"
-        description: "Thread successfully acquires mutex lock"
-        
-      - event_type: "MUTEX_LOCK_RELEASED"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} hold_time:{duration}"
-        description: "Thread releases mutex lock"
-        
-      - event_type: "MUTEX_LOCK_BLOCKED"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} blocked_by:{owner}"
-        description: "Thread blocks waiting for mutex"
-        
-      - event_type: "MUTEX_TRY_LOCK"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} success:{acquired}"
-        description: "Non-blocking lock attempt"
-    
-    critical_section:
-      - event_type: "CRITICAL_SECTION_ENTER"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} section_id:{section}"
-        description: "Thread enters critical section"
-        
-      - event_type: "CRITICAL_SECTION_EXIT"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} section_id:{section}"
-        description: "Thread exits critical section"
-        
-      - event_type: "RESOURCE_ACCESS"
-        format: "thread_id:{thread} resource_id:{resource} operation:{op} timestamp:{ts}"
-        description: "Access to mutex-protected resource"
-    
-    synchronization:
-      - event_type: "THREAD_BLOCKED"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} queue_position:{pos}"
-        description: "Thread added to waiting queue"
-        
-      - event_type: "THREAD_UNBLOCKED"
-        format: "thread_id:{thread} mutex_id:{mutex} timestamp:{ts} wakeup_reason:{reason}"
-        description: "Blocked thread is woken up"
-        
-      - event_type: "OWNERSHIP_CHANGE"
-        format: "mutex_id:{mutex} old_owner:{old} new_owner:{new} timestamp:{ts}"
-        description: "Mutex ownership transfer"
-    
-    state_transitions:
-      - event_type: "MUTEX_STATE_CHANGE"
-        format: "mutex_id:{mutex} old_state:{old} new_state:{new} timestamp:{ts}"
-        description: "Mutex state transition"
-  
-  # Validation rules for mutex correctness
-  validation:
-    mutual_exclusion:
-      rule: "At most one thread can hold mutex at any time"
-      check: "single_owner_only"
-      
-    ownership_consistency:
-      rule: "Only lock owner can release the mutex"
-      check: "owner_release_only"
-      
-    critical_section_safety:
-      rule: "Only mutex holder can be in critical section"
-      check: "protected_critical_section"
-      
-    deadlock_freedom:
-      rule: "System must be free from deadlocks"
-      check: "no_circular_waiting"
-      
-    progress:
-      rule: "Waiting threads eventually acquire the lock"
-      check: "eventual_acquisition"
-      
-    fairness:
-      rule: "Threads acquire lock in fair order"
-      check: "scheduling_fairness"
-  
-  # Trace generation parameters
-  generation:
-    thread_count: 4
-    mutex_count: 2
-    max_critical_section_time: 1000
-    max_wait_time: 5000
-    contention_scenarios:
-      - "high_contention": "many threads competing for single mutex"
-      - "low_contention": "threads rarely conflict"
-      - "nested_locking": "threads acquire multiple mutexes"
-      - "fairness_test": "verify FIFO ordering under contention"
-    
-    scheduling_policies:
-      - "fifo": "first-in-first-out scheduling"
-      - "priority": "priority-based scheduling"
-      - "fair": "fair scheduling algorithm"
-    
-    instrumentation_points:
-      - "lock_acquire_entry"
-      - "lock_acquire_success"
-      - "lock_release"
-      - "critical_section_boundaries"
-      - "blocking_operations"
-      - "thread_state_changes"
-    
-    deadlock_scenarios:
-      - "circular_wait": "threads wait in circular dependency"
-      - "hold_and_wait": "threads hold locks while requesting others"
-    
-    output_format: "NDJSON"
-    buffer_size: 10000
-    sampling_rate: 1.0
-    
-    # Performance metrics to capture
-    metrics:
-      - "lock_acquisition_time"
-      - "critical_section_duration"
-      - "contention_rate"
-      - "throughput"
-      - "fairness_index"
+spec_name: SimpleSpec
+constants:
+- name: Server
+  value: '{"s1", "s2"}'
+- name: MaxValue
+  value: '10'
+variables:
+- name: x
+  default_value: '0'
+- name: y
+  default_value: '[s \\in Server |-> 0]'
+actions:
+- name: Action1
+  parameters:
+  - name: s
+    source: Server
+  stmt: Action1(s)
+- name: Action2
+  parameters:
+  - name: m
+    source: messages
+  stmt: Action2(m)
+interactions:
+- name: IntermediateAction_1
 ```
 
-Generate the trace configuration now:
+## Important Notes
+1. Return ONLY the YAML content - no explanations, comments, or natural language
+2. Preserve TLA+ syntax exactly in default_value fields (escape backslashes)
+3. For actions with conditions, include the full stmt as it appears in Next
+4. Ignore variables that appear in Init but are not part of the main specification (e.g., pc, info, stack)
+5. Order matters: spec_name, constants, variables, actions, interactions
+
+Generate the YAML configuration based on the provided TLA+ files:
+
+{source_code}

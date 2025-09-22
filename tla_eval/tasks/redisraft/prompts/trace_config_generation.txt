@@ -1,7 +1,7 @@
 Generate a YAML configuration file from the provided TLA+ specification (.tla) and configuration (.cfg) files. Extract information according to the following rules:
 
 ## Task Description
-Parse the TLA+ specification and configuration files to create a structured YAML configuration that captures the specification name, constants, variables, actions, and interactions for RedisRaft complete Raft protocol.
+Parse the TLA+ specification and configuration files to create a structured YAML configuration that captures the specification name, constants, variables, actions, and interactions.
 
 ## Extraction Rules
 
@@ -15,7 +15,7 @@ Extract from the CONSTANTS section in the .cfg file.
 - value: The assigned value, formatted as:
   - Sets: Wrap in single quotes, e.g., '{s1, s2, s3}' becomes '{"s1", "s2", "s3"}'
   - Strings: Wrap in single quotes with double quotes inside, e.g., Nil becomes '"Nil"'
-  - Numbers: Wrap in single quotes as string, e.g., 3 becomes '3'
+  - Numbers: Wrap in single quotes as string, e.g., 5 becomes '5'
 
 ### variables
 Extract from the Init operator definition in the .tla file.
@@ -34,70 +34,55 @@ For each action:
 
 ### interactions
 Extract from the Next operator definition. Include only numbered intermediate actions.
-Just list the names (e.g., ElectionPhase_1, ReplicationPhase_1)
+Just list the names (e.g., HandletickElection_1, HandletickHeartbeat_1)
 
 ## Example
 Given this TLA+ specification:
 
----- MODULE redisraft ----
+---- MODULE SimpleSpec ----
 ...
 Init ==
-/\ state = [s \in Server |-> "Follower"]
-/\ current_term = [s \in Server |-> 0]
-/\ voted_for = [s \in Server |-> Nil]
-/\ messages = {}
+/\ x = 0
+/\ y = [s \in Server |-> 0]
 
 Next ==
-\/ \E s \in Server : HandleRequestVote(s)
-\/ \E s \in Server : BecomeCandidate(s)
-\/ \E msg \in messages : HandleAppendEntries(msg)
-\/ ElectionPhase_1
+\/ \E s \in Server : Action1(s)
+\/ \E m \in messages : Action2(m)
+\/ IntermediateAction_1
 
 And this configuration:
 
 CONSTANTS
-Server = {1, 2, 3}
-MaxTerm = 3
-Nil = "Nil"
+Server = {s1, s2}
+MaxValue = 10
 
 Generate this YAML:
 
 ```yaml
-spec_name: redisraft
+spec_name: SimpleSpec
 constants:
 - name: Server
-  value: '{"1", "2", "3"}'
-- name: MaxTerm
-  value: '3'
-- name: Nil
-  value: '"Nil"'
+  value: '{"s1", "s2"}'
+- name: MaxValue
+  value: '10'
 variables:
-- name: state
-  default_value: '[s \\in Server |-> "Follower"]'
-- name: current_term
+- name: x
+  default_value: '0'
+- name: y
   default_value: '[s \\in Server |-> 0]'
-- name: voted_for
-  default_value: '[s \\in Server |-> Nil]'
-- name: messages
-  default_value: '{}'
 actions:
-- name: HandleRequestVote
+- name: Action1
   parameters:
   - name: s
     source: Server
-  stmt: HandleRequestVote(s)
-- name: BecomeCandidate
+  stmt: Action1(s)
+- name: Action2
   parameters:
-  - name: s
-    source: Server
-  stmt: BecomeCandidate(s)
-- name: HandleAppendEntries
-  parameters:
-  - name: msg
+  - name: m
     source: messages
-  stmt: HandleAppendEntries(msg)
+  stmt: Action2(m)
 interactions:
-- name: ElectionPhase_1
+- name: IntermediateAction_1
 ```
 
 ## Important Notes
@@ -106,11 +91,6 @@ interactions:
 3. For actions with conditions, include the full stmt as it appears in Next
 4. Ignore variables that appear in Init but are not part of the main specification (e.g., pc, info, stack)
 5. Order matters: spec_name, constants, variables, actions, interactions
-6. For RedisRaft-specific parameters, use appropriate sources:
-   - Server parameters typically come from Server
-   - Message parameters typically come from messages
-   - State parameters typically come from state-related domains
-   - Term parameters typically come from term ranges
 
 Generate the YAML configuration based on the provided TLA+ files:
 

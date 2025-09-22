@@ -41,9 +41,7 @@ Key considerations for spinlock correctness:
    - try_lock(): non-blocking call that never spins (idle → trying → locked OR idle)
    - Model different state transitions based on call type
    - try_lock() requests MUST NEVER enter "spinning" state
-7. **MANDATORY**: Include proper fairness in Spec definition using pattern: 
-   Spec == Init /\ [][Next]_Vars /\ \A t \in Threads : WF_Vars(Unlock(t))
-   This ensures any thread holding a lock will eventually release it (critical for liveness)
+7. **MANDATORY Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (e.g., WF_Vars for unlock operations or overall progress) to ensure liveness properties.
 
 CRITICAL OUTPUT REQUIREMENTS:
 1. The MODULE name must remain exactly "spin" (---- MODULE spin ----)
