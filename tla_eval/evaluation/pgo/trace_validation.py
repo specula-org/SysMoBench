@@ -16,6 +16,7 @@ import subprocess
 import shutil
 import time
 from pathlib import Path
+import traceback
 from typing import Dict, Any, List
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -145,6 +146,7 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
             result.trace_conversion_time = time.time() - convert_start_time
             result.trace_conversion_successful = True
         except Exception as ex:
+            traceback.print_exception(ex)
             result.trace_conversion_successful = False
             result.trace_conversion_error = ex
             result.trace_conversion_time = time.time() - convert_start_time
@@ -163,6 +165,7 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
             result.trace_validation_time = time.time() - validation_start_time
             result.overall_success = True
         except Exception as ex:
+            traceback.print_exception(ex)
             result.trace_validation_successful = False
             result.trace_validation_time = time.time() - validation_start_time
 
@@ -174,7 +177,7 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
     
     def get_supported_tasks(self):
         """Get list of tasks supported by this evaluator."""
-        return ["dqueue"]
+        return ["dqueue", "locksvc", "raftkvs"]
     
     def get_default_config(self, system_name: str = None) -> Dict[str, Any]:
         return {}

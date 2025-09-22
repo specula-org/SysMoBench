@@ -7,4 +7,4 @@ generated TLA+ specifications and actual system behavior.
 
 from .trace_validation import PGoTraceValidationEvaluator
 
-__all__ = ['TraceValidationEvaluator']
+__all__ = ['PGoTraceValidationEvaluator']
