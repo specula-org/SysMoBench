@@ -13,6 +13,8 @@ import time
 from typing import Dict, Any
 from pathlib import Path
 
+from tla_eval.methods.agent_based.method import AgentBasedMethod
+
 from ..base import TLAGenerationMethod, GenerationTask, GenerationOutput
 from ...config import get_configured_model
 from ...core.verification.validators import TLAValidator, ValidationResult
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 MAX_TRACE_SIZE_BYTES = 512 * 1024  # 1 MB cap when sampling traces
 
 
-class TraceBasedMethod(TLAGenerationMethod):
+class TraceBasedMethod(AgentBasedMethod):
     """
     Trace-based method for TLA+ generation with automatic error correction, based on the AgentBasedMethod.
     
@@ -202,10 +204,6 @@ class TraceBasedMethod(TLAGenerationMethod):
         
         # Format template with task information
         return prompt_template.format(**format_vars)
-
-    def _generate_correction(self, task, current_spec: str, all_errors: list, model_obj):
-        from ..agent_based import AgentBasedMethod
-        return AgentBasedMethod._generate_correction(self, task, current_spec, all_errors, model_obj)
 
     def _convert_ndjson_to_tsv(self, ndjson_str: str) -> str:
         """Convert NDJSON payload into TSV while abbreviating long capitalized values."""

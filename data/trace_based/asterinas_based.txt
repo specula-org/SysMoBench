@@ -1,11 +1,6 @@
-Each log represents one distributed execution with events from multiple nodes.
+Each log represents one distributed execution with events from multiple nodes. Logs are given as TSV translated from JSON.
 
-1. File structure
-
-* UTF-8 JSON Lines text file.
-* After the comment header, the file consists of **one JSON object per line**. Blank lines may appear and should be ignored.
-
-2. Record schema (per line)
+1. Record schema (per line)
 
 * Each record is a **flat JSON object** with the **six required fields** below. No nesting, arrays, or extra fields were present in the samples.
 
@@ -18,17 +13,17 @@ Each log represents one distributed execution with events from multiple nodes.
 * All strings are **double-quoted** JSON strings. Numbers are base-10 JSON numbers. No per-record timestamps.
 * Do NOT use these actions as-is as operations in the spec; you should only use built-in operators.
 
-3. Allowed/observed value shapes
+2. Allowed/observed value shapes
 
 * `state`: a short string label. **Observed** values include `"locked"` and `"unlocked"`. (Treat as open set; do not assume this list is exhaustive.)
 * `action`: a short string label in PascalCase. **Observed** values include `"TryAcquireBlocking"`, `"TryAcquireNonBlocking"`, `"AcquireSuccess"`, `"Release"`. (Treat as open set; do not assume this list is exhaustive.)
 
-4. Formatting/whitespace rules
+3. Formatting/whitespace rules
 
 * Each JSON object is contained on a single line.
 * Lines that do **not** start with `{` (e.g., `#` comments or blank lines) should be ignored by parsers.
 * No trailing commas inside JSON objects.
 
-5. Ordering & grouping
+4. Ordering & grouping
 
 * Records appear in file order. Do not assume any additional invariants (e.g., monotonicity/uniqueness of `seq`, relationships between `thread` and `actor`, or specific `state`↔`action` progressions) beyond field presence and types.

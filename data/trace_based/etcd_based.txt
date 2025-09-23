@@ -1,4 +1,4 @@
-Logs are emitted in newline-delimited JSON format. Each log represents one distributed execution with events from multiple nodes.
+Logs are emitted in TSV format. Each log represents one distributed execution with events from multiple nodes.
 
 ## 1) Line envelope (outer format)
 

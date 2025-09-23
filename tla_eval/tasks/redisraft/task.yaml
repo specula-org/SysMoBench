@@ -7,7 +7,7 @@ language: "c"
 # Source code repository information
 repository:
   url: "https://github.com/RedisLabs/redisraft.git"
-  branch: "main"
+  branch: "master"
   
 # Files to extract from the repository
 source_files:
@@ -19,6 +19,11 @@ default_source_file: "deps/raft/src/raft_server.c"
 
 # TLA+ specification module name
 specModule: "redisraft"
+
+# Traces folder location
+traces_folder: "data/sys_traces/redisraft"
+trace_format: "redisraft_based"
+trace_sample: 5
 
 # Metadata
 metadata:

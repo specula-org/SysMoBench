@@ -182,10 +182,25 @@ class TaskLoader:
                     if distributed_trace:
                         all_traces.append(distributed_trace)
             return all_traces
+        if trace_format == "redisraft_based":
+            all_traces = []
+            for subfolder in sorted([p for p in traces_path.iterdir() if p.is_dir()]):
+                merged_trace = subfolder / "merged_trace.ndjson"
+                if not merged_trace.is_file():
+                    continue
+                trace_content = merged_trace.read_text(encoding="utf-8").strip()
+                if trace_content:
+                    trace_name = f"{subfolder.name}/{merged_trace.name}"
+                    all_traces.append((trace_name, trace_content))
+            if not all_traces:
+                raise FileNotFoundError(
+                    f"No merged_trace.ndjson files found in folder: {traces_folder}"
+                )
+            return all_traces
         else:
             all_traces = []
             patterns = [
-            "etcd_trace_*.ndjson",
+                "etcd_trace_*.ndjson",
                 "trace_*.jsonl",
                 "trace-*.ndjson",
                 "*_combined.jsonl",
