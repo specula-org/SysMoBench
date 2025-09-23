@@ -20,6 +20,10 @@ default_source_file: "systems/raftkvs/raftkvs.go"
 # TLA+ specification module name
 specModule: "raftkvs"
 
+# Traces folder location
+traces_folder: "data/sys_traces/raftkvs"
+trace_format: "tracelink_based"
+
 # Metadata
 metadata:
   original_project: "DistCompiler/pgo"

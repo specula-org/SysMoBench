@@ -74,6 +74,7 @@ tools/cfa/input/test_*.tla
 data/repositories/
 data/sys_traces
 run_batch_experiments.sh
+local_env_setup.sh
 
 data/spec
 data/source

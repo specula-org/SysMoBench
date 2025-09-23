@@ -20,6 +20,10 @@ default_source_file: "ostd/src/sync/mutex.rs"
 # TLA+ specification module name
 specModule: "mutex"
 
+# Traces folder location
+traces_folder: "data/sys_traces/mutex"
+trace_format: "asterinas_based"
+
 # Metadata
 metadata:
   original_project: "asterinas"
