@@ -1,5 +1,5 @@
 """
-Trace Validation Evaluator: System consistency evaluation for TLA+ specifications.
+PGo Trace Validation Evaluator: System consistency evaluation for TLA+ specifications.
 
 This evaluator implements a generic trace validation pipeline that works with
 any system that provides trace generation and conversion implementations:
@@ -83,7 +83,11 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
         result = ConsistencyEvaluationResult(task_name=task_name, method_name="direct_call", model_name=self.model_name)
         result.trace_generation_successful = True # N/A, we store them in repo
 
-        traces_out_dir = Path(f"data/spec/{task_name}/{self.model_name}/traces_found")
+        # guess traces location based on spec location (dir tree can be a bit inconsistent)
+        traces_out_dir = Path(spec_file_path).parent / "traces_found"
+        # This is the original version based on task + model:
+        # traces_out_dir = Path(f"data/spec/{task_name}/{self.model_name}/traces_found")
+
         src_dir = Path(f"tla_eval/core/trace_generation/{task_name}")
         shutil.copytree(src=src_dir / "traces_found", dst=traces_out_dir, dirs_exist_ok=True)
         traces_dirs = [Path(p) for p in Path(traces_out_dir).iterdir() if Path(p).is_dir()]
@@ -104,7 +108,7 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
                 subprocess.run([
                     "java", "-jar", self.pgo_exe, "tracegen",
                     src_dir / f"{task_name}.tla",
-                    "--noall-paths", "--cfg-file", config_file_path, traces_dir,
+                    "--noall-paths", traces_dir,
                 ], check=True)
 
                 # patch out cfg parts
@@ -125,8 +129,6 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
 
                 # overwrite TLA+
                 (Path(traces_dir) / f"{task_name}.tla").write_text(spec_text)
-
-                shutil.copy(cfg_source_path, Path(traces_dir) / f"{task_name}.cfg")
 
             refinement_mapping = ""
             if traces_dirs:
@@ -156,14 +158,42 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
 
         validation_start_time = time.time()
         try:
+            task_label_count_map = {
+                "dqueue": 6,
+                "locksvc": 6,
+                "raftkvs": 14,
+            }
+            
+            validate_ok = True
+            cov_ok_pcs = set()
+            cov_bad_pcs = set()
             for traces_dir in traces_dirs:
-                subprocess.run([
-                    "java", "-jar", self.pgo_exe, "tlc",
-                    "--dfs", Path(traces_dir) / f"{task_name}Validate.tla",
-                ], check=True)
-            result.trace_validation_successful = True
+                tlc_result = subprocess.run(
+                    [
+                        "java", "-jar", self.pgo_exe, "tlc",
+                        "--dfs", Path(traces_dir) / f"{task_name}Validate.tla",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                print(tlc_result.stdout)
+                if tlc_result.returncode != 0:
+                    validate_ok = False
+                    init_frag = "  pc |-> \""
+                    end_frag = "\","
+                    pcs = [l for l in tlc_result.stdout.splitlines() if l.startswith(init_frag) and l.endswith(end_frag)]
+                    if pcs:
+                        cov_ok_pcs |= set(pcs[:-1])
+                        cov_bad_pcs.add(pcs[-1])
+
+            coverage = len(cov_ok_pcs - cov_bad_pcs)
+            total_label_count = task_label_count_map[task_name]
+            coverage_percent = coverage / total_label_count * 100
+            print(f"Coverage: {coverage} / {total_label_count} -> {coverage_percent}% (ok = {cov_ok_pcs} vs bad = {cov_bad_pcs})")
+            result.trace_validation_successful = validate_ok
             result.trace_validation_time = time.time() - validation_start_time
-            result.overall_success = True
+            result.overall_success = validate_ok
         except Exception as ex:
             traceback.print_exception(ex)
             result.trace_validation_successful = False
@@ -192,11 +222,6 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
         Returns:
             Dictionary mapping scenario names to their configurations
         """
-        # if system_name and is_system_supported(system_name):
-        #     system_module = get_system(system_name)
-        #     if system_module:
-        #         trace_generator = system_module.get_trace_generator()
-        #         return trace_generator.get_available_scenarios()
         
         return {}
 
@@ -221,7 +246,7 @@ class PGoTraceValidationEvaluator(BaseEvaluator):
             spec_validate_file_contents=validate_contents,
         )
 
-        model = get_configured_model(self.model_name)
+        model = get_configured_model("claude") # hardcoded based on what works best for other refinement tasks
         generation_config = GenerationConfig()
         result = model.generate_direct(prompt, generation_config)
 
