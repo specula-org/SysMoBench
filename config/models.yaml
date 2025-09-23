@@ -12,7 +12,7 @@ models:
     timeout: 1800  # 30 minutes timeout for large TLA+ generation
     
   # User's Anthropic configuration  
-  my_claude:
+  claude:
     provider: "anthropic"
     model_name: "claude-sonnet-4-20250514"
     api_key_env: "ANTHROPIC_API_KEY"

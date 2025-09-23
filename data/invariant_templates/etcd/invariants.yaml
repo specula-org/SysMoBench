@@ -150,9 +150,3 @@ metadata:
   liveness_invariants: 2
   core_raft_invariants: 3  # LogInv, MoreThanOneLeaderInv, LogMatchingInv
   etcd_specific_invariants: 10  # All others are etcd-specific based on actual implementation
-  quality_level: "high"
-  concrete_predicates: true
-  follows_tla_best_practices: true
-  based_on_actual_code: true
-  variable_definitions_included: true
-  no_undefined_helpers: true

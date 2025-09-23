@@ -64,7 +64,4 @@ CRITICAL OUTPUT REQUIREMENTS:
 5. End your response with the closing ====
 6. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
 7. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags
-8. **MANDATORY Spec Definition with Proper Fairness**: The Spec definition MUST include proper fairness assumptions for liveness guarantees. Use the pattern:
-   Spec == Init /\ [][Next]_Vars /\ \A t \in Threads : WF_Vars(Unlock(t))
-   This ensures that any thread holding a lock will eventually release it (critical for liveness properties).
-   (Replace "Vars", "Next", "Threads", and "Unlock" with your actual names)
+8. **MANDATORY Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (e.g., WF_Vars for unlock operations or overall progress) to ensure liveness properties.

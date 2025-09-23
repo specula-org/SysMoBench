@@ -42,7 +42,7 @@ class OutputManager:
             metric: Metric name (e.g., "compilation_check", "runtime_check")
             task: Task name (e.g., "etcd", "raft")
             method: Method name (e.g., "agent_based", "direct_call")
-            model: Model name (e.g., "my_claude", "my_yunwu")
+            model: Model name (e.g., "claude", "my_yunwu")
             timestamp: Optional custom timestamp (defaults to current time)
             
         Returns:

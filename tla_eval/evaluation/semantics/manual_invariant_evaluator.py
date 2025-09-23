@@ -119,7 +119,7 @@ class InvariantTranslator:
         try:
             # Always use Claude for invariant translation as it produces the best results
             # This is a "usage" of LLM rather than "evaluation", so we want consistency
-            claude_model_name = "my_claude"  # Use available Claude model
+            claude_model_name = "claude"  # Use available Claude model
             logger.info(f"Using Claude ({claude_model_name}) for invariant translation (original model: {model_name})")
             model = get_configured_model(claude_model_name)
             
@@ -149,9 +149,14 @@ class InvariantTranslator:
             
             if not result.success:
                 return False, {}, result.error_message
-            
+
             logger.info(f"Generated text length: {len(result.generated_text)} characters")
-            
+
+            # DEBUG: Log the generated text content for debugging
+            logger.info("=== GENERATED TEXT START ===")
+            logger.info(result.generated_text)
+            logger.info("=== GENERATED TEXT END ===")
+
             # Parse the generated invariants
             translated_invariants = self._parse_generated_invariants(
                 result.generated_text, templates
@@ -250,30 +255,38 @@ class InvariantTranslator:
                     
                     return translated_invariants
             
-        except json.JSONDecodeError:
-            logger.info("JSON parsing failed, falling back to line-based parsing")
+        except json.JSONDecodeError as e:
+            logger.info(f"JSON parsing failed: {e}, falling back to line-based parsing")
+            logger.info(f"Attempted to parse: {clean_text[:500]}...")
         
         # Fallback to original line-based parsing for backward compatibility
         lines = generated_text.strip().split('\n')
-        
-        for line in lines:
+        logger.info(f"Attempting line-based parsing with {len(lines)} lines")
+
+        for i, line in enumerate(lines):
             line = line.strip()
             if not line or line.startswith('```') or line.startswith('#'):
                 continue
             
             # Look for pattern: InvariantName == <expression>
             if ' == ' in line:
+                logger.info(f"Found potential invariant line {i+1}: {line}")
                 parts = line.split(' == ', 1)
                 if len(parts) == 2:
                     invariant_name = parts[0].strip()
                     invariant_definition = line  # Keep the full definition
-                    
+                    logger.info(f"Extracted invariant name: '{invariant_name}'")
+
                     # Match to template names (case-insensitive)
                     for template in templates:
                         if template.name.lower() == invariant_name.lower():
                             translated_invariants[template.name] = invariant_definition
-                            logger.debug(f"Parsed line-based invariant: {template.name}")
+                            logger.info(f"✓ Matched and stored invariant: {template.name}")
                             break
+                    else:
+                        logger.info(f"No matching template found for: '{invariant_name}'")
+            else:
+                logger.debug(f"Line {i+1} doesn't contain ' == ': {line[:50]}...")
         
         return translated_invariants
 
@@ -364,7 +377,7 @@ class StaticConfigGenerator:
         
         # Generate base config with empty invariants using LLM
         # Use Claude for config generation as well since it produces better results
-        claude_model_name = "my_claude"
+        claude_model_name = "claude"
         logger.info(f"Using Claude ({claude_model_name}) for base config generation (original model: {model_name})")
         success, config_content, error = self.llm_config_generator.generate_config(
             tla_content, "", task_name, claude_model_name

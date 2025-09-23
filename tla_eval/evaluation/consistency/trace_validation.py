@@ -27,6 +27,7 @@ from ...core.spec_processing import SpecTraceGenerator, generate_config_from_tla
 from ...core.verification import TLCRunner
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import ConsistencyEvaluationResult
+from ...utils.output_manager import get_output_manager
 
 
 class TraceValidationEvaluator(BaseEvaluator):
@@ -46,7 +47,9 @@ class TraceValidationEvaluator(BaseEvaluator):
                  traces_dir: str = "data/sys_traces",
                  timeout: int = 600,
                  model_name: str = None,
-                 max_workers: int = 4):
+                 max_workers: int = 4,
+                 with_exist_traces: int = None,
+                 with_exist_specTrace: bool = False):
         """
         Initialize trace validation evaluator.
         
@@ -56,12 +59,16 @@ class TraceValidationEvaluator(BaseEvaluator):
             timeout: Timeout for evaluation operations in seconds
             model_name: Name of the model to use for specTrace generation (if None, uses default)
             max_workers: Maximum number of worker threads for concurrent trace validation
+            with_exist_traces: Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new ones
+            with_exist_specTrace: Use existing specTrace.tla and specTrace.cfg from spec file directory
         """
         super().__init__(timeout=timeout)
         self.spec_dir = Path(spec_dir)
         self.traces_dir = Path(traces_dir)
         self.model_name = model_name
         self.max_workers = max_workers
+        self.with_exist_traces = with_exist_traces
+        self.with_exist_specTrace = with_exist_specTrace
         
         # Ensure base traces directory exists
         self.traces_dir.mkdir(parents=True, exist_ok=True)
@@ -81,6 +88,16 @@ class TraceValidationEvaluator(BaseEvaluator):
         
         print(f"Starting trace validation evaluation for task: {task_name}")
         print(f"Configuration: {config}")
+        
+        # Create structured output directory using existing output manager
+        output_manager = get_output_manager()
+        output_dir = output_manager.create_experiment_dir(
+            metric="trace_validation",
+            task=task_name,
+            method="system",  # We don't have method/model context here, using generic values
+            model="trace_gen"
+        )
+        print(f"Using output directory: {output_dir}")
         
         # Create evaluation result
         result = ConsistencyEvaluationResult(task_name, "trace_validation", "system")
@@ -102,12 +119,20 @@ class TraceValidationEvaluator(BaseEvaluator):
             system_traces_dir.mkdir(parents=True, exist_ok=True)
             
             # Get number of traces to generate from config
-            num_traces = config.get('num_traces', 20)
+            # For rwmutex, default to 100 traces to match the kernel test
+            if task_name == 'rwmutex':
+                num_traces = config.get('num_traces', 100)
+            else:
+                num_traces = config.get('num_traces', 20)
             timestamp = start_time.strftime("%Y%m%d_%H%M%S")
             
-            # Step 1: Generate multiple runtime traces using system-specific implementation
-            print(f"Step 1: Generating {num_traces} runtime traces using system-specific implementation...")
-            trace_results = self._generate_multiple_system_traces(system_module, config, system_traces_dir, task_name, timestamp, num_traces)
+            # Step 1: Get traces (either load existing or generate new ones)
+            if self.with_exist_traces is not None:
+                print(f"Step 1: Loading {self.with_exist_traces} existing trace files...")
+                trace_results = self._load_existing_traces(system_traces_dir, task_name, self.with_exist_traces)
+            else:
+                print(f"Step 1: Generating {num_traces} runtime traces using system-specific implementation...")
+                trace_results = self._generate_multiple_system_traces(system_module, config, system_traces_dir, task_name, timestamp, num_traces)
             
             result.trace_generation_time = (datetime.now() - start_time).total_seconds()
             result.trace_generation_successful = all(tr["success"] for tr in trace_results)
@@ -122,10 +147,15 @@ class TraceValidationEvaluator(BaseEvaluator):
             total_events = sum(tr["event_count"] for tr in trace_results)
             print(f"Step 1 completed: {len(trace_results)} traces generated with {total_events} total events")
             
-            # Step 2: Generate specTrace.tla from TLA+ spec (LLM + static analysis)
-            print("Step 2: Generating specTrace.tla from TLA+ spec...")
-            step2_start = datetime.now()
-            spectrace_result = self._generate_spectrace_from_tla(task_name, timestamp, spec_file_path, config_file_path, self.model_name)
+            # Step 2: Get specTrace files (either use existing or generate new ones)
+            if self.with_exist_specTrace and spec_file_path:
+                print("Step 2: Using existing specTrace.tla and specTrace.cfg from spec file directory...")
+                step2_start = datetime.now()
+                spectrace_result = self._load_existing_spectrace_files(spec_file_path, config_file_path)
+            else:
+                print("Step 2: Generating specTrace.tla from TLA+ spec...")
+                step2_start = datetime.now()
+                spectrace_result = self._generate_spectrace_from_tla(task_name, timestamp, spec_file_path, config_file_path, self.model_name)
             
             print(f"DEBUG: Step 2 result: {spectrace_result}")
             
@@ -136,6 +166,9 @@ class TraceValidationEvaluator(BaseEvaluator):
             
             result.specification_files = [spectrace_result.get("config_file", "")]
             print("Step 2 completed: specTrace.tla and specTrace.cfg generated")
+            
+            # Copy all TLA+ files to output directory for complete validation framework
+            self._setup_complete_validation_framework(output_dir, task_name, spectrace_result)
             
             # Step 3: Convert multiple sys_traces to spec-compatible format using system-specific implementation
             print(f"Step 3: Converting {len(trace_results)} sys_traces to spec-compatible format using system-specific implementation...")
@@ -170,13 +203,19 @@ class TraceValidationEvaluator(BaseEvaluator):
             result.trace_validation_successful = all(vr["success"] for vr in verification_results)
             result.validated_events = sum(cr['output_transitions'] for cr in conversion_results)
             
+            # Calculate and display success rate
+            successful_count = sum(1 for vr in verification_results if vr["success"])
+            total_count = len(verification_results)
+            success_rate = (successful_count / total_count * 100) if total_count > 0 else 0
+
+            print(f"Step 4 results: {successful_count}/{total_count} traces verified successfully ({success_rate:.1f}%)")
+
             if not result.trace_validation_successful:
                 failed_verifications = [vr.get("error", "TLC verification failed") for vr in verification_results if not vr["success"]]
                 print(f"ERROR: Step 4 failed with errors: {failed_verifications}")
                 result.trace_validation_error = f"Failed to verify some traces: {failed_verifications}"
             else:
-                successful_count = sum(1 for vr in verification_results if vr["success"])
-                print(f"Step 4 completed: Successfully verified {successful_count}/{len(verification_results)} traces")
+                print(f"Step 4 completed: All traces verified successfully")
             
             # Update overall success
             result.overall_success = (
@@ -185,10 +224,16 @@ class TraceValidationEvaluator(BaseEvaluator):
                 result.trace_validation_successful
             )
             
+            # Store output directory in result for user reference
+            result.output_directory = str(output_dir)
+            
             if result.overall_success:
-                print("✓ Trace validation evaluation: PASS")
+                print("Trace validation evaluation: ✓ PASS")
+                print(f"Complete validation framework saved to: {output_dir}")
             else:
-                print("✗ Trace validation evaluation: FAIL")
+                print("Trace validation evaluation: ✗ FAIL")
+                print(f"[INFO] Trace validation: ✗ FAIL ({success_rate:.1f}%)")
+                print(f"Partial results saved to: {output_dir}")
             
             return result
             
@@ -287,10 +332,11 @@ class TraceValidationEvaluator(BaseEvaluator):
             Dictionary with conversion results
         """
         try:
-            # Create output directory for converted traces
-            converted_traces_dir = Path("data/traces") / system_name
+            # Create output directory for converted traces with date folder
+            date_folder = timestamp.split('_')[0]  # Extract date part (YYYYMMDD)
+            converted_traces_dir = Path("data/traces") / system_name / date_folder
             converted_traces_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Generate output path for converted trace
             converted_trace_path = converted_traces_dir / f"{system_name}_converted_{timestamp}.ndjson"
             
@@ -331,10 +377,11 @@ class TraceValidationEvaluator(BaseEvaluator):
             try:
                 input_trace_path = Path(trace_result["trace_file"])
                 
-                # Create output directory for converted traces
-                converted_traces_dir = Path("data/traces") / system_name
+                # Create output directory for converted traces with date folder
+                date_folder = timestamp.split('_')[0]  # Extract date part (YYYYMMDD)
+                converted_traces_dir = Path("data/traces") / system_name / date_folder
                 converted_traces_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 # Generate unique output path for each converted trace
                 converted_trace_path = converted_traces_dir / f"{system_name}_converted_{timestamp}_{i+1}.ndjson"
                 
@@ -575,6 +622,244 @@ class TraceValidationEvaluator(BaseEvaluator):
         
         return verification_results
     
+    def _load_existing_traces(self, system_traces_dir: Path, task_name: str, num_traces: int) -> List[Dict[str, Any]]:
+        """
+        Load existing trace files instead of generating new ones.
+        
+        Args:
+            system_traces_dir: Directory containing trace files  
+            task_name: Name of the task/system
+            num_traces: Number of trace files to load (1-99)
+            
+        Returns:
+            List of dictionaries with trace file information in the same format as generation results
+        """
+        trace_results = []
+        
+        for i in range(1, num_traces + 1):
+            # Look for trace files with pattern trace_XX.jsonl
+            trace_filename = f"trace_{i:02d}.jsonl"
+            trace_path = system_traces_dir / trace_filename
+            
+            if not trace_path.exists():
+                print(f"  Warning: Expected trace file not found: {trace_path}")
+                trace_results.append({
+                    "success": False,
+                    "error": f"Trace file not found: {trace_filename}",
+                    "trace_file": str(trace_path),
+                    "event_count": 0
+                })
+                continue
+            
+            try:
+                # Count events in the trace file (similar to generated traces)
+                event_count = 0
+                with open(trace_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            # Try to parse as JSON to verify it's a valid trace event
+                            try:
+                                import json
+                                json.loads(line)
+                                event_count += 1
+                            except json.JSONDecodeError:
+                                # Skip non-JSON lines (like comments)
+                                pass
+                
+                print(f"  Loaded trace {i:02d}: {event_count} events from {trace_filename}")
+                trace_results.append({
+                    "success": True,
+                    "trace_file": str(trace_path),
+                    "event_count": event_count,
+                    "source": "existing_file"
+                })
+                
+            except Exception as e:
+                print(f"  Failed to read trace {i:02d}: {str(e)}")
+                trace_results.append({
+                    "success": False,
+                    "error": f"Failed to read trace file: {str(e)}",
+                    "trace_file": str(trace_path),
+                    "event_count": 0
+                })
+        
+        # Report summary
+        successful_traces = [tr for tr in trace_results if tr["success"]]
+        total_events = sum(tr["event_count"] for tr in successful_traces)
+        print(f"  Summary: {len(successful_traces)}/{num_traces} traces loaded with {total_events} total events")
+        
+        return trace_results
+    
+    def _setup_complete_validation_framework(self, output_dir: Path, task_name: str, spectrace_result: Dict[str, Any]) -> None:
+        """
+        Set up complete TLA+ validation framework in output directory.
+        
+        This creates a self-contained validation environment with:
+        1. Common TLA+ library files from data/spec/common
+        2. Original task specification files (.tla and .cfg)
+        3. Generated specTrace.tla and specTrace.cfg files
+        
+        Args:
+            output_dir: Output directory to set up framework in
+            task_name: Name of the task
+            spectrace_result: Result from specTrace generation containing file paths
+        """
+        try:
+            print("  Setting up complete TLA+ validation framework...")
+            
+            # Step 1: Copy common TLA+ library files
+            common_dir = Path("data/spec/common")
+            if common_dir.exists():
+                print(f"    Copying common TLA+ library files from {common_dir}")
+                for common_file in common_dir.iterdir():
+                    if common_file.is_file():
+                        dest_file = output_dir / common_file.name
+                        shutil.copy2(common_file, dest_file)
+                        print(f"      Copied: {common_file.name}")
+            else:
+                print(f"    Common directory not found: {common_dir}")
+            
+            # Step 2: Copy original task specification files
+            task_spec_dir = self.spec_dir / task_name
+            if task_spec_dir.exists():
+                print(f"    Copying original task specification files from {task_spec_dir}")
+                
+                # Copy .tla files
+                for tla_file in task_spec_dir.glob("*.tla"):
+                    if tla_file.name not in ["specTrace.tla"]:  # Skip generated files
+                        dest_file = output_dir / tla_file.name
+                        shutil.copy2(tla_file, dest_file)
+                        print(f"      Copied: {tla_file.name}")
+                
+                # Copy .cfg files  
+                for cfg_file in task_spec_dir.glob("*.cfg"):
+                    if cfg_file.name not in ["specTrace.cfg"]:  # Skip generated files
+                        dest_file = output_dir / cfg_file.name
+                        shutil.copy2(cfg_file, dest_file)
+                        print(f"      Copied: {cfg_file.name}")
+            else:
+                print(f"    Task specification directory not found: {task_spec_dir}")
+            
+            # Step 3: Copy generated specTrace files
+            if spectrace_result.get("success") and "output_dir" in spectrace_result:
+                spectrace_dir = Path(spectrace_result["output_dir"])
+                print(f"    Copying generated specTrace files from {spectrace_dir}")
+                
+                # Copy specTrace.tla and specTrace.cfg
+                for spec_file in ["specTrace.tla", "specTrace.cfg"]:
+                    src_file = spectrace_dir / spec_file
+                    if src_file.exists():
+                        dest_file = output_dir / spec_file
+                        shutil.copy2(src_file, dest_file)
+                        print(f"      Copied: {spec_file}")
+                    else:
+                        print(f"      Generated file not found: {src_file}")
+            
+            # Step 4: Create summary file
+            framework_summary = {
+                "framework": "TLA+ Trace Validation",
+                "task": task_name,
+                "timestamp": datetime.now().isoformat(),
+                "files": {
+                    "common_libraries": [f.name for f in (common_dir.iterdir() if common_dir.exists() else []) if f.is_file()],
+                    "original_specs": [f.name for f in (task_spec_dir.glob("*.tla") if task_spec_dir.exists() else []) if f.name != "specTrace.tla"],
+                    "original_configs": [f.name for f in (task_spec_dir.glob("*.cfg") if task_spec_dir.exists() else []) if f.name != "specTrace.cfg"],
+                    "generated_files": ["specTrace.tla", "specTrace.cfg"]
+                }
+            }
+            
+            summary_file = output_dir / "validation_framework_summary.json"
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                import json
+                json.dump(framework_summary, f, indent=2, ensure_ascii=False)
+            
+            print(f"    Created framework summary: {summary_file.name}")
+            print("  Complete TLA+ validation framework setup completed!")
+            
+        except Exception as e:
+            print(f"    Error setting up validation framework: {str(e)}")
+            # Don't fail the entire evaluation for framework setup issues
+    
+    def _load_existing_spectrace_files(self, spec_file_path: str, config_file_path: str = None) -> Dict[str, Any]:
+        """
+        Load existing specTrace.tla and specTrace.cfg files from the spec file directory.
+        
+        Args:
+            spec_file_path: Path to the main spec file
+            config_file_path: Path to the main config file (optional)
+            
+        Returns:
+            Dictionary with loading results
+        """
+        try:
+            spec_file = Path(spec_file_path)
+            spec_dir = spec_file.parent
+            
+            # Look for specTrace.tla and specTrace.cfg in the same directory
+            spectrace_tla = spec_dir / "specTrace.tla"
+            spectrace_cfg = spec_dir / "specTrace.cfg"
+            
+            print(f"    Looking for existing specTrace files in: {spec_dir}")
+            
+            # Check if both files exist
+            if not spectrace_tla.exists():
+                return {
+                    "success": False,
+                    "error": f"specTrace.tla not found in spec directory: {spectrace_tla}"
+                }
+            
+            if not spectrace_cfg.exists():
+                return {
+                    "success": False,
+                    "error": f"specTrace.cfg not found in spec directory: {spectrace_cfg}"
+                }
+            
+            print(f"    Found existing specTrace.tla: {spectrace_tla}")
+            print(f"    Found existing specTrace.cfg: {spectrace_cfg}")
+            
+            # Read files to validate they're not empty
+            try:
+                with open(spectrace_tla, 'r', encoding='utf-8') as f:
+                    tla_content = f.read().strip()
+                if not tla_content:
+                    return {
+                        "success": False,
+                        "error": f"specTrace.tla is empty: {spectrace_tla}"
+                    }
+                
+                with open(spectrace_cfg, 'r', encoding='utf-8') as f:
+                    cfg_content = f.read().strip()
+                if not cfg_content:
+                    return {
+                        "success": False,
+                        "error": f"specTrace.cfg is empty: {spectrace_cfg}"
+                    }
+                
+                print(f"    Validated specTrace files (TLA: {len(tla_content)} chars, CFG: {len(cfg_content)} chars)")
+                
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to read existing specTrace files: {str(e)}"
+                }
+            
+            return {
+                "success": True,
+                "output_dir": str(spec_dir),
+                "files": {
+                    "specTrace.tla": str(spectrace_tla),
+                    "specTrace.cfg": str(spectrace_cfg)
+                },
+                "source": "existing_files"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Error loading existing specTrace files: {str(e)}"
+            }
+    
     def get_evaluation_name(self) -> str:
         """Get the name of this evaluation method."""
         return "trace_validation"
@@ -634,7 +919,9 @@ def create_trace_validation_evaluator(
     traces_dir: str = "data/sys_traces",
     timeout: int = 600,
     model_name: str = None,
-    max_workers: int = 4
+    max_workers: int = 4,
+    with_exist_traces: int = None,
+    with_exist_specTrace: bool = False
 ) -> TraceValidationEvaluator:
     """
     Factory function to create a trace validation evaluator.
@@ -645,8 +932,10 @@ def create_trace_validation_evaluator(
         timeout: Timeout for evaluation operations in seconds
         model_name: Name of the model to use for specTrace generation
         max_workers: Maximum number of worker threads for concurrent trace validation
+        with_exist_traces: Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new ones
+        with_exist_specTrace: Use existing specTrace.tla and specTrace.cfg from spec file directory
         
     Returns:
         TraceValidationEvaluator instance
     """
-    return TraceValidationEvaluator(spec_dir, traces_dir, timeout, model_name, max_workers)
+    return TraceValidationEvaluator(spec_dir, traces_dir, timeout, model_name, max_workers, with_exist_traces, with_exist_specTrace)

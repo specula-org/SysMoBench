@@ -70,6 +70,7 @@ class MetricRegistry:
         from ..semantics.runtime_check import RuntimeCheckEvaluator
         from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
         from ..semantics.coverage_evaluator import CoverageEvaluator
+        from ..semantics.runtime_coverage_evaluator import RuntimeCoverageEvaluator
         from ..consistency.trace_validation import TraceValidationEvaluator
         from ..pgo.trace_validation import PGoTraceValidationEvaluator
         from ..composite.composite_evaluation import CompositeEvaluator
@@ -119,6 +120,20 @@ class MetricRegistry:
             description="TLA+ specification coverage analysis using TLC coverage statistics",
             evaluator_class=CoverageEvaluator,
             default_params={"tlc_timeout": 60, "coverage_interval": 1}
+        ))
+
+        self.register_metric(MetricInfo(
+            name="runtime_coverage",
+            dimension="semantics",
+            description="Runtime coverage using simulation mode to identify successful vs error-prone actions",
+            evaluator_class=RuntimeCoverageEvaluator,
+            default_params={
+                "num_simulations": 20,
+                "simulation_depth": 50,
+                "traces_per_simulation": 50,
+                "tlc_timeout": 30,
+                "coverage_interval": 1
+            }
         ))
         
         # Future semantics metrics (placeholders)

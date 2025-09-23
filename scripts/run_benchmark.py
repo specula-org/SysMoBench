@@ -15,10 +15,10 @@ Usage Examples:
     python scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu
     
     # Use existing TLA+ specification files (coverage evaluation)
-    python scripts/run_benchmark.py --task etcd --method agent_based --model my_claude --metric coverage --spec-file path/to/spec.tla --config-file path/to/config.cfg
+    python scripts/run_benchmark.py --task etcd --method agent_based --model claude --metric coverage --spec-file path/to/spec.tla --config-file path/to/config.cfg
     
     # Use only existing TLA+ file, generate config automatically
-    python scripts/run_benchmark.py --task etcd --method agent_based --model my_claude --metric coverage --spec-file path/to/spec.tla
+    python scripts/run_benchmark.py --task etcd --method agent_based --model claude --metric coverage --spec-file path/to/spec.tla
     
     # Batch evaluation with multiple combinations
     python scripts/run_benchmark.py --tasks etcd raft --methods direct_call agent_based --models gpt-4 claude-3 --output results/
@@ -146,6 +146,21 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
         print(f"Trace validation time: {eval_result.trace_validation_time:.2f}s")
         print(f"Generated trace count: {eval_result.generated_trace_count}")
         print(f"Validated events: {eval_result.validated_events}")
+        
+        # Show success ratio for trace validation
+        if hasattr(eval_result, 'converted_trace_files') and eval_result.converted_trace_files:
+            total_traces = len(eval_result.converted_trace_files)
+            successful_traces = 0
+            
+            # Count successful validations based on overall success and lack of validation errors
+            if eval_result.trace_validation_successful:
+                successful_traces = total_traces
+            elif hasattr(eval_result, '_validation_results'):
+                # If we have detailed validation results, count successes
+                successful_traces = sum(1 for r in eval_result._validation_results if r.get('success', False))
+            
+            success_rate = (successful_traces / total_traces * 100) if total_traces > 0 else 0
+            print(f"Validation success rate: {successful_traces}/{total_traces} ({success_rate:.1f}%)")
         
         if not eval_result.overall_success:
             if not eval_result.trace_generation_successful:
@@ -503,7 +518,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             # Use default configuration for consistency evaluation
             consistency_config = evaluator.get_default_config(task_name)
             
-            evaluation_result = evaluator.evaluate(task_name, consistency_config)
+            evaluation_result = evaluator.evaluate(task_name, consistency_config, spec_file, config_file)
             logger.info(f"Trace validation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
         else:
             # For future metrics, use generic interface with smart file parameter detection
@@ -698,6 +713,10 @@ Examples:
                        help="Granularity level for progressive metrics")
     parser.add_argument("--tlc-timeout", type=int,
                        help="Timeout for TLC model checking in seconds (for coverage and runtime metrics)")
+    parser.add_argument("--with-exist-traces", type=int, metavar="N",
+                       help="Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new traces (max 100)")
+    parser.add_argument("--with-exist-specTrace", action="store_true",
+                       help="Use existing specTrace.tla and specTrace.cfg files from the same directory as --spec-file (requires --spec-file)")
     
     # Input selection
     parser.add_argument("--task", help="Single task name")
@@ -831,6 +850,16 @@ Examples:
         metric_params['level'] = args.level
     if args.tlc_timeout is not None:
         metric_params['tlc_timeout'] = args.tlc_timeout
+    if getattr(args, 'with_exist_traces', None) is not None:
+        if args.with_exist_traces < 1 or args.with_exist_traces > 100:
+            print("Error: --with-exist-traces must be between 1 and 100")
+            sys.exit(1)
+        metric_params['with_exist_traces'] = args.with_exist_traces
+    if getattr(args, 'with_exist_specTrace', None):
+        if not args.spec_file:
+            print("Error: --with-exist-specTrace can only be used with --spec-file")
+            sys.exit(1)
+        metric_params['with_exist_specTrace'] = args.with_exist_specTrace
     
     if single_mode:
         # Single benchmark

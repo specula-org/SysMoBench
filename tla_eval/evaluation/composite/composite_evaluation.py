@@ -438,13 +438,21 @@ class CompositeEvaluator(BaseEvaluator):
             composite_result.output_directory = output_dir
             
             # Prepare result data and metadata for saving
+            def _serialize_result(result_obj):
+                """Convert evaluation result objects into JSON-serializable data."""
+                if result_obj is None:
+                    return None
+                if hasattr(result_obj, 'to_dict'):
+                    return result_obj.to_dict()
+                return result_obj
+
             result_data = {
                 'overall_success': composite_result.overall_success,
                 'generation_time': composite_result.generation_time,
-                'action_decomposition': getattr(composite_result, 'action_decomposition_result', None),
-                'compilation_check': getattr(composite_result, 'compilation_check_result', None),
-                'runtime_check': getattr(composite_result, 'runtime_check_result', None),
-                'manual_invariant': getattr(composite_result, 'manual_invariant_result', None)
+                'action_decomposition': _serialize_result(getattr(composite_result, 'action_decomposition_result', None)),
+                'compilation_check': _serialize_result(getattr(composite_result, 'compilation_check_result', None)),
+                'runtime_check': _serialize_result(getattr(composite_result, 'runtime_check_result', None)),
+                'manual_invariant': _serialize_result(getattr(composite_result, 'manual_invariant_result', None))
             }
             
             metadata = {
@@ -1145,4 +1153,3 @@ def create_composite_evaluator(validation_timeout: int = 30,
         invariant_iterations=invariant_iterations,
         keep_temp_files=keep_temp_files
     )
-
