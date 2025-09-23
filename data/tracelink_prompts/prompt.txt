@@ -1,0 +1,18 @@
+You are an expert in formal verification in TLA+. Given the variables and constants in `{spec_file}` and `{spec_cfg}`, produce a refinement mapping that defines the variables in `{spec_file}` in terms of the constants and variables in `{spec_validate_file}`.
+
+`{spec_file}`:
+```tla
+{spec_file_contents}
+```
+
+`{spec_cfg}`:
+```tla
+{spec_cfg_contents}
+```
+
+`{spec_validate_file}` variables and constants:
+```tla
+{spec_validate_file_contents}
+```
+
+Return ONLY pure TLA+ specification code - no markdown code blocks (no ```tla or ```). Do not include any explanations, comments, or formatting markers.

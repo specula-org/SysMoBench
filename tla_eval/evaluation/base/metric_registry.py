@@ -72,6 +72,7 @@ class MetricRegistry:
         from ..semantics.coverage_evaluator import CoverageEvaluator
         from ..semantics.runtime_coverage_evaluator import RuntimeCoverageEvaluator
         from ..consistency.trace_validation import TraceValidationEvaluator
+        from ..pgo.trace_validation import PGoTraceValidationEvaluator
         from ..composite.composite_evaluation import CompositeEvaluator
         
         # Syntax dimension metrics
@@ -156,6 +157,13 @@ class MetricRegistry:
             dimension="consistency", 
             description="Full trace generation and validation pipeline",
             evaluator_class=TraceValidationEvaluator
+        ))
+
+        self.register_metric(MetricInfo(
+            name="pgo_trace_validation",
+            dimension="consistency", 
+            description="Full trace generation and validation pipeline (PGo version)",
+            evaluator_class=PGoTraceValidationEvaluator
         ))
         
         # Composite dimension metrics
