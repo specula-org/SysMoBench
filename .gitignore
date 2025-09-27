@@ -76,3 +76,5 @@ run_batch_experiments.sh
 
 data/spec
 data/source
+data/gold_spec
+data/trace_validation

@@ -717,7 +717,9 @@ Examples:
                        help="Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new traces (max 100)")
     parser.add_argument("--with-exist-specTrace", action="store_true",
                        help="Use existing specTrace.tla and specTrace.cfg files from the same directory as --spec-file (requires --spec-file)")
-    
+    parser.add_argument("--create-mapping", action="store_true",
+                       help="Generate mapping file using LLM for trace conversion (for trace_validation metric)")
+
     # Input selection
     parser.add_argument("--task", help="Single task name")
     parser.add_argument("--method", help="Single method name")  
@@ -860,7 +862,9 @@ Examples:
             print("Error: --with-exist-specTrace can only be used with --spec-file")
             sys.exit(1)
         metric_params['with_exist_specTrace'] = args.with_exist_specTrace
-    
+    if getattr(args, 'create_mapping', None):
+        metric_params['create_mapping'] = args.create_mapping
+
     if single_mode:
         # Single benchmark
         result = run_single_benchmark(
