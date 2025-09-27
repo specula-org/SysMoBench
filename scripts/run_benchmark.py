@@ -326,6 +326,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         metric: Optional[str] = None,
                         phase: Optional[int] = None,  # Legacy support
                         source_file: Optional[str] = None,
+                        traces_folder: Optional[str] = None,
                         spec_file: Optional[str] = None,
                         config_file: Optional[str] = None,
                         generation_config: Optional[GenerationConfig] = None,
@@ -341,6 +342,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         metric: Specific metric to run (if None, uses default for evaluation_type)
         phase: Legacy evaluation phase (1=syntax, 2=semantics, 3=consistency)
         source_file: Optional specific source file
+        traces_folder: Optional specific traces folder
         spec_file: Optional path to existing TLA+ specification file
         config_file: Optional path to existing TLC configuration file
         generation_config: Optional generation configuration
@@ -383,7 +385,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
     try:
         # Load task
         task_loader = get_task_loader()
-        task = task_loader.load_task(task_name, source_file)
+        task = task_loader.load_task(task_name, source_file, traces_folder)
         logger.info(f"Loaded task: {task.task_name} ({task.system_type})")
         
         # Setup repository if needed for consistency evaluation
@@ -483,8 +485,8 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             )
         
         # Create evaluator using metric registry
-        # For trace_validation, pass model_name to use the specified model for specTrace generation
-        if metric == "trace_validation":
+        # For trace_validation metrics, pass model_name so the evaluator uses the requested model
+        if metric in {"trace_validation", "pgo_trace_validation"}:
             evaluator = create_evaluator(metric, model_name=model_name, **metric_params)
         else:
             evaluator = create_evaluator(metric, **metric_params)
@@ -542,7 +544,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         )
                     elif metric_info.dimension == "consistency":
                         consistency_config = evaluator.get_default_config(task_name) if hasattr(evaluator, 'get_default_config') else {}
-                        evaluation_result = evaluator.evaluate(task_name, consistency_config)
+                        evaluation_result = evaluator.evaluate(task_name, consistency_config, spec_file_path=spec_file, config_file_path=config_file)
                     elif metric_info.dimension == "composite":
                         # Composite metrics perform iterative evaluation and improvement
                         # Always load method for composite evaluation to support correction iterations
@@ -725,6 +727,7 @@ Examples:
     parser.add_argument("--method", help="Single method name")  
     parser.add_argument("--model", help="Single model name")
     parser.add_argument("--source-file", help="Specific source file within task")
+    parser.add_argument("--traces-folder", help="Specific traces folder within task")
     
     # Existing specification files (for reusing existing TLA+ specifications)
     parser.add_argument("--spec-file", help="Path to existing TLA+ specification file (.tla)")
@@ -870,6 +873,7 @@ Examples:
         result = run_single_benchmark(
             args.task, args.method, args.model, evaluation_type, args.metric,
             source_file=args.source_file,
+            traces_folder=args.traces_folder,
             spec_file=args.spec_file,
             config_file=args.config_file,
             generation_config=generation_config,

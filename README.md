@@ -1,4 +1,4 @@
-# SysSpecBench
+# SysMoBench
 
 A comprehensive benchmark framework for evaluating AI agents' capability in formally specifying real-world concurrent and distributed systems using TLA+ specifications.
 
@@ -81,6 +81,7 @@ python3 scripts/run_benchmark.py --task <task> --method <method> --model <model>
 ### Available Methods
 - `direct_call`: Single-shot LLM prompting
 - `agent_based`: Multi-step reasoning with automatic error correction (in development)
+- `trace_based`: Trace-based, multi-step reasoning with error correction 
 
 ### Available Models
 

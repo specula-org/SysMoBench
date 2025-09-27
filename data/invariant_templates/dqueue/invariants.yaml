@@ -10,6 +10,7 @@ invariants:
       ConsumerAlwaysConsumes ==
         \A self \in 1 .. NUM_CONSUMERS :
           pc[self] = "c1" ~> pc[self] = "c2" 
+
 metadata:
   total_invariants: 1
   safety_invariants: 0
