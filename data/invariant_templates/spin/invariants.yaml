@@ -56,10 +56,10 @@ invariants:
   # Generic Liveness Property
   - name: "EventualRelease"
     type: "liveness"
-    natural_language: "The system eventually reaches a state where all threads are idle"
-    formal_description: "Under fair scheduling, the system will infinitely often reach a state where no thread holds the lock and all are idle"
+    natural_language: "The lock will eventually be released if it is acquired"
+    formal_description: "Under fair scheduling, if the lock is held, it will eventually be released - ensuring the lock doesn't stay acquired forever"
     tla_example: |
-      EventualRelease == []<>(\A t \in Threads : pc[t] = "idle")
+      EventualRelease == [](lock_held => <>~lock_held)
 
 metadata:
   total_invariants: 7

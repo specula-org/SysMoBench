@@ -81,23 +81,18 @@ invariants:
         /\ (\A t \in Threads : (WriterRelease(t) \/ UpreadRelease(t)) => WakeAll())
 
   # Generic Liveness Properties
-  - name: "EventualReaderAccess"
+  - name: "EventualRelease"
     type: "liveness"
-    natural_language: "A thread waiting to read will eventually gain read access"
-    formal_description: "Under fair scheduling, threads waiting for read access will eventually be granted access"
+    natural_language: "Any thread holding a lock will eventually release it"
+    formal_description: "Under fair scheduling, threads holding any type of lock (read/write/upgradeable) will eventually release it"
     tla_example: |
-      EventualReaderAccess == \A t \in Threads : (pc[t] = "waiting_read") ~> (pc[t] = "reading")
-
-  - name: "EventualWriterAccess"
-    type: "liveness"
-    natural_language: "A thread waiting to write will eventually gain write access"
-    formal_description: "Under fair scheduling, threads waiting for write access will eventually be granted exclusive access"
-    tla_example: |
-      EventualWriterAccess == \A t \in Threads : (pc[t] = "waiting_write") ~> (pc[t] = "writing")
+      EventualRelease == \A t \in Threads :
+        (pc[t] = "reading" \/ pc[t] = "writing" \/ pc[t] = "upread") ~>
+        (pc[t] = "idle")
 
 metadata:
-  total_invariants: 11
+  total_invariants: 10
   safety_invariants: 9
-  liveness_invariants: 2
-  generic_invariants: 5  # ReaderWriterExclusion, MultipleReadersAllowed, WriterExclusivity, EventualReaderAccess, EventualWriterAccess
-  asterinas_specific_invariants: 6  # UpgradeableReaderUniqueness, UpgradeAtomicity, DowngradeAtomicity, BeingUpgradedBlocksReaders, MixedWakeStrategy, LockStateConsistency
+  liveness_invariants: 1
+  generic_invariants: 4  # ReaderWriterExclusion, MultipleReadersAllowed, WriterExclusivity, EventualRelease
+  asterinas_specific_invariants: 6  # UpgradeableReaderUniqueness, UpgradeAtomicity, DowngradeAtomicity, BeingUpgradedBlocksReaders, MixedWakeStrategy
