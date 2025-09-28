@@ -6,7 +6,7 @@ trace generation and format conversion.
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 
 from ..base import TraceGenerator, TraceConverter, SystemModule
@@ -17,7 +17,38 @@ from .trace_converter_impl import ETCDTraceConverterImpl
 
 class ETCDTraceGenerator(TraceGenerator):
     """ETCD-specific trace generator implementation."""
-    
+
+    def generate_traces(self, config: Dict[str, Any], output_dir: Path, name_prefix: str = "trace") -> List[Dict[str, Any]]:
+        """
+        Generate multiple runtime traces using real etcd raft cluster.
+
+        Args:
+            config: Configuration for trace generation
+            output_dir: Directory where trace files should be saved
+            name_prefix: Prefix for trace file names
+
+        Returns:
+            List of dictionaries with generation results for each trace
+        """
+        # Get number of traces to generate (default to 1)
+        num_traces = config.get('num_traces', 1)
+        results = []
+
+        for i in range(num_traces):
+            # Generate output path for this trace
+            trace_filename = f"{name_prefix}_{i+1:02d}.ndjson"
+            output_path = output_dir / trace_filename
+
+            # Generate single trace
+            result = self.generate_trace(config, output_path)
+            results.append(result)
+
+            # Stop if a trace generation fails
+            if not result.get('success', False):
+                break
+
+        return results
+
     def generate_trace(self, config: Dict[str, Any], output_path: Path) -> Dict[str, Any]:
         """
         Generate runtime trace using real etcd raft cluster.
@@ -117,8 +148,12 @@ class ETCDTraceGenerator(TraceGenerator):
 
 class ETCDTraceConverter(TraceConverter):
     """ETCD-specific trace converter implementation."""
-    
-    def convert_trace(self, input_path: Path, output_path: Path) -> Dict[str, Any]:
+
+    def __init__(self, spec_path: str = None):
+        """Initialize converter with optional spec path for mapping files."""
+        self.spec_path = spec_path
+
+    def convert_trace(self, input_path: Path, output_path: Path, spec_path: Path = None) -> Dict[str, Any]:
         """
         Convert etcd system trace to TLA+ specification-compatible format.
         
@@ -131,9 +166,12 @@ class ETCDTraceConverter(TraceConverter):
         """
         try:
             print(f"Converting etcd trace from {input_path} to {output_path}")
-            
-            # Initialize etcd trace converter
-            converter = ETCDTraceConverterImpl()
+
+            # Use spec_path if provided, otherwise use instance spec_path
+            effective_spec_path = str(spec_path) if spec_path else self.spec_path
+
+            # Initialize etcd trace converter with spec path
+            converter = ETCDTraceConverterImpl(spec_path=effective_spec_path)
             
             # Perform conversion
             result = converter.convert_trace(
@@ -160,13 +198,32 @@ class ETCDTraceConverter(TraceConverter):
                 "error": f"ETCD trace conversion failed: {str(e)}"
             }
 
+    def generate_mapping(self, spec_file: Path, model_name: str = None, output_path: Path = None) -> Dict[str, Any]:
+        """
+        Generate mapping configuration using LLM.
+
+        Args:
+            spec_file: Path to TLA+ specification file
+            model_name: Model to use for generation
+            output_path: Where to save the mapping file
+
+        Returns:
+            Dictionary with generation results
+        """
+        return ETCDTraceConverterImpl.generate_mapping_with_llm(
+            spec_file=str(spec_file),
+            model_name=model_name,
+            output_path=str(output_path) if output_path else None
+        )
+
 
 class ETCDSystemModule(SystemModule):
     """Complete ETCD system implementation."""
-    
-    def __init__(self):
+
+    def __init__(self, spec_path: str = None):
         self._trace_generator = ETCDTraceGenerator()
-        self._trace_converter = ETCDTraceConverter()
+        self._trace_converter = ETCDTraceConverter(spec_path=spec_path)
+        self.spec_path = spec_path
     
     def get_trace_generator(self) -> TraceGenerator:
         """Get the etcd trace generator."""

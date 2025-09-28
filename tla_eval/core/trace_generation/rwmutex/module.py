@@ -25,8 +25,8 @@ class RwMutexTraceGenerator(TraceGenerator):
     def __init__(self):
         self.docker_image = "asterinas/asterinas:0.16.0-20250822"
         self.workspace_path = "/workspace"
-        self.timeout_seconds = 600  # 10 minutes for full build + test process
-        self._cached_traces = {}  # Cache parsed traces to avoid re-running Docker
+        self.timeout_seconds = 600  # 10 minutes for full build + test process (100 traces)
+        self._cached_traces = {}  
     
     def generate_traces(self, config: Dict[str, Any], output_dir: Path, name_prefix: str = "trace") -> List[Dict[str, Any]]:
         """
@@ -44,7 +44,11 @@ class RwMutexTraceGenerator(TraceGenerator):
             # Extract configuration parameters
             test_name = config.get("test_name", "test_rwmutex_trace")
             # Use num_traces if provided (from trace_validation), otherwise fall back to num_runs
-            num_runs = config.get("num_traces", config.get("num_runs", 1))
+            # For test_rwmutex_trace, default to 100 traces
+            if test_name == "test_rwmutex_trace":
+                num_runs = config.get("num_traces", config.get("num_runs", 100))
+            else:
+                num_runs = config.get("num_traces", config.get("num_runs", 1))
             scenario_type = config.get("scenario_type", "real_kernel_test")
             
             print(f"Generating REAL RwMutex traces using Asterinas kernel test: {test_name}")
@@ -83,14 +87,18 @@ class RwMutexTraceGenerator(TraceGenerator):
             
             # Special handling for test_rwmutex_trace which generates 20 traces in one run
             if test_name == "test_rwmutex_trace":
-                print(f"Special handling for test_rwmutex_trace: will generate 20 traces in one Docker run")
+                print(f"Special handling for test_rwmutex_trace: will generate 100 traces in one Docker run")
                 
                 # Check if we have cached traces for this test
                 cache_key = f"{test_name}_{asterinas_path}"
-                
+
+                # Clear cache to force fresh run with fixed kernel code
+                print(f"Clearing all cached traces to use fixed kernel code")
+                self._cached_traces.clear()
+
                 if cache_key not in self._cached_traces:
-                    # Run the test once to get all 20 traces
-                    print(f"Running kernel test to generate 20 traces...")
+                    # Run the test once to get all 100 traces (5 batches of 20)
+                    print(f"Running kernel test to generate 100 traces...")
                     
                     # Run kernel test and parse all traces
                     all_traces = self._run_and_parse_all_traces(
@@ -264,7 +272,9 @@ class RwMutexTraceGenerator(TraceGenerator):
                 echo 'connect-timeout = 60000' >> /etc/nix/nix.conf &&
                 make install_osdk &&
                 make initramfs &&
-                cd ostd && 
+                cd ostd &&
+                rm -rf target/ &&
+                cargo clean &&
                 timeout {self.timeout_seconds} cargo osdk test --features tla-trace --target-arch x86_64 --qemu-args="-accel tcg" {test_name} 2>&1
                 """
             ]
@@ -320,7 +330,9 @@ class RwMutexTraceGenerator(TraceGenerator):
                 echo 'connect-timeout = 60000' >> /etc/nix/nix.conf &&
                 make install_osdk &&
                 make initramfs &&
-                cd ostd && 
+                cd ostd &&
+                rm -rf target/ &&
+                cargo clean &&
                 timeout {self.timeout_seconds} cargo osdk test --features tla-trace --target-arch x86_64 --qemu-args="-accel tcg" {test_name} 2>&1
                 """
             ]
@@ -359,11 +371,11 @@ class RwMutexTraceGenerator(TraceGenerator):
                     "execution_time": execution_time
                 }
             
-            # For test_rwmutex_trace which generates 20 traces, we'll save them separately
+            # For test_rwmutex_trace which generates multiple traces, we'll save them separately
             # Otherwise save as a single trace
-            if test_name == "test_rwmutex_trace" and len(all_traces) == 20:
-                # Return info about the first trace (this will be called 20 times with different run_id)
-                trace_index = run_id % 20
+            if test_name == "test_rwmutex_trace" and len(all_traces) > 0:
+                # Return info about the trace (this will be called multiple times with different run_id)
+                trace_index = run_id % len(all_traces)
                 if trace_index < len(all_traces):
                     trace_events = all_traces[trace_index]
                     
@@ -421,91 +433,55 @@ class RwMutexTraceGenerator(TraceGenerator):
         """Parse and split multiple traces from Asterinas kernel test output."""
         all_traces = []
         current_trace = []
-        trace_number = 0
-        
+
         print(f"Parsing and splitting output of {len(output)} characters")
-        
+
         lines = output.split('\n')
         print(f"Processing {len(lines)} lines")
-        
-        # DEBUG: Show first 20 lines of output
-        print("=== DEBUG: First 20 lines of output ===")
-        for i, line in enumerate(lines[:20]):
-            print(f"Line {i}: '{line}'")
-        print("=== END DEBUG OUTPUT ===")
-        
-        # Look for any lines containing "rwmutex" or "lock" to see what we got
-        rwmutex_lines = [line for line in lines if 'rwmutex' in line.lower() or 'lock' in line.lower()]
-        print(f"DEBUG: Found {len(rwmutex_lines)} lines containing 'rwmutex' or 'lock':")
-        for line in rwmutex_lines[:10]:  # Show first 10
-            print(f"  '{line}'")
-        
-        # Look for JSON-like patterns
-        json_like_lines = [line for line in lines if '{' in line and '}' in line]
-        print(f"DEBUG: Found {len(json_like_lines)} lines with JSON-like patterns:")
-        for line in json_like_lines[:10]:  # Show first 10
-            print(f"  '{line}'")
-        
+
+        # Count trace markers first
+        trace_markers = [line for line in lines if '--- TRACE' in line]
+        print(f"Found {len(trace_markers)} trace markers total")
+
+        import re
+        json_pattern = r'\{"seq":\d+,"thread":\d+,"rwmutex":\d+,"state":"[^"]*","lock_type":"[^"]*","action":"[^"]*","actor":\d+\}'
+
         for line_num, line in enumerate(lines):
             line = line.strip()
-            
-            # Look for trace markers like "=== TRACE_1 ===" or "Starting trace 1"
-            if '=== TRACE_' in line or 'Starting trace' in line:
-                # Save previous trace if it has events
+
+            # Look for trace markers - when we find one, save the previous trace
+            if '--- TRACE' in line:
                 if current_trace:
                     all_traces.append(current_trace)
-                    print(f"Completed trace {trace_number} with {len(current_trace)} events")
+                    print(f"Saved trace {len(all_traces)} with {len(current_trace)} events")
                 current_trace = []
-                trace_number += 1
-                print(f"Starting trace {trace_number}")
                 continue
-            
-            # Skip empty lines
-            if not line:
+
+            # Skip empty lines and non-JSON lines
+            if not line or '{' not in line:
                 continue
-            
-            # Look for JSON patterns using regex (handles both complete lines and embedded JSON)
-            import re
-            # Updated pattern to match the actual format from rwmutex_trace.rs
-            json_pattern = r'\{"seq":\d+,"thread":\d+,"rwmutex":\d+,"state":"[^"]*","action":"[^"]*","actor":\d+\}'
+
+            # Try to extract JSON events from the line
             matches = re.findall(json_pattern, line)
-            
-            # Also try a more flexible pattern if the first one doesn't match
+
+            # If exact pattern doesn't match, try more flexible patterns
             if not matches:
                 flexible_pattern = r'\{[^}]*"seq":\d+[^}]*"action":"[^"]*"[^}]*\}'
                 matches = re.findall(flexible_pattern, line)
-                if matches:
-                    print(f"DEBUG: Using flexible pattern for line {line_num}")
-            if matches:
-                print(f"DEBUG Line {line_num}: Found {len(matches)} JSON matches in line: '{line}'")
+
+            # Process all JSON matches found in this line
             for match in matches:
-                print(f"DEBUG: Trying to parse JSON match: '{match}'")
                 try:
                     event = json.loads(match)
-                    print(f"DEBUG: Successfully parsed JSON: {event}")
-                    if all(field in event for field in ['seq', 'action']):
-                        print(f"DEBUG: Event has required fields seq and action")
+                    if 'seq' in event and 'action' in event:
                         if 'actor' not in event and 'thread' in event:
                             event['actor'] = event['thread']
-                        
-                        # Reset sequence numbers for each trace
-                        if current_trace:
-                            first_seq = current_trace[0].get('seq', 0)
-                            event['seq'] = event['seq'] - first_seq + len(current_trace)
-                        else:
-                            event['seq'] = 0
-                            
                         current_trace.append(event)
-                        print(f"Line {line_num}: Successfully added event to current trace: {event}")
-                    else:
-                        print(f"DEBUG: Event missing required fields: {event}")
-                except json.JSONDecodeError as e:
-                    print(f"DEBUG: JSON decode error for '{match}': {e}")
+                except json.JSONDecodeError:
                     continue
-            
-            # Handle concatenated JSON (like: }{"seq":... )
+
+            # Handle concatenated JSON (like }{"seq":...)
             if '}{' in line:
-                # Sometimes events get concatenated
                 for part in line.split('}{'):
                     if not part.startswith('{'):
                         part = '{' + part
@@ -513,37 +489,27 @@ class RwMutexTraceGenerator(TraceGenerator):
                         part = part + '}'
                     try:
                         event = json.loads(part)
-                        if all(field in event for field in ['seq', 'action']):
+                        if 'seq' in event and 'action' in event:
                             if 'actor' not in event and 'thread' in event:
                                 event['actor'] = event['thread']
-                            
-                            # Reset sequence numbers for each trace
-                            if current_trace:
-                                first_seq = current_trace[0].get('seq', 0)
-                                event['seq'] = event['seq'] - first_seq + len(current_trace)
-                            else:
-                                event['seq'] = 0
-                                
                             current_trace.append(event)
-                            print(f"Line {line_num}: Found concatenated JSON: {event}")
                     except json.JSONDecodeError:
                         continue
-        
+
         # Don't forget the last trace
         if current_trace:
             all_traces.append(current_trace)
-            print(f"Completed trace {trace_number} with {len(current_trace)} events")
-        
-        # If we didn't find trace markers, try to split by sequence resets
-        if len(all_traces) <= 1 and current_trace:
-            print("No trace markers found, trying to split by sequence resets...")
-            all_traces = self._split_by_sequence_resets(current_trace)
-        
-        print(f"Parsed {len(all_traces)} separate traces")
-        for i, trace in enumerate(all_traces):
-            if trace:
-                print(f"  Trace {i+1}: {len(trace)} events, seq {trace[0].get('seq', 0)}-{trace[-1].get('seq', 0)}")
-        
+            print(f"Saved final trace {len(all_traces)} with {len(current_trace)} events")
+
+        print(f"Successfully parsed {len(all_traces)} separate traces")
+
+        # If we didn't get the expected number of traces, try sequence reset splitting
+        if len(all_traces) != 100 and len(all_traces) > 0:
+            print(f"Expected 100 traces but got {len(all_traces)}, trying sequence reset splitting...")
+            if len(all_traces) == 1 and len(all_traces[0]) > 100:
+                # All events might be in one trace, split by sequence resets
+                all_traces = self._split_by_sequence_resets(all_traces[0])
+                print(f"After sequence reset splitting: {len(all_traces)} traces")
         return all_traces
     
     def _split_by_sequence_resets(self, events: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
@@ -569,9 +535,9 @@ class RwMutexTraceGenerator(TraceGenerator):
         if current_trace:
             traces.append(current_trace)
         
-        # If we got exactly 20 traces, it's likely the test_rwmutex_trace output
-        if len(traces) == 20:
-            print(f"Successfully split into 20 traces by sequence resets")
+        # If we got exactly 100 traces, it's likely the test_rwmutex_trace output
+        if len(traces) == 100:
+            print(f"Successfully split into 100 traces by sequence resets")
         
         return traces
     
@@ -579,7 +545,7 @@ class RwMutexTraceGenerator(TraceGenerator):
         """Get default configuration for REAL RwMutex trace generation."""
         return {
             "test_name": "test_rwmutex_trace",
-            "num_runs": 1,
+            "num_runs": 100,
             "scenario_type": "real_kernel_test",
             "source": "asterinas_kernel_real",
             "enable_tla_trace": True,
@@ -589,11 +555,11 @@ class RwMutexTraceGenerator(TraceGenerator):
     def get_available_scenarios(self) -> Dict[str, Dict[str, Any]]:
         """Get available real kernel test scenarios for RwMutex testing."""
         return {
-            "rwmutex_trace_20": {
+            "rwmutex_trace_100": {
                 "test_name": "test_rwmutex_trace",
-                "num_runs": 1,
+                "num_runs": 100,
                 "scenario_type": "real_kernel_test",
-                "description": "Generate 20 different RwMutex trace scenarios with read/write/upread operations"
+                "description": "Generate 100 different RwMutex trace scenarios with read/write operations"
             },
             "rwmutex_dedicated": {
                 "test_name": "test_rwmutex_tla_trace",

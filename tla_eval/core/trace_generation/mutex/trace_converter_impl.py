@@ -23,7 +23,7 @@ class MutexTraceConverterImpl:
     def __init__(self, mapping_file: str = None):
         """
         Initialize trace converter with mapping configuration.
-        
+
         Args:
             mapping_file: Path to JSON mapping file
         """
@@ -31,14 +31,15 @@ class MutexTraceConverterImpl:
             # Look in data/convertor/mutex first, fallback to module directory
             data_mapping = "data/convertor/mutex/mutex_mapping.json"
             module_mapping = os.path.join(os.path.dirname(__file__), "mutex_mapping.json")
-            
+
             if os.path.exists(data_mapping):
                 mapping_file = data_mapping
             else:
                 mapping_file = module_mapping
-        
+
         self.mapping_file = mapping_file
         self.mapping = self._load_mapping()
+        self.model = self.mapping.get("model", "default")
         
     def _load_mapping(self) -> Dict[str, Any]:
         """Load mapping configuration from JSON file."""
@@ -157,15 +158,28 @@ class MutexTraceConverterImpl:
         """Convert input events to TLA+ format."""
         transitions = []
         
-        # Add configuration header
+        # Add configuration header - model-specific
         config = self.mapping.get("config", {})
-        header = {
-            "Threads": config.get("Threads", ["Thread0", "Thread1", "Thread2", "Thread3"]),
-            "Mutexes": config.get("Mutexes", ["Mutex0", "Mutex1", "Mutex2", "Mutex3"]),
-            "MaxSteps": config.get("MaxSteps", 1000),
-            "States": ["unlocked", "locked"],
-            "Nil": "Nil"
-        }
+        if self.model == "gemini":
+            header = {
+                "Thread": self.mapping.get("Thread", ["Thread0", "Thread1", "Thread2", "Thread3"]),
+                "Nil": "Nil"
+            }
+        elif self.model == "claude":
+            header = {
+                "Threads": config.get("Threads", ["Thread0", "Thread1", "Thread2", "Thread3"])
+            }
+        elif self.model == "gpt5":
+            # Use mapped thread names from config
+            threads_list = self.mapping.get("Thread", ["Thread0", "Thread1", "Thread2", "Thread3"])
+            header = {
+                "THREADS": threads_list
+            }
+        else:  # deepseek and default
+            header = {
+                "Threads": config.get("Threads", ["Thread0", "Thread1", "Thread2", "Thread3"]),
+                "None": ["NULL"]
+            }
         transitions.append(header)
         
         # Initialize mutex state tracking
@@ -176,23 +190,46 @@ class MutexTraceConverterImpl:
         event_mapping = self.mapping.get("events", {})
         
         for i, event in enumerate(events):
-            # Extract event fields
-            seq = event.get('seq', i)
-            thread_id = event.get('thread', 0)
-            mutex_id = event.get('mutex', 0)
-            action = event.get('action', '')
+            # Extract event fields - handle both formats
+            seq = event.get('step', event.get('seq', i))
+
+            # Handle both string names and numeric IDs for thread/mutex
+            if isinstance(event.get('thread'), str):
+                thread_name = event.get('thread')
+            else:
+                thread_id = event.get('thread', 0)
+                thread_name = f"Thread{thread_id}"
+
+            # Apply thread name mapping if specified in model config
+            if (self.model == "gemini" or self.model == "gpt5") and "thread_mapping" in self.mapping:
+                thread_mapping = self.mapping["thread_mapping"]
+                thread_name = thread_mapping.get(thread_name, thread_name)
+
+            if isinstance(event.get('mutex'), str):
+                mutex_name = event.get('mutex')
+            else:
+                mutex_id = event.get('mutex', 0)
+                mutex_name = f"Mutex{mutex_id}"
+
+            # Handle both 'event' and 'action' fields
+            action = event.get('event', event.get('action', ''))
             state = event.get('state', '')
-            
-            # Map thread ID to thread name
-            thread_name = f"Thread{thread_id}"
-            mutex_name = f"Mutex{mutex_id}"
             
             # Map action to TLA+ event
             tla_event = event_mapping.get(action, action)
             
-            # Update state based on action
-            if action == "TryAcquireBlocking" or action == "TryAcquireNonBlocking":
-                # Before acquiring, mutex should be in the state as reported
+            # Update state based on action - handle actual trace events
+            if action == "Lock" or action == "TryLock":
+                # These are successful acquire operations
+                mutex_states[mutex_name] = "Locked"
+                mutex_owners[mutex_name] = thread_name
+                mutex_sequences[mutex_name] += 1
+            elif action == "Unlock":
+                mutex_states[mutex_name] = "Unlocked"
+                mutex_owners[mutex_name] = "Nil"
+                mutex_sequences[mutex_name] += 1
+            # Handle legacy mapped events for backward compatibility
+            elif action == "TryAcquireBlocking" or action == "TryAcquireNonBlocking":
                 if state == "locked":
                     mutex_states[mutex_name] = "Locked"
                 else:
@@ -217,16 +254,80 @@ class MutexTraceConverterImpl:
                 all_mutex_owners[mutex_name_config] = mutex_owners[mutex_name_config]
                 all_mutex_sequences[mutex_name_config] = mutex_sequences[mutex_name_config]
             
-            # Create transition record
-            transition = {
-                "mutexState": [{"op": "Update", "path": [], "args": [all_mutex_states]}],
-                "owner": [{"op": "Update", "path": [], "args": [all_mutex_owners]}],
-                "sequence": [{"op": "Update", "path": [], "args": [all_mutex_sequences]}],
-                "event": tla_event,
-                "step": seq,
-                "thread": thread_name,
-                "mutex": mutex_name
-            }
+            # Create transition record - model-specific format
+            lock_state_bool = all_mutex_states.get("Mutex0", "Unlocked") == "Locked"
+            holder_value = all_mutex_owners.get("Mutex0", "Nil")
+
+            if self.model == "gemini":
+                # Gemini format: lock, holder, queue, pc
+                if holder_value == "Nil":
+                    holder_value = "Nil"
+
+                # Create pc (program counter) state for all threads
+                pc_state = {}
+                threads_list = self.mapping.get("Thread", ["Thread0", "Thread1", "Thread2", "Thread3"])
+                for thread_config in threads_list:
+                    if thread_config == thread_name and holder_value == thread_name and lock_state_bool:
+                        pc_state[thread_config] = "in_cs"  # Thread is in critical section
+                    else:
+                        pc_state[thread_config] = "idle"  # Default state
+
+                transition = {
+                    "lock": [{"op": "Update", "path": [], "args": [lock_state_bool]}],
+                    "holder": [{"op": "Update", "path": [], "args": [holder_value]}],
+                    "queue": [{"op": "Update", "path": [], "args": [[]]}],
+                    "pc": [{"op": "Update", "path": [], "args": [pc_state]}],
+                    "event": tla_event,
+                    "step": seq,
+                    "thread": thread_name,
+                    "mutex": mutex_name
+                }
+            elif self.model == "claude":
+                # Claude format: lock, guards, waitQueue, threadState
+                guards_set = [holder_value] if holder_value != "Nil" and lock_state_bool else []
+
+                # Create threadState for all threads
+                thread_state = {}
+                for thread_config in config.get("Threads", []):
+                    thread_state[thread_config] = "running"  # Claude uses "running"/"waiting"
+
+                transition = {
+                    "lock": [{"op": "Update", "path": [], "args": [lock_state_bool]}],
+                    "guards": [{"op": "Update", "path": [], "args": [guards_set]}],
+                    "waitQueue": [{"op": "Update", "path": [], "args": [[]]}],
+                    "threadState": [{"op": "Update", "path": [], "args": [thread_state]}],
+                    "event": tla_event,
+                    "step": seq,
+                    "thread": thread_name,
+                    "mutex": mutex_name
+                }
+            elif self.model == "gpt5":
+                # GPT5 format: Only Lock and Owner (core variables)
+                if holder_value == "Nil":
+                    holder_value = "None"
+
+                transition = {
+                    "Lock": [{"op": "Update", "path": [], "args": [lock_state_bool]}],
+                    "Owner": [{"op": "Update", "path": [], "args": [holder_value]}],
+                    "event": tla_event,
+                    "step": seq,
+                    "thread": thread_name,
+                    "mutex": mutex_name
+                }
+            else:
+                # DeepSeek and default format: lock_state, holder, wait_queue
+                if holder_value == "Nil":
+                    holder_value = "NULL"  # Match DeepSeek NULL constant
+
+                transition = {
+                    "lock_state": [{"op": "Update", "path": [], "args": [lock_state_bool]}],
+                    "holder": [{"op": "Update", "path": [], "args": [holder_value]}],
+                    "wait_queue": [{"op": "Update", "path": [], "args": [[]]}],
+                    "event": tla_event,
+                    "step": seq,
+                    "thread": thread_name,
+                    "mutex": mutex_name
+                }
             
             transitions.append(transition)
         
