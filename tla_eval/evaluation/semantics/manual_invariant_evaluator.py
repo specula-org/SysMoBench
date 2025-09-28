@@ -774,32 +774,38 @@ class ManualInvariantEvaluator(BaseEvaluator):
     
     def _add_invariant_to_spec(self, tla_content: str, invariant_definition: str, invariant_name: str) -> str:
         """Add a single invariant definition to the TLA+ specification"""
-        
+
         lines = tla_content.split('\n')
         result_lines = []
-        
+
         # Find the insertion point (before the closing ====)
         invariant_inserted = False
-        
+
+        # Find the last occurrence of a line starting with ====
+        last_separator_index = -1
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip().startswith('===='):
+                last_separator_index = i
+                break
+
         for i, line in enumerate(lines):
-            # Check if this is the final separator line (could be ==== or longer ========...)  
-            if line.strip().startswith('====') and i == len(lines) - 1:
-                # Insert invariant before final separator
+            # Insert before the module closing separator
+            if i == last_separator_index and last_separator_index != -1:
                 if not invariant_inserted:
                     result_lines.append('')
                     result_lines.append(f'\\* Manual invariant: {invariant_name}')
                     result_lines.append(invariant_definition)
                     result_lines.append('')
                     invariant_inserted = True
-            
+
             result_lines.append(line)
-        
+
         # If no ==== found, append at the end
         if not invariant_inserted:
             result_lines.append('')
             result_lines.append(f'\\* Manual invariant: {invariant_name}')
             result_lines.append(invariant_definition)
-        
+
         return '\n'.join(result_lines)
     
     def _get_evaluation_type(self) -> str:

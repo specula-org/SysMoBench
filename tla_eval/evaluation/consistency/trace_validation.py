@@ -42,14 +42,15 @@ class TraceValidationEvaluator(BaseEvaluator):
     4. **TLC Verification**: Trace validation against converted specifications
     """
     
-    def __init__(self, 
+    def __init__(self,
                  spec_dir: str = "data/spec",
                  traces_dir: str = "data/sys_traces",
                  timeout: int = 600,
                  model_name: str = None,
                  max_workers: int = 4,
                  with_exist_traces: int = None,
-                 with_exist_specTrace: bool = False):
+                 with_exist_specTrace: bool = False,
+                 create_mapping: bool = False):
         """
         Initialize trace validation evaluator.
         
@@ -61,6 +62,7 @@ class TraceValidationEvaluator(BaseEvaluator):
             max_workers: Maximum number of worker threads for concurrent trace validation
             with_exist_traces: Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new ones
             with_exist_specTrace: Use existing specTrace.tla and specTrace.cfg from spec file directory
+            create_mapping: Generate mapping file using LLM for trace conversion
         """
         super().__init__(timeout=timeout)
         self.spec_dir = Path(spec_dir)
@@ -69,6 +71,7 @@ class TraceValidationEvaluator(BaseEvaluator):
         self.max_workers = max_workers
         self.with_exist_traces = with_exist_traces
         self.with_exist_specTrace = with_exist_specTrace
+        self.create_mapping = create_mapping
         
         # Ensure base traces directory exists
         self.traces_dir.mkdir(parents=True, exist_ok=True)
@@ -168,13 +171,43 @@ class TraceValidationEvaluator(BaseEvaluator):
             print("Step 2 completed: specTrace.tla and specTrace.cfg generated")
             
             # Copy all TLA+ files to output directory for complete validation framework
-            self._setup_complete_validation_framework(output_dir, task_name, spectrace_result)
-            
+            self._setup_complete_validation_framework(output_dir, task_name, spectrace_result, spec_file_path, config_file_path)
+
+            # Step 2.5: Generate mapping file if requested
+            if self.create_mapping:
+                print("Step 2.5: Generating mapping file using LLM...")
+                if spec_file_path:
+                    spec_dir = Path(spec_file_path).parent
+                else:
+                    spec_dir = self.spec_dir / task_name
+
+                mapping_path = spec_dir / "etcd_mapping.json"
+
+                # Check if we have the converter module with mapping generation capability
+                if hasattr(system_module, 'get_trace_converter'):
+                    converter = system_module.get_trace_converter()
+                    if hasattr(converter, 'generate_mapping'):
+                        mapping_result = converter.generate_mapping(
+                            spec_file=Path(spec_file_path) if spec_file_path else spec_dir / f"{task_name}.tla",
+                            model_name=self.model_name,
+                            output_path=mapping_path
+                        )
+                        if mapping_result['success']:
+                            print(f"  Generated mapping file: {mapping_result['mapping_file']}")
+                        else:
+                            print(f"  ERROR: Failed to generate mapping: {mapping_result['error']}")
+                            result.trace_conversion_error = f"Failed to generate mapping: {mapping_result['error']}"
+                            return result
+                    else:
+                        print(f"  WARNING: Converter for {task_name} doesn't support mapping generation")
+                else:
+                    print(f"  WARNING: System module for {task_name} doesn't have trace converter")
+
             # Step 3: Convert multiple sys_traces to spec-compatible format using system-specific implementation
             print(f"Step 3: Converting {len(trace_results)} sys_traces to spec-compatible format using system-specific implementation...")
             step3_start = datetime.now()
             
-            conversion_results = self._convert_multiple_system_traces(system_module, trace_results, task_name, timestamp)
+            conversion_results = self._convert_multiple_system_traces(system_module, trace_results, task_name, timestamp, spec_file_path)
             
             print(f"DEBUG: Step 3 results: {len(conversion_results)} conversions attempted")
             
@@ -349,8 +382,8 @@ class TraceValidationEvaluator(BaseEvaluator):
                 "error": f"System trace conversion failed: {str(e)}"
             }
     
-    def _convert_multiple_system_traces(self, system_module, trace_results: List[Dict[str, Any]], 
-                                      system_name: str, timestamp: str) -> List[Dict[str, Any]]:
+    def _convert_multiple_system_traces(self, system_module, trace_results: List[Dict[str, Any]],
+                                      system_name: str, timestamp: str, spec_file_path: str = None) -> List[Dict[str, Any]]:
         """
         Convert multiple system traces to TLA+ specification-compatible format.
         
@@ -386,8 +419,35 @@ class TraceValidationEvaluator(BaseEvaluator):
                 converted_trace_path = converted_traces_dir / f"{system_name}_converted_{timestamp}_{i+1}.ndjson"
                 
                 print(f"  Converting trace {i+1}/{len(trace_results)}: {input_trace_path.name}")
+
+                # Determine spec path for converter
+                if spec_file_path:
+                    spec_dir = Path(spec_file_path).parent
+                else:
+                    # Use default spec directory
+                    spec_dir = self.spec_dir / system_name
+
                 trace_converter = system_module.get_trace_converter()
-                conversion_result = trace_converter.convert_trace(input_path=input_trace_path, output_path=converted_trace_path)
+                # Pass spec_path to converter if it supports it
+                if hasattr(trace_converter, 'convert_trace'):
+                    # Try passing spec_path if the method signature supports it
+                    try:
+                        conversion_result = trace_converter.convert_trace(
+                            input_path=input_trace_path,
+                            output_path=converted_trace_path,
+                            spec_path=spec_dir
+                        )
+                    except TypeError:
+                        # Fall back to without spec_path for backward compatibility
+                        conversion_result = trace_converter.convert_trace(
+                            input_path=input_trace_path,
+                            output_path=converted_trace_path
+                        )
+                else:
+                    conversion_result = trace_converter.convert_trace(
+                        input_path=input_trace_path,
+                        output_path=converted_trace_path
+                    )
                 conversion_results.append(conversion_result)
                 
                 if conversion_result["success"]:
@@ -472,16 +532,19 @@ class TraceValidationEvaluator(BaseEvaluator):
                     "error": f"LLM config generation failed: {str(e)}"
                 }
             
-            # Save configuration for debugging
-            config_path = self.spec_dir / task_name / f"trace_config_{timestamp}.yaml"
+            # Output to the same directory as the spec file if user-specified, otherwise use default
+            if spec_file_path:
+                output_dir = spec_file.parent
+            else:
+                output_dir = self.spec_dir / task_name
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save configuration for debugging in the same output directory
+            config_path = output_dir / f"trace_config_{timestamp}.yaml"
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config_data, f, default_flow_style=False)
-            
+
             print(f"Generated trace configuration: {config_path}")
-            
-            # Output to the correct spec directory, not traces directory
-            output_dir = self.spec_dir / task_name
-            output_dir.mkdir(parents=True, exist_ok=True)
             
             # Copy common TLA+ files first
             common_dir = Path("data/spec/common")
@@ -691,7 +754,7 @@ class TraceValidationEvaluator(BaseEvaluator):
         
         return trace_results
     
-    def _setup_complete_validation_framework(self, output_dir: Path, task_name: str, spectrace_result: Dict[str, Any]) -> None:
+    def _setup_complete_validation_framework(self, output_dir: Path, task_name: str, spectrace_result: Dict[str, Any], spec_file_path: str = None, config_file_path: str = None) -> None:
         """
         Set up complete TLA+ validation framework in output directory.
         
@@ -721,25 +784,53 @@ class TraceValidationEvaluator(BaseEvaluator):
                 print(f"    Common directory not found: {common_dir}")
             
             # Step 2: Copy original task specification files
-            task_spec_dir = self.spec_dir / task_name
-            if task_spec_dir.exists():
-                print(f"    Copying original task specification files from {task_spec_dir}")
-                
-                # Copy .tla files
-                for tla_file in task_spec_dir.glob("*.tla"):
-                    if tla_file.name not in ["specTrace.tla"]:  # Skip generated files
+            # If user specified spec/config files, use those; otherwise use default location
+            if spec_file_path and Path(spec_file_path).exists():
+                # User specified spec file - copy it and any accompanying files
+                print(f"    Using user-specified spec file: {spec_file_path}")
+                spec_file = Path(spec_file_path)
+                spec_dir = spec_file.parent
+
+                # Copy the main spec file
+                dest_file = output_dir / spec_file.name
+                shutil.copy2(spec_file, dest_file)
+                print(f"      Copied: {spec_file.name} (user-specified)")
+
+                # Also copy the config file if specified
+                if config_file_path and Path(config_file_path).exists():
+                    cfg_file = Path(config_file_path)
+                    dest_cfg = output_dir / cfg_file.name
+                    shutil.copy2(cfg_file, dest_cfg)
+                    print(f"      Copied: {cfg_file.name} (user-specified)")
+
+                # Copy other TLA files from the same directory (like dependencies)
+                for tla_file in spec_dir.glob("*.tla"):
+                    if tla_file.name not in [spec_file.name, "specTrace.tla"]:
                         dest_file = output_dir / tla_file.name
-                        shutil.copy2(tla_file, dest_file)
-                        print(f"      Copied: {tla_file.name}")
-                
-                # Copy .cfg files  
-                for cfg_file in task_spec_dir.glob("*.cfg"):
-                    if cfg_file.name not in ["specTrace.cfg"]:  # Skip generated files
-                        dest_file = output_dir / cfg_file.name
-                        shutil.copy2(cfg_file, dest_file)
-                        print(f"      Copied: {cfg_file.name}")
+                        if not dest_file.exists():  # Don't overwrite
+                            shutil.copy2(tla_file, dest_file)
+                            print(f"      Copied: {tla_file.name} (dependency)")
             else:
-                print(f"    Task specification directory not found: {task_spec_dir}")
+                # Fall back to default location
+                task_spec_dir = self.spec_dir / task_name
+                if task_spec_dir.exists():
+                    print(f"    Copying original task specification files from {task_spec_dir}")
+
+                    # Copy .tla files
+                    for tla_file in task_spec_dir.glob("*.tla"):
+                        if tla_file.name not in ["specTrace.tla"]:  # Skip generated files
+                            dest_file = output_dir / tla_file.name
+                            shutil.copy2(tla_file, dest_file)
+                            print(f"      Copied: {tla_file.name}")
+
+                    # Copy .cfg files
+                    for cfg_file in task_spec_dir.glob("*.cfg"):
+                        if cfg_file.name not in ["specTrace.cfg"]:  # Skip generated files
+                            dest_file = output_dir / cfg_file.name
+                            shutil.copy2(cfg_file, dest_file)
+                            print(f"      Copied: {cfg_file.name}")
+                else:
+                    print(f"    Task specification directory not found: {task_spec_dir}")
             
             # Step 3: Copy generated specTrace files
             if spectrace_result.get("success") and "output_dir" in spectrace_result:
