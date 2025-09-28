@@ -80,3 +80,5 @@ data/spec
 data/source
 data/gold_spec
 data/trace_validation
+data/error_classification
+data/convertor

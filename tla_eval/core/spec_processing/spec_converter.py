@@ -70,6 +70,16 @@ class SpecTraceGenerator:
     def __init__(self, config_data: Dict[str, Any]):
         self.config = config_data
         self.spec_name = config_data.get('spec_name', 'spec')
+
+    def _generate_vars_definition(self) -> str:
+        """Generate Vars definition from configuration variables"""
+        variables = self.config.get('variables', [])
+        if not variables:
+            return "Vars == << >>"
+
+        var_names = [var['name'] for var in variables]
+        vars_tuple = ", ".join(var_names)
+        return f"Vars == << {vars_tuple} >>"
         
     def generate_default_impl(self) -> str:
         """Generate DefaultImpl function based on variables"""
@@ -78,7 +88,8 @@ class SpecTraceGenerator:
         variables = self.config.get('variables', [])
         constants = self.config.get('constants', [])
         # Sort by length descending to avoid partial replacements (e.g. Server vs ServerId)
-        const_names = sorted([c['name'] for c in constants if c['name'] != 'Nil'], key=len, reverse=True)
+        # Filter out None values and 'Nil' constants
+        const_names = sorted([c['name'] for c in constants if c.get('name') is not None and c['name'] != 'Nil'], key=len, reverse=True)
         
         for i, var in enumerate(variables):
             var_name = var['name']
@@ -141,6 +152,46 @@ class SpecTraceGenerator:
         
         return '\n'.join(lines)
     
+    def _process_param_source(self, param_source: str) -> str:
+        """Process parameter source to determine if it needs Trace prefix.
+
+        Rules:
+        - Constants (like Server, Nil) get Trace prefix -> TraceServer, TraceNil
+        - Variables (like messages, log, matchIndex) do NOT get Trace prefix
+        - DOMAIN expressions keep variables unchanged -> DOMAIN messages
+        - Expressions with constants get those constants prefixed
+        """
+        # Get lists of variables and constants
+        variables = [var['name'] for var in self.config.get('variables', [])]
+        constants = [c['name'] for c in self.config.get('constants', [])]
+
+        # Special case: DOMAIN expression
+        # DOMAIN is used with variables, and variables don't get Trace prefix
+        if param_source.startswith('DOMAIN '):
+            return param_source  # Keep as is (e.g., "DOMAIN messages")
+
+        # If it's exactly a constant name, add Trace prefix
+        if param_source in constants:
+            return f"Trace{param_source}"
+
+        # If it's exactly a variable name, keep it as is
+        # Variables in TLA+ specs don't get Trace prefix
+        if param_source in variables:
+            return param_source
+
+        # For expressions, only replace constants with Trace-prefixed versions
+        # Variables in expressions remain unchanged
+        if any(c in param_source for c in constants):
+            result = param_source
+            for const in constants:
+                # Use word boundaries to avoid partial replacements
+                import re
+                result = re.sub(r'\b' + re.escape(const) + r'\b', f'Trace{const}', result)
+            return result
+
+        # Keep as is (expressions with variables, ranges like 1..10, etc.)
+        return param_source
+
     def generate_action_predicates(self) -> str:
         """Generate action predicate functions"""
         lines = []
@@ -157,35 +208,48 @@ class SpecTraceGenerator:
             
             lines.append(f"Is{event_name} ==")
             lines.append(f'    /\\ IsEvent("{event_name}")')
-            
-            if parameters:
+
+            # Check if there's a stmt field - if so, use it directly
+            stmt = action.get('stmt')
+
+            if stmt and parameters:
                 # Generate nested existential quantifiers for each parameter
                 for i, param in enumerate(parameters):
                     param_name = param['name']
                     param_source = param['source']
-                    
-                    # Check if source is a variable (like messages) or a constant
-                    if param_source in [var['name'] for var in self.config.get('variables', [])]:
-                        # It's a variable, use it directly
-                        trace_source = param_source
-                    else:
-                        # It's a constant, convert to Trace format
-                        trace_source = f"Trace{param_source}"
-                    
+
+                    # Process the source to determine if it needs Trace prefix
+                    trace_source = self._process_param_source(param_source)
+
                     # Calculate indentation: each level adds 4 spaces
                     indent = "    " + "    " * i
                     lines.append(f'{indent}/\\ \\E {param_name} \in {trace_source} :')
-                
+
+                # Use the stmt field directly for the action call
+                call_indent = "    " + "    " * len(parameters)
+                lines.append(f'{call_indent}{stmt}')
+
+            elif parameters:
+                # No stmt, generate based on parameters
+                for i, param in enumerate(parameters):
+                    param_name = param['name']
+                    param_source = param['source']
+
+                    # Process the source to determine if it needs Trace prefix
+                    trace_source = self._process_param_source(param_source)
+
+                    # Calculate indentation: each level adds 4 spaces
+                    indent = "    " + "    " * i
+                    lines.append(f'{indent}/\\ \\E {param_name} \in {trace_source} :')
+
                 # Generate the action call with proper indentation
                 call_indent = "    " + "    " * len(parameters)
                 param_names = [p['name'] for p in parameters]
-                if len(param_names) == 1:
-                    lines.append(f'{call_indent}{action_name}({param_names[0]})')
-                else:
-                    param_str = ', '.join(param_names)
-                    lines.append(f'{call_indent}{action_name}({param_str})')
+                param_str = ', '.join(param_names)
+                lines.append(f'{call_indent}{action_name}({param_str})')
+
             else:
-                # Handle action statement format
+                # No parameters case
                 stmt = action.get('stmt', action_name)
                 if stmt != action_name:
                     # Multi-line statement, preserve formatting
@@ -275,7 +339,6 @@ class SpecTraceGenerator:
 
 EXTENDS TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags, Json, IOUtils, {self.spec_name}, TraceSpec, TVOperators
 
-
 TraceNil == "null"
 
 (* Extract system configuration from first trace line *)
@@ -299,7 +362,7 @@ TraceNil == "null"
 ComposedNext == FALSE
 
 (* NOTHING TO CHANGE BELOW *)
-BaseSpec == Init /\\ [][Next \\/ ComposedNext]_vars
+BaseSpec == Init /\\ [][Next \\/ ComposedNext]_Vars
 
 =============================================================================
 

@@ -96,7 +96,7 @@ export ANTHROPIC_API_KEY="your-anthropic-key"
 python3 scripts/run_benchmark.py \
   --tasks etcd \
   --methods direct_call \
-  --models gpt-4 my_claude \
+  --models gpt-4 claude \
   --evaluation-type syntax \
   --output results/comparison
 ```
