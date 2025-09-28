@@ -1,5 +1,20 @@
 Generate a YAML configuration file from the provided TLA+ specification (.tla) and configuration (.cfg) files. Extract information according to the following rules:
 
+## Code Analysis
+Before generating the YAML configuration, you need to analyze the provided code files:
+
+**CRITICAL**: You MUST base your extraction on the actual code content provided below, NOT on the examples. The examples are for format reference only.
+
+### TLA+ Specification Code
+```tla+
+{TLA_SPEC_CODE_PLACEHOLDER}
+```
+
+### TLA+ Configuration Code
+```cfg
+{TLA_CFG_CODE_PLACEHOLDER}
+```
+
 ## Task Description
 Parse the TLA+ specification and configuration files to create a structured YAML configuration that captures the specification name, constants, variables, actions, and interactions.
 
@@ -92,6 +107,10 @@ interactions:
 4. Ignore variables that appear in Init but are not part of the main specification (e.g., pc, info, stack)
 5. Order matters: spec_name, constants, variables, actions, interactions
 
-Generate the YAML configuration based on the provided TLA+ files:
+## Code Placeholder Instructions
+When using this prompt:
+1. Replace `{TLA_SPEC_CODE_PLACEHOLDER}` with the complete TLA+ specification (.tla) file content
+2. Replace `{TLA_CFG_CODE_PLACEHOLDER}` with the complete TLA+ configuration (.cfg) file content
+3. Analyze these code sections to extract the required information according to the rules above
 
-{source_code}
+Generate the YAML configuration based on the provided TLA+ files in the placeholders above.
