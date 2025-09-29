@@ -146,7 +146,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             
             for i, (action_name, action_content) in enumerate(actions.items(), 1):
                 logger.info(f"Processing action {i}/{len(actions)}: {action_name}")
-                action_result = self._validate_action(action_name, action_content, spec_module or "ActionModule")
+                action_result = self._validate_action(action_name, action_content, spec_module or "ActionModule", task_name)
                 action_results.append(action_result)
                 
                 if action_result.validation_result.success:
@@ -420,7 +420,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
         logger.debug(f"Decomposed into {len(actions)} actions: {list(actions.keys())}")
         return actions
     
-    def _validate_action(self, action_name: str, action_content: str, base_module: str) -> ActionValidationResult:
+    def _validate_action(self, action_name: str, action_content: str, base_module: str, task_name: str = None) -> ActionValidationResult:
         """
         Validate a single action by creating a standalone TLA+ file.
         
@@ -428,7 +428,8 @@ class ActionDecompositionEvaluator(BaseEvaluator):
             action_name: Name of the action
             action_content: Content of the action
             base_module: Base module name for the action file
-            
+            task_name: Name of the task (for action name extraction)
+
         Returns:
             ActionValidationResult with validation outcome
         """
@@ -459,7 +460,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                 variables_added.extend(added_vars)
                 
                 # Try to add missing functions, and remove any variables that are actually functions
-                added_funcs = self._add_missing_functions(str(action_file), added_variables=added_vars)
+                added_funcs = self._add_missing_functions(str(action_file), added_variables=added_vars, task_name=task_name)
                 functions_added.extend(added_funcs)
                 
                 # Re-validate after fixes
@@ -617,7 +618,7 @@ class ActionDecompositionEvaluator(BaseEvaluator):
         
         return actual_variables
     
-    def _add_missing_functions(self, file_path: str, added_variables: List[str] = None) -> List[str]:
+    def _add_missing_functions(self, file_path: str, added_variables: List[str] = None, task_name: str = None) -> List[str]:
         """
         Add missing function definitions detected from SANY output using iterative approach.
         This method will run multiple iterations, detecting and adding new Unknown operators
@@ -626,7 +627,8 @@ class ActionDecompositionEvaluator(BaseEvaluator):
         Args:
             file_path: Path to the TLA+ file
             added_variables: List of variables already added (will remove these if they're actually functions)
-            
+            task_name: Name of the task (used for extracting action names from file paths)
+
         Returns:
             List of functions that were added across all iterations
         """
@@ -742,12 +744,23 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                     # print(f"DEBUG: Iteration {iteration + 1}: Will add constant: {const_def}")
                     functions_to_add.append(const_def)
                     iteration_added_funcs.append(op)
+
+                    # If this operator was previously added as a variable, mark it for removal
+                    if op in added_variables:
+                        variables_to_remove.append(op)
+                        print(f"DEBUG: Marking {op} for removal from VARIABLES (it's actually a constant)")
             
             # Add the functions to the file and remove incorrect variables if any were found
             if functions_to_add or variables_to_remove:
                 # We need to know the action name to find its position
-                # Extract action name from file path: ActionModule_ActionName.tla
-                action_name = os.path.basename(file_path).replace("ActionModule_", "").replace(".tla", "")
+                # Extract action name from file path: ActionModule_ActionName.tla or task_ActionName.tla
+                full_name = os.path.basename(file_path).replace("ActionModule_", "").replace(".tla", "")
+
+                # Handle cases like "locksvc_Msg" -> "Msg" (when task name is prepended)
+                action_name = full_name
+
+                if task_name and full_name.startswith(f"{task_name}_"):
+                    action_name = full_name[len(task_name)+1:]
                 
                 # Find insertion point - after EXTENDS but before the specific action definition
                 insert_idx = 2  # Start from line 2 (skip MODULE and EXTENDS)
@@ -759,22 +772,21 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                         break
                 
                 # Find where the specific action starts and insert BEFORE it
-                # print(f"DEBUG: Looking for action '{action_name}' starting from line 2")
+                print(f"DEBUG: Looking for action '{action_name}' starting from line 2")
                 for i in range(2, len(lines)):  # Start from line 2
                     line = lines[i].strip()
-                    # print(f"DEBUG: Line {i}: '{line[:50]}...'")
+                    print(f"DEBUG: Line {i}: '{line[:50]}...'")
                     # Look for the specific action definition by name
                     if line.startswith(f"{action_name}(") or line.startswith(f"{action_name} =="):
                         insert_idx = i  # Insert before the action definition
-                        # print(f"DEBUG: Found action '{action_name}' at line {i}: '{line[:50]}...'")
+                        print(f"DEBUG: Found action '{action_name}' at line {i}: '{line[:50]}...', insert_idx = {insert_idx}")
                         break
                 else:
-                    # print(f"DEBUG: Action '{action_name}' not found, using default position {insert_idx}")
-                    pass
+                    print(f"DEBUG: Action '{action_name}' not found, using default position {insert_idx}")
                 
                 # Remove variables that are actually functions from VARIABLES declaration
                 if variables_to_remove:
-                    # print(f"DEBUG: Removing variables that are actually functions: {variables_to_remove}")
+                    print(f"DEBUG: Removing variables that are actually functions: {variables_to_remove}")
                     for i, line in enumerate(lines):
                         if line.startswith("VARIABLES"):
                             # Parse existing variables
@@ -791,13 +803,15 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                                 # print(f"DEBUG: Updated VARIABLES line: {lines[i]}")
                             break
                 
-                # print(f"DEBUG: Will insert {len(functions_to_add)} functions at position {insert_idx}")
-                # print(f"DEBUG: Functions to add: {functions_to_add}")
-                
+                print(f"DEBUG: Will insert {len(functions_to_add)} functions at position {insert_idx}")
+                print(f"DEBUG: Functions to add: {functions_to_add}")
+
                 # Insert function definitions
                 for i, func_def in enumerate(functions_to_add):
-                    lines.insert(insert_idx + i * 2, func_def)
-                    lines.insert(insert_idx + i * 2 + 1, "")  # Add empty line after each function
+                    actual_insert_pos = insert_idx + i * 2
+                    print(f"DEBUG: Inserting '{func_def}' at position {actual_insert_pos}")
+                    lines.insert(actual_insert_pos, func_def)
+                    lines.insert(actual_insert_pos + 1, "")  # Add empty line after each function
                 
                 # Write back to file
                 updated_content = '\n'.join(lines)
@@ -805,9 +819,17 @@ class ActionDecompositionEvaluator(BaseEvaluator):
                     f.write(updated_content)
                 
                 logger.debug(f"Iteration {iteration + 1}: Added {len(functions_to_add)} function definitions and removed {len(variables_to_remove)} incorrect variables")
-                all_added_funcs.extend(iteration_added_funcs)
             else:
                 # print(f"DEBUG: Iteration {iteration + 1}: No new functions to add")
+                pass
+
+            # Always update all_added_funcs after each iteration, regardless of file changes
+            all_added_funcs.extend(iteration_added_funcs)
+            print(f"DEBUG: Updated all_added_funcs: {all_added_funcs}")
+
+            # If no new functions were added in this iteration, we're done
+            if not iteration_added_funcs:
+                print(f"DEBUG: No new functions added in iteration {iteration + 1}, stopping")
                 break
         
         # print(f"DEBUG: Completed iterative modification after {iteration + 1} iterations")
