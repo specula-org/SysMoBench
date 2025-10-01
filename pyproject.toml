@@ -46,9 +46,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Qian-Cheng-nju/LLM_Gen_TLA_benchmark_framework"
-Repository = "https://github.com/Qian-Cheng-nju/LLM_Gen_TLA_benchmark_framework"
-Issues = "https://github.com/Qian-Cheng-nju/LLM_Gen_TLA_benchmark_framework/issues"
+Homepage = "https://github.com/specula-org/SysSpecBench"
+Repository = "https://github.com/specula-org/SysSpecBench"
+Issues = "https://github.com/specula-org/SysSpecBench/issues"
 
 [project.scripts]
 tla-benchmark = "scripts.run_benchmark:main"
