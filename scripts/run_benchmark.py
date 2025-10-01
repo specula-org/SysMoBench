@@ -681,12 +681,6 @@ Examples:
   # Specify specific metric
   python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric runtime_check
   
-  # Use metric-specific parameters
-  python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric pass_at_k --k 5
-  
-  # Run consistency evaluation with progressive granularity
-  python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric progressive_granularity --level 2
-  
   # Batch benchmark with specific metric
   python3 scripts/run_benchmark.py --tasks etcd --methods direct_call --models gpt-4 claude-3 --metric compilation_check --output results/
   
@@ -709,10 +703,6 @@ Examples:
                        help="Legacy evaluation phase: 1=syntax, 2=semantics, 3=consistency (deprecated, use --evaluation-type)")
     
     # Metric-specific parameters
-    parser.add_argument("--k", type=int, 
-                       help="Number of attempts for pass@k metrics")
-    parser.add_argument("--level", type=int,
-                       help="Granularity level for progressive metrics")
     parser.add_argument("--tlc-timeout", type=int,
                        help="Timeout for TLC model checking in seconds (for coverage and runtime metrics)")
     parser.add_argument("--with-exist-traces", type=int, metavar="N",
@@ -849,10 +839,6 @@ Examples:
     
     # Collect metric-specific parameters
     metric_params = {}
-    if args.k is not None:
-        metric_params['k'] = args.k
-    if args.level is not None:
-        metric_params['level'] = args.level
     if args.tlc_timeout is not None:
         metric_params['tlc_timeout'] = args.tlc_timeout
     if getattr(args, 'with_exist_traces', None) is not None:
