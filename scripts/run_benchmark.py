@@ -257,6 +257,92 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
         
 
 
+def filter_metric_params(metric: str, params: dict) -> dict:
+    """
+    Filter metric-specific parameters based on metric compatibility.
+
+    Args:
+        metric: Name of the metric
+        params: Dictionary of all provided parameters
+
+    Returns:
+        Filtered dictionary containing only compatible parameters
+    """
+    # Define parameter compatibility for each metric
+    METRIC_PARAM_WHITELIST = {
+        # Syntax metrics
+        "compilation_check": {
+            "tlc_timeout"  # Will be mapped to validation_timeout in create_evaluator
+        },
+        "action_decomposition": {
+            "tlc_timeout",  # Will be mapped to validation_timeout in create_evaluator
+            "keep_temp_files"
+        },
+
+        # Semantics metrics
+        "runtime_check": {
+            "tlc_timeout"
+        },
+        "coverage": {
+            "tlc_timeout",
+            "coverage_interval"
+        },
+        "runtime_coverage": {
+            "num_simulations",
+            "simulation_depth",
+            "traces_per_simulation",
+            "tlc_timeout",
+            "coverage_interval"
+        },
+        "invariant_verification": {
+            "tlc_timeout",
+            "templates_dir"
+        },
+
+        # Consistency metrics
+        "trace_validation": {
+            "with_exist_traces",
+            "with_exist_specTrace",
+            "create_mapping"
+        },
+        "pgo_trace_validation": {
+            "with_exist_traces"  # Only supports with_exist_traces
+        },
+
+        # Composite metrics
+        "composite": {
+            "tlc_timeout",  # Will be mapped to validation_timeout
+            "invariant_iterations",
+            "keep_temp_files",
+            "max_correction_attempts",
+            "enable_coverage"
+        }
+    }
+
+    # Get allowed parameters for this metric
+    allowed = METRIC_PARAM_WHITELIST.get(metric, set())
+
+    # Filter parameters
+    filtered = {k: v for k, v in params.items() if k in allowed}
+
+    # Warn about ignored parameters
+    ignored = set(params.keys()) - allowed
+    if ignored:
+        logger.warning(
+            f"Metric '{metric}' does not support parameters: {sorted(ignored)}"
+        )
+        if allowed:
+            logger.info(
+                f"Metric '{metric}' supports these parameters: {sorted(allowed)}"
+            )
+        else:
+            logger.info(
+                f"Metric '{metric}' does not accept any metric-specific parameters"
+            )
+
+    return filtered
+
+
 def validate_prerequisites(phase: int = 1):
     """Validate that all prerequisites are met for running the benchmark."""
     logger.info("Validating prerequisites...")
@@ -485,11 +571,14 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             )
         
         # Create evaluator using metric registry
+        # Filter parameters before passing to evaluator
+        filtered_params = filter_metric_params(metric, metric_params)
+
         # For trace_validation metrics, pass model_name so the evaluator uses the requested model
         if metric in {"trace_validation", "pgo_trace_validation"}:
-            evaluator = create_evaluator(metric, model_name=model_name, **metric_params)
+            evaluator = create_evaluator(metric, model_name=model_name, **filtered_params)
         else:
-            evaluator = create_evaluator(metric, **metric_params)
+            evaluator = create_evaluator(metric, **filtered_params)
         
         # Evaluate based on metric type
         evaluation_result = None

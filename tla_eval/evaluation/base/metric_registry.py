@@ -223,7 +223,15 @@ def create_evaluator(metric_name: str, **kwargs):
     if metric_name == "action_decomposition" and "tlc_timeout" in kwargs:
         # ActionDecompositionEvaluator expects validation_timeout, not tlc_timeout
         kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
-    
+
+    if metric_name == "compilation_check" and "tlc_timeout" in kwargs:
+        # CompilationCheckEvaluator expects validation_timeout, not tlc_timeout
+        kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
+
+    if metric_name == "composite" and "tlc_timeout" in kwargs:
+        # CompositeEvaluator expects validation_timeout, not tlc_timeout
+        kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
+
     # Merge default params with provided kwargs
     params = {**metric_info.default_params, **kwargs}
     
