@@ -608,8 +608,12 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             # Consistency evaluation: Trace generation and validation
             # Use default configuration for consistency evaluation
             consistency_config = evaluator.get_default_config(task_name)
-            
-            evaluation_result = evaluator.evaluate(task_name, consistency_config, spec_file, config_file)
+
+            evaluation_result = evaluator.evaluate(
+                task_name, consistency_config,
+                spec_file_path=spec_file,
+                config_file_path=config_file
+            )
             logger.info(f"Trace validation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
         else:
             # For future metrics, use generic interface with smart file parameter detection
