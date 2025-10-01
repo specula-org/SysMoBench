@@ -47,4 +47,4 @@ CRITICAL OUTPUT REQUIREMENTS:
 4. Start your response directly with: ---- MODULE etcdraft ----
 5. End your response with the closing ====
 6. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - focus on modeling the system behavior
-7. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags
+7. **MANDATORY Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (e.g., WF_vars/SF_vars for action operations) to ensure liveness properties.
