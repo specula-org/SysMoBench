@@ -13,9 +13,9 @@ We address the primary challenge of evaluating AI-generated models by automating
 
 ## Key Features
 
-- **Automated Quality Metrics**: Four automated metrics evaluate AI-generated models from multiple dimensions: syntax correctness (SANY-based validation), runtime correctness (TLC model checking), conformance to system implementation (trace validation), and invariant correctness (safety and liveness properties verification).
+- **Automated Quality Metrics**: Four automated phases evaluate AI-generated models from multiple dimensions: syntax correctness, runtime correctness, conformance to system implementation, and invariant correctness.
 
-- **Real-World System Artifacts**: Nine diverse widely used systems, including distributed consensus protocols (Etcd Raft, Redis Raft), concurrent synchronization primitives (Asterinas Spinlock/Mutex/Rwmutex), distributed replication systems (Xline CURP), and PGo-compiled systems.
+- **Real-World System Artifacts**: Nine diverse widely used systems, including distributed consensus systems (Etcd Raft, Redis Raft), concurrent synchronization systems (Asterinas Spinlock/Mutex/Rwmutex), distributed replication systems (Xline CURP), and PGo-compiled systems.
 
 - **Extensible Framework**: Adding new system artifacts requires no reference model—only system code, instrumentation for trace collection, and invariant templates, making the benchmark easy to extend with additional systems.
 
@@ -61,7 +61,12 @@ sysmobench --list-tasks
 
 ### Running Your First Evaluation
 
-This example demonstrates how to evaluate an AI-generated TLA+ model for the Asterinas Spinlock system using syntax correctness metric.
+**General usage:**
+```bash
+sysmobench --task <task> --method <method> --model <model> --metric <metric>
+```
+
+This example demonstrates how to evaluate an AI-generated TLA+ model for the Asterinas Spinlock system using compilation_check metric.
 
 ```bash
 sysmobench --task spin --method direct_call --model claude --metric compilation_check
@@ -84,6 +89,8 @@ Compilation success rate: PASS (100.0%)
 
 Results saved to: output/spin/direct_call/claude/
 ```
+
+For detailed usage instructions, see [Usage Guide](docs/Usage.md).
 
 ## Benchmark Tasks
 
@@ -113,11 +120,6 @@ SysMoBench provides four automated phases to evaluate AI-generated TLA+ models f
 
 ![Evaluation Workflow](docs/pic/SysMoBench.png)
 *Figure: SysMoBench metrics and evaluation workflow. The benchmark evaluates syntax correctness, runtime correctness, conformance to system implementation, and invariant correctness.*
-
-**General usage:**
-```bash
-sysmobench --task <task> --method <method> --model <model> --metric <metric>
-```
 
 ### Reproducing Paper Results
 
@@ -166,11 +168,11 @@ Verifies that the model satisfies system-specific safety and liveness properties
 
 SysMoBench is designed to be extensible. To add a new system artifact:
 
-1. **Prepare system artifact**: Collect source code, documentation, and any relevant materials
+1. **Prepare system artifact**: Collect repository links, branch names, and any relevant materials
 2. **Create task definition**: Specify modeling requirements, task configuration and related files in `task.yaml` and define invariant templates for correctness properties
 3. **Instrument for trace collection**: Add logging statements to system code to collect execution traces for conformance validation
 
-For detailed instructions, see [Adding New Systems Guide](docs/guides/adding_systems.md).
+For detailed instructions, see [Adding New Systems Guide](docs/add_new_system.md).
 
 
 ## Project Structure
@@ -182,13 +184,13 @@ LLM_Gen_TLA_benchmark_framework/
 ├── tla_eval/
 │   ├── tasks/                    # Task definitions for each system artifact
 │   │   ├── spin/                 # Spinlock task with prompts, configs
-│   │   │   ├── prompts/          # System-specific prompt templates
+│   │   │   ├── prompts/          # System-specific prompts
 │   │   │   └── task.yaml         # Task configuration (system info)
 │   │   ├── mutex/
 │   │   └── ...
 │   ├── models/                   # LLM model interfaces and wrappers
 │   ├── evaluation/               # Evaluator implementations organized by metric type
-│   └── config.py                 # Configuration management (API keys, model endpoints)
+│   └── config.py                 # Configuration management (API keys, LLM model configs)
 ├── data/
 │   ├── invariant_templates/      # Expert-written invariant templates for each system
 │   └── traces/                   # System execution traces for conformance evaluation
