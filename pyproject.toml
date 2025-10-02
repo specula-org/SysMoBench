@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tla-eval"
-version = "0.1.0"
-description = "A framework for evaluating LLMs on TLA+ specification generation"
+name = "sysmobench"
+version = "1.0.0"
+description = "Benchmark for evaluating AI on formally modeling real-world concurrent and distributed systems"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
@@ -27,6 +27,7 @@ requires-python = ">=3.8"
 dependencies = [
     "openai>=1.0.0",
     "anthropic>=0.21.0",
+    "google-genai>=0.10.0",
     "pyyaml>=6.0.0",
     "requests>=2.25.0",
     "tqdm>=4.65.0",
@@ -51,8 +52,8 @@ Repository = "https://github.com/specula-org/SysSpecBench"
 Issues = "https://github.com/specula-org/SysSpecBench/issues"
 
 [project.scripts]
-tla-benchmark = "scripts.run_benchmark:main"
-tla-setup = "scripts.setup_tools:main"
+sysmobench = "tla_eval.cli:main"
+sysmobench-setup = "tla_eval.setup_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["tla_eval*"]
