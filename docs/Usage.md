@@ -1,175 +1,153 @@
 # Usage Guide
 
-This document provides detailed instructions for using the LLM-Generated TLA+ Benchmark Framework.
-
-## Command Line Interface
-
-The main entry point for running benchmarks is the `run_benchmark.py` script located in the `scripts/` directory.
-
-### Basic Command Structure
+## Command Structure
 
 ```bash
-python3 scripts/run_benchmark.py --task <task> --method <method> --model <model> [--metric <metric>] [options]
+sysmobench --task <task> --method <method> --model <model> --metric <metric> [options]
 ```
 
 ### Required Parameters
 
-Three parameters are required for single benchmark runs:
+- `--task` - System: `spin`, `mutex`, `rwmutex`, `etcd`, `redisraft`, `curp`, `dqueue`, `locksvc`, `raftkvs`
+- `--method` - Generation method: `direct_call`, `agent_based`, `trace_based`
+- `--model` - Model name (configured in `config/models.yaml`)
 
-- `--task`: Target system to evaluate (e.g., `etcd`)
-- `--method`: Generation method (e.g., `direct_call`)
-- `--model`: LLM model to use (e.g., `gpt-4`, `my_yunwu`)
+### Common Parameters
 
-### Optional Evaluation Parameters
+- `--metric` - Evaluation metric 
+- `--spec-file <path>` - Use existing TLA+ spec (skip generation)
+- `--config-file <path>` - Use existing TLC config (skip generation)
 
-- `--metric`: Specific metric to run (e.g., `compilation_check`, `trace_validation`)
-- `--evaluation-type`: Evaluation dimension (`syntax`, `semantics`, or `consistency`) - uses default metric for the dimension
-- `--k`: Number of attempts for pass@k metrics
-- `--level`: Granularity level for progressive metrics
+### Batch Evaluation
 
-### Environment Setup
+- `--tasks` - Multiple tasks (space-separated)
+- `--metrics` - Multiple metrics
+- `--output <dir>` - Output directory (default: `results/`)
 
-Before running benchmarks, ensure you have the necessary API keys set as environment variables:
-
-#### For OpenAI Models
-```bash
-export OPENAI_API_KEY="your-openai-api-key"
-```
-
-#### For Yunwu Models
-```bash
-export YUNWU_API_KEY="your-yunwu-api-key"
-```
-
-#### For Claude Models
-```bash
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-```
-
-## Single Benchmark Examples
-
-### Syntax Evaluation: Compilation Check
-Test whether the generated TLA+ specification compiles successfully.
+### List Options
 
 ```bash
-# Using default metric for syntax dimension
-export OPENAI_API_KEY="your-key"
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --evaluation-type syntax
-
-# Or specify the metric explicitly
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric compilation_check
+sysmobench --list-tasks
+sysmobench --list-methods
+sysmobench --list-models
+sysmobench --list-metrics
 ```
 
-### Semantics Evaluation: Invariant Verification
-Test whether TLC can validate the specification's invariants (requires syntax evaluation to pass first).
+## Metrics
 
-```bash
-# Using default metric for semantics dimension
-export OPENAI_API_KEY="your-key"
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --evaluation-type semantics
+SysMoBench evaluates models across **four dimensions**:
 
-# Or specify the metric explicitly
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model gpt-4 --metric runtime_check
+### 1. Syntax Correctness
+
+| Metric | Description | Parameters |
+|--------|-------------|------------|
+| `compilation_check` | Full-model compilation with SANY | None |
+| `action_decomposition` | Per-action validation with recovery | None |
+
+### 2. Runtime Correctness
+
+| Metric | Description | Parameters |
+|--------|-------------|------------|
+| `runtime_check` | Model checking without invariants | `--tlc-timeout <seconds>` |
+| `coverage` | Action coverage via TLC statistics | `--tlc-timeout <seconds>` |
+| `runtime_coverage` | Simulation-based coverage | `--tlc-timeout <seconds>` |
+
+### 3. Conformance to Implementation
+
+| Metric | Description | Applies To | Parameters |
+|--------|-------------|------------|------------|
+| `trace_validation` | Trace generation and validation | `spin`, `mutex`, `rwmutex`, `etcd`, `redisraft`, `curp` | `--with-exist-traces <N>`<br>`--with-exist-specTrace`<br>`--create-mapping` |
+| `pgo_trace_validation` | Trace validation for PGo systems | `dqueue`, `locksvc`, `raftkvs` | `--with-exist-traces <N>` |
+
+### 4. Invariant Correctness
+
+| Metric | Description | Parameters |
+|--------|-------------|------------|
+| `invariant_verification` | Verify system-specific safety and liveness properties | `--tlc-timeout <seconds>` |
+
+### Composite
+
+| Metric | Description | Parameters |
+|--------|-------------|------------|
+| `composite` | Sequential evaluation across all dimensions | None |
+
+## Model Configuration
+
+### File Location
+`config/models.yaml`
+
+### Configuration Format
+
+```yaml
+models:
+  <model_name>:
+    provider: "openai" | "anthropic" | "genai" | "deepseek" | "yunwu"
+    model_name: "<actual-model-name>"
+    api_key_env: "<ENV_VAR_NAME>"
+    temperature: <float>
+    max_tokens: <int>
+    timeout: <int>        # seconds, optional
+    top_p: <float>        # optional
+    url: "<endpoint>"     # optional, for custom endpoints
 ```
 
-### Consistency Evaluation: Trace Validation
-Test whether TLC can validate real system traces against the specification (most comprehensive).
+### Examples
 
-```bash
-# Using default metric for consistency dimension
-export OPENAI_API_KEY="your-key"
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu --evaluation-type consistency
-
-# Or specify the metric explicitly
-python3 scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu --metric trace_validation
+```yaml
+models:
+  # Anthropic Claude
+  claude:
+    provider: "anthropic"
+    model_name: "claude-sonnet-4-20250514"
+    api_key_env: "ANTHROPIC_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
 ```
 
-## Batch Benchmark Examples
+### Usage
 
-Run multiple combinations of tasks, methods, and models:
+1. Add model configuration to `config/models.yaml`
+2. Set environment variable:
+   ```bash
+   export YOUR_API_KEY="key"
+   ```
+3. Use model name in command:
+   ```bash
+   sysmobench --task spin --method direct_call --model custom --metric compilation_check
+   ```
 
-### Multiple Models
-```bash
-export OPENAI_API_KEY="your-openai-key"
-export ANTHROPIC_API_KEY="your-anthropic-key"
+## Output Structure
 
-python3 scripts/run_benchmark.py \
-  --tasks etcd \
-  --methods direct_call \
-  --models gpt-4 claude \
-  --evaluation-type syntax \
-  --output results/comparison
+Results in `output/<metric>/<task>/<method>_<model>/`:
+
+```
+output/coverage/spin/direct_call_gemini/
+├── generated_spec.tla
+├── generated_config.cfg
+├── evaluation_results.json
+└── tlc_output.log
 ```
 
-### Multiple Evaluation Types
-```bash
-# Run all evaluation types for a single configuration
-for eval_type in syntax semantics consistency; do
-  python3 scripts/run_benchmark.py \
-    --task etcd \
-    --method direct_call \
-    --model gpt-4 \
-    --evaluation-type $eval_type \
-    --output results/evaluation_progression
-done
-```
+## Task Configuration
 
+Task configs in `tla_eval/tasks/<task>/task.yaml`:
 
+```yaml
+name: "spin"
+description: "Asterinas OS spinlock"
+system_type: "concurrent"
+language: "rust"
 
-## Information Commands
+repository:
+  url: "https://github.com/asterinas/asterinas.git"
+  branch: "main"
 
-### List Available Options
+source_files:
+  - path: "ostd/src/sync/spin.rs"
 
-```bash
-# List all available tasks
-python3 scripts/run_benchmark.py --list-tasks
-
-# List all available methods
-python3 scripts/run_benchmark.py --list-methods
-
-# List all configured models
-python3 scripts/run_benchmark.py --list-models
-
-# List all available metrics
-python3 scripts/run_benchmark.py --list-metrics
-
-# List metrics for specific evaluation type
-python3 scripts/run_benchmark.py --list-metrics-for syntax
-python3 scripts/run_benchmark.py --list-metrics-for semantics
-python3 scripts/run_benchmark.py --list-metrics-for consistency
-```
-
-## Configuration Files
-
-### Model Configuration
-Models can be configured in YAML files or through environment variables. See the main README for configuration examples.
-
-### Task Configuration
-Each task has its configuration in `tla_eval/tasks/<task_name>/task.yaml` with system-specific settings.
-
-## Advanced Usage
-
-### Custom Generation Configuration
-```python
-# For programmatic usage
-from tla_eval.models.base import GenerationConfig
-
-config = GenerationConfig(
-    max_tokens=4096,
-    temperature=0.1,
-    top_p=0.9
-)
-```
-
-### Direct Consistency Evaluation
-```python
-# For direct consistency evaluation usage
-from tla_eval.evaluation.consistency.trace_validation import TraceValidationEvaluator
-
-evaluator = TraceValidationEvaluator()
-result = evaluator.evaluate('etcd', {
-    'node_count': 3,
-    'duration_seconds': 60,
-    'client_qps': 10.0
-})
+default_source_file: "ostd/src/sync/spin.rs"
+specModule: "spin"
+traces_folder: "data/sys_traces/spin"
+...
 ```

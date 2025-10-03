@@ -1,6 +1,6 @@
 # Adding a New System to the Framework
 
-This document explains how to add a new system to the framework using etcd as an example. The process consists of three main steps:
+This document explains how to add a new system to the framework. The process consists of three main steps:
 
 ## 1. Define Task Configuration
 
@@ -18,7 +18,6 @@ Create prompt files based on etcd naming convention:
 - `agent_based.txt` - Agent-based generation prompt
 - `direct_call.txt` - Direct call prompt
 - `phase2_config.txt` - .cfg configuration file generation prompt
-- `phase2_invariants.txt` - invariants generation prompt(unused)
 - `phase3_invariant_implementation.txt` - invariant translation prompt
 - `trace_config_generation.txt` - Trace configuration generation prompt
 
@@ -34,7 +33,7 @@ Define core system invariants, each containing:
 - `formal_description` - Formal description
 - `tla_example` - TLA+ code example
 
-These templates are used for Phase 3 invariant verification.
+These templates are used for invariant verification.
 
 ## 3. Implement Trace Validation
 
