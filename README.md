@@ -2,14 +2,16 @@
 
 ## Overview
 
-![SysMoBench Overview](docs/pic/overview.png)
-*Figure: SysMoBench sources its tasks from real-world systems and automatically evaluates AI-generated TLA+ models with different metrics.*
-
 Formal models are essential to specifying large, complex computer systems and verifying their correctness, but are notoriously expensive to write and maintain. Recent advances in generative AI show promise in generating certain forms of specifications. However, existing work mostly targets small code, not complete systems. It is unclear whether AI can deal with realistic system artifacts, as this requires abstracting their complex behavioral properties into formal models.
 
 SysMoBench presents a benchmark that evaluates AI's ability to formally model large, complex systems. We focus on concurrent and distributed systems, which are keystones of today's critical computing infrastructures, encompassing operating systems and cloud infrastructure. We use TLA+, the de facto specification language for concurrent and distributed systems, though the benchmark can be extended to other specification languages.
 
 We address the primary challenge of evaluating AI-generated models by automating metrics like syntactic and runtime correctness, conformance to system code, and invariant correctness. SysMoBench currently includes nine diverse system artifacts: the Raft implementation of Etcd and Redis, the Spinlock and Mutex in Asterinas OS, etc.; more artifacts are being actively added.
+
+SysMoBench sources its tasks from real-world systems and automatically evaluates AI-generated TLA+ models with different metrics,
+   as illustrated in the following figure.
+![SysMoBench Overview](docs/pic/overview.png)
+
 
 ## Key Features
 
@@ -116,10 +118,10 @@ sysmobench --list-tasks
 
 ## Evaluation Metrics
 
-SysMoBench provides four automated phases to evaluate AI-generated TLA+ models from different dimensions:
+SysMoBench provides four automated phases to evaluate AI-generated TLA+ models with different metrics:
+   syntax correctness, runtime correctness, conformance to system implementation, and invariant correctness.
 
 ![Evaluation Workflow](docs/pic/SysMoBench.png)
-*Figure: SysMoBench metrics and evaluation workflow. The benchmark evaluates syntax correctness, runtime correctness, conformance to system implementation, and invariant correctness.*
 
 ### Reproducing Paper Results
 
