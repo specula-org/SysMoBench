@@ -16,8 +16,8 @@ TARGET = raft_trace_generator
 # Include directories
 INCLUDES = -I$(RAFT_INCLUDE_DIR)
 
-# Libraries
-LIBS = -L$(RAFT_LIB_DIR) -lraft
+# Libraries - use static lib directly for reliability
+RAFT_STATIC_LIB = $(RAFT_LIB_DIR)/libraft.a
 
 # Default target
 all: build_raft $(TARGET)
@@ -34,7 +34,7 @@ build_raft:
 # Build the trace generator
 $(TARGET): $(SOURCES)
 	@echo "Building Raft trace generator..."
-	$(CC) $(CFLAGS) $(INCLUDES) -o $(TARGET) $(SOURCES) $(LIBS) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $(TARGET) $(SOURCES) $(RAFT_STATIC_LIB) $(LDFLAGS)
 
 # Test target
 test: $(TARGET)
