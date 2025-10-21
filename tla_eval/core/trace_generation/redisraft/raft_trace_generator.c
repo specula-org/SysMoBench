@@ -81,8 +81,10 @@ typedef struct {
     int type;
     int from;
     int to;
-    int term;
+    raft_term_t term;
     char data[512];
+    raft_index_t n_entries;
+    raft_entry_t **entries;
 } simple_message_t;
 
 #define MSG_TYPE_REQUESTVOTE 1
@@ -104,9 +106,9 @@ typedef struct message_queue {
 static message_queue_t node_queues[10]; // Support up to 10 nodes
 
 // Message queue functions
-void enqueue_message(simple_message_t *msg) {
+int enqueue_message(simple_message_t *msg) {
     int target_node = msg->to - 1; // Convert to 0-based index
-    if (target_node < 0 || target_node >= 10) return;
+    if (target_node < 0 || target_node >= 10) return 0;
 
     message_queue_t *queue = &node_queues[target_node];
     pthread_mutex_lock(&queue->mutex);
@@ -114,8 +116,11 @@ void enqueue_message(simple_message_t *msg) {
         queue->messages[queue->tail] = *msg;
         queue->tail = (queue->tail + 1) % 1000;
         queue->count++;
+        pthread_mutex_unlock(&queue->mutex);
+        return 1;
     }
     pthread_mutex_unlock(&queue->mutex);
+    return 0;
 }
 
 int dequeue_message(int node_id, simple_message_t *msg) {
@@ -135,6 +140,20 @@ int dequeue_message(int node_id, simple_message_t *msg) {
     return 0;
 }
 
+static void free_message_entries(simple_message_t *msg)
+{
+    if (msg->n_entries > 0 && msg->entries != NULL) {
+        for (raft_index_t i = 0; i < msg->n_entries; i++) {
+            if (msg->entries[i]) {
+                raft_entry_release(msg->entries[i]);
+            }
+        }
+        free(msg->entries);
+        msg->entries = NULL;
+        msg->n_entries = 0;
+    }
+}
+
 // Simplified callback implementations
 int send_requestvote(raft_server_t* raft, void *user_data, raft_node_t* node, raft_requestvote_req_t* msg) {
     (void)raft;
@@ -150,7 +169,7 @@ int send_requestvote(raft_server_t* raft, void *user_data, raft_node_t* node, ra
     log_trace_event(self_node, "RequestVote", trace_data);
 
     // Send message to queue for processing by target node
-    simple_message_t net_msg;
+    simple_message_t net_msg = (simple_message_t){0};
     net_msg.type = msg->prevote ? MSG_TYPE_PREVOTE : MSG_TYPE_REQUESTVOTE; // Different types!
     net_msg.from = self_node->node_id;
     net_msg.to = target_id;
@@ -178,7 +197,7 @@ int send_appendentries(raft_server_t* raft, void *user_data, raft_node_t* node, 
     log_trace_event(self_node, "AppendEntries", trace_data);
 
     // Send message to queue for processing by target node
-    simple_message_t net_msg;
+    simple_message_t net_msg = {0};
     net_msg.type = MSG_TYPE_APPENDENTRIES;
     net_msg.from = self_node->node_id;
     net_msg.to = target_id;
@@ -186,8 +205,39 @@ int send_appendentries(raft_server_t* raft, void *user_data, raft_node_t* node, 
     snprintf(net_msg.data, sizeof(net_msg.data),
             "{\"prev_log_idx\":%ld,\"prev_log_term\":%d,\"leader_commit\":%d,\"n_entries\":%ld}",
             (long)msg->prev_log_idx, (int)msg->prev_log_term, (int)msg->leader_commit, (long)msg->n_entries);
+    if (msg->n_entries > 0) {
+        net_msg.n_entries = msg->n_entries;
+        net_msg.entries = calloc(msg->n_entries, sizeof(raft_entry_t*));
+        if (!net_msg.entries) {
+            net_msg.n_entries = 0;
+        } else {
+            for (raft_index_t i = 0; i < msg->n_entries; i++) {
+                raft_entry_t *src = msg->entries[i];
+                raft_entry_t *copy = raft_entry_new(src->data_len);
+                if (!copy) {
+                    for (raft_index_t j = 0; j < i; j++) {
+                        raft_entry_release(net_msg.entries[j]);
+                    }
+                    free(net_msg.entries);
+                    net_msg.entries = NULL;
+                    net_msg.n_entries = 0;
+                    break;
+                }
+                if (src->data_len > 0) {
+                    memcpy(copy->data, src->data, src->data_len);
+                }
+                copy->term = src->term;
+                copy->id = src->id;
+                copy->session = src->session;
+                copy->type = src->type;
+                net_msg.entries[i] = copy;
+            }
+        }
+    }
 
-    enqueue_message(&net_msg);
+    if (!enqueue_message(&net_msg)) {
+        free_message_entries(&net_msg);
+    }
 
     return 0;
 }
@@ -371,7 +421,7 @@ void* node_thread(void *arg) {
                     log_trace_event(node, req.prevote ? "PreVoteResponse" : "VoteResponse", resp_data);
 
                     // Send response back to requester
-                    simple_message_t resp_msg;
+                    simple_message_t resp_msg = (simple_message_t){0};
                     resp_msg.type = req.prevote ? MSG_TYPE_PREVOTE_RESPONSE : MSG_TYPE_REQUESTVOTE_RESPONSE;
                     resp_msg.from = node->node_id;
                     resp_msg.to = msg.from;
@@ -388,10 +438,13 @@ void* node_thread(void *arg) {
                            (long*)&req.prev_log_idx, (int*)&req.prev_log_term, (int*)&req.leader_commit, (long*)&req.n_entries);
                     req.term = msg.term;
                     req.leader_id = msg.from;
-                    req.entries = NULL; // Simplified
+                    req.n_entries = msg.n_entries;
+                    req.entries = msg.entries;
 
                     raft_appendentries_resp_t resp;
                     raft_recv_appendentries(node->raft, raft_get_node(node->raft, msg.from), &req, &resp);
+
+                    free_message_entries(&msg);
 
                     // Log the response
                     char resp_data[256];
@@ -468,7 +521,8 @@ int init_cluster(int node_count, int duration, const char *output_dir) {
     // Create output directory if it doesn't exist
     char mkdir_cmd[512];
     snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", output_dir);
-    system(mkdir_cmd);
+    int system_rc = system(mkdir_cmd);
+    (void)system_rc;
 
     // Open merged trace file
     char merged_path[512];
