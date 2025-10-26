@@ -31,5 +31,6 @@ metadata:
 # Phase 3 specific configuration
 phase3:
   trace_generation: false
-  patch_required: false
-  description: "Spinlock synchronization primitive verification"
+  patch_required: true
+  patch_file: "patches/asterinas_tla_trace.patch"
+  patch_description: "Inject TLA+ trace instrumentation for Asterinas sync primitives"
