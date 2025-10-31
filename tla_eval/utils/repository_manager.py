@@ -74,8 +74,12 @@ class RepositoryManager:
         if not url:
             raise ValueError("Repository URL not specified in task configuration")
         
+        have_submodule = bool(repo_info.get("have_submodule", False))
         # Clone repository
-        cmd = ["git", "clone", url, str(repo_path)]
+        cmd = ["git", "clone"]
+        if have_submodule:
+            cmd.append("--recurse-submodules")
+        cmd.extend([url, str(repo_path)])
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
@@ -83,6 +87,13 @@ class RepositoryManager:
         
         # Checkout specific version if specified
         self._checkout_version(repo_info, repo_path)
+
+        # Ensure submodules are initialized when requested
+        if have_submodule:
+            update_cmd = ["git", "submodule", "update", "--init", "--recursive"]
+            update_res = subprocess.run(update_cmd, cwd=repo_path, capture_output=True, text=True)
+            if update_res.returncode != 0:
+                raise Exception(f"Failed to init submodules: {update_res.stderr}")
     
     def _update_repository(self, repo_info: Dict[str, Any], repo_path: Path):
         """Update existing repository."""
