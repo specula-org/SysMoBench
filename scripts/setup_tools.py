@@ -9,6 +9,7 @@ import os
 import sys
 import urllib.request
 import tempfile
+import shutil
 from pathlib import Path
 import logging
 
@@ -85,9 +86,9 @@ def download_file(url: str, output_path: Path) -> bool:
                         print(f"\rProgress: {progress:.1f}%", end='', flush=True)
                 
                 print()  # New line after progress
-            
-            # Move temp file to final location
-            os.rename(temp_file.name, output_path)
+
+            # Move temp file to final location (use shutil.move to handle cross-device)
+            shutil.move(temp_file.name, str(output_path))
             print_success(f"{output_path.name} downloaded successfully")
             return True
             
