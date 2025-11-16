@@ -597,6 +597,10 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 from tla_eval.evaluation.semantics.alloy_invariant_check import AlloyInvariantCheckEvaluator
                 evaluator = AlloyInvariantCheckEvaluator(**filtered_params)
                 logger.info("Using Alloy invariant evaluator")
+            elif metric == "trace_validation":
+                from tla_eval.evaluation.consistency.alloy_trace_validation import AlloyTraceValidationEvaluator
+                evaluator = AlloyTraceValidationEvaluator(**filtered_params)
+                logger.info("Using Alloy trace validation evaluator")
             elif metric == "composite":
                 # Composite metric will be handled by the generic composite handling below
                 # Create a placeholder evaluator, will be recreated in composite section
@@ -609,7 +613,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             else:
                 raise ValueError(
                     f"Metric '{metric}' is not yet supported for Alloy language. "
-                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification, composite"
+                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification, trace_validation, composite"
                 )
         elif language == "PAT":
             raise ValueError(f"PAT language support is not yet implemented")
