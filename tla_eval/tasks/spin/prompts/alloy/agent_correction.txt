@@ -46,6 +46,23 @@ Common Alloy syntax issues to avoid:
 - Use `one` for "exactly one" (e.g., `time: one Time`)
 - Facts cannot have parameters (use predicates instead if parameters needed)
 
+## Trace Validation Conventions
+
+Ensure the corrected specification uses these exact names:
+
+**Thread/Lock atoms**:
+- `one sig Thread0, Thread1 extends Thread {}`
+- `one sig Lock0 extends Lock {}`
+
+**State fields**:
+- `thread_status: Thread -> one Status`
+- `lock_holder: Lock -> lone Thread`
+- `time: one Time`
+
+**Status values**:
+- `abstract sig Status {}`
+- `one sig Idle, Trying, Locked extends Status {}`
+
 CRITICAL OUTPUT REQUIREMENTS:
 1. The module name must remain exactly "spinlock" (module spinlock)
 2. Return ONLY the corrected Alloy specification code - no markdown code blocks
