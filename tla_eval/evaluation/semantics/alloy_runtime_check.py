@@ -1,21 +1,16 @@
-"""
-Alloy Runtime Check Evaluator: Executes run/check commands in Alloy specifications.
+"""Alloy runtime evaluator that executes all run/check commands."""
 
-This evaluator uses AlloyRuntime to execute all run/check commands and reports results.
-"""
-
-import logging
-import subprocess
-import time
 import json
-import re
+import logging
+import time
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional
 
 from ...models.base import GenerationResult
 from ...utils.output_manager import get_output_manager
 from ..base.evaluator import BaseEvaluator
 from ..base.result_types import SemanticEvaluationResult
+from ...core.verification.alloy_runtime_executor import AlloyRuntimeExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +28,7 @@ class AlloyRuntimeCheckEvaluator(BaseEvaluator):
             validation_timeout: Timeout for runtime checking in seconds
         """
         super().__init__(timeout=validation_timeout)
-        self.alloy_jar = Path("lib/alloy.jar")
-        self.runtime_class = "AlloyRuntime"
-
-        if not self.alloy_jar.exists():
-            raise FileNotFoundError(f"Alloy JAR not found: {self.alloy_jar}")
+        self.runtime_executor = AlloyRuntimeExecutor(timeout=validation_timeout)
 
     def evaluate(self,
                 generation_result: GenerationResult,
@@ -100,7 +91,7 @@ class AlloyRuntimeCheckEvaluator(BaseEvaluator):
         logger.info("Starting Alloy runtime checking")
         start_time = time.time()
 
-        runtime_result = self._execute_runtime(alloy_file)
+        runtime_result = self.runtime_executor.run(alloy_file)
 
         eval_result.model_checking_time = time.time() - start_time
         eval_result.model_checking_successful = runtime_result['success']
@@ -134,124 +125,6 @@ class AlloyRuntimeCheckEvaluator(BaseEvaluator):
             logger.warning(f"Failed to save results: {e}")
 
         return eval_result
-
-    def _execute_runtime(self, spec_file: Path) -> Dict:
-        """
-        Execute Alloy runtime checker.
-
-        Args:
-            spec_file: Path to .als file
-
-        Returns:
-            Dictionary with execution results
-        """
-        classpath = f"{self.alloy_jar}:{self.alloy_jar.parent}"
-
-        cmd = [
-            "java",
-            "-cp", classpath,
-            self.runtime_class,
-            str(spec_file.resolve()),
-            "--timeout", str(self.timeout)
-        ]
-
-        logger.info(f"Running: {' '.join(cmd)}")
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout + 10  # Extra buffer
-            )
-
-            return self._parse_runtime_output(result.returncode, result.stdout, result.stderr)
-
-        except subprocess.TimeoutExpired:
-            logger.error(f"Runtime check timeout after {self.timeout}s")
-            return {
-                'success': False,
-                'error': f"Timeout after {self.timeout}s"
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to run runtime checker: {e}")
-            return {
-                'success': False,
-                'error': f"Cannot run runtime checker: {e}"
-            }
-
-    def _parse_runtime_output(self, returncode: int, stdout: str, stderr: str) -> Dict:
-        """
-        Parse output from AlloyRuntime.
-
-        Args:
-            returncode: Exit code
-            stdout: Standard output
-            stderr: Standard error
-
-        Returns:
-            Dictionary with parsed results
-        """
-        commands = []
-        total_commands = 0
-        successful_commands = 0
-        failed_commands = 0
-
-        if returncode == 0 or returncode == 1:
-            # Parse command results from stdout
-            lines = stdout.split('\n')
-            current_command = None
-
-            for line in lines:
-                line = line.strip()
-
-                if line.startswith('COMMANDS:'):
-                    total_commands = int(line.split(':')[1].strip())
-
-                elif line.startswith('=== COMMAND_'):
-                    if current_command:
-                        commands.append(current_command)
-                    current_command = {}
-
-                elif line.startswith('LABEL:') and current_command is not None:
-                    current_command['label'] = line.split(':', 1)[1].strip()
-
-                elif line.startswith('TYPE:') and current_command is not None:
-                    current_command['type'] = line.split(':', 1)[1].strip()
-
-                elif line.startswith('RESULT:') and current_command is not None:
-                    result_str = line.split(':', 1)[1].strip()
-                    current_command['result'] = result_str
-                    if 'PASS' in result_str:
-                        successful_commands += 1
-                    else:
-                        failed_commands += 1
-
-                elif line.startswith('STATUS:') and current_command is not None:
-                    current_command['status'] = line.split(':', 1)[1].strip()
-
-                elif line.startswith('EXEC_TIME:') and current_command is not None:
-                    time_str = line.split(':', 1)[1].strip().replace('ms', '')
-                    current_command['exec_time_ms'] = int(time_str)
-
-            if current_command:
-                commands.append(current_command)
-
-            return {
-                'success': returncode == 0,
-                'total_commands': total_commands,
-                'successful_commands': successful_commands,
-                'failed_commands': failed_commands,
-                'commands': commands
-            }
-
-        else:
-            # Internal error
-            return {
-                'success': False,
-                'error': f"Runtime checker internal error (code {returncode}): {stderr}"
-            }
 
     def _get_evaluation_type(self) -> str:
         """Return the evaluation type identifier"""

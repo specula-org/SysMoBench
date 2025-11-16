@@ -578,7 +578,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
 
         # Handle language-specific evaluators
         if language == "Alloy":
-            # Alloy supports compilation_check and runtime_check
+            # Alloy currently supports compilation_check, runtime_check, coverage, and invariant_verification
             if metric == "compilation_check":
                 from tla_eval.evaluation.syntax.alloy_compilation_check import AlloyCompilationCheckEvaluator
                 evaluator = AlloyCompilationCheckEvaluator(**filtered_params)
@@ -587,8 +587,19 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 from tla_eval.evaluation.semantics.alloy_runtime_check import AlloyRuntimeCheckEvaluator
                 evaluator = AlloyRuntimeCheckEvaluator(**filtered_params)
                 logger.info("Using Alloy runtime check evaluator")
+            elif metric == "coverage":
+                from tla_eval.evaluation.semantics.alloy_coverage import AlloyCoverageEvaluator
+                evaluator = AlloyCoverageEvaluator(**filtered_params)
+                logger.info("Using Alloy coverage evaluator")
+            elif metric == "invariant_verification":
+                from tla_eval.evaluation.semantics.alloy_invariant_check import AlloyInvariantCheckEvaluator
+                evaluator = AlloyInvariantCheckEvaluator(**filtered_params)
+                logger.info("Using Alloy invariant evaluator")
             else:
-                raise ValueError(f"Metric '{metric}' is not yet supported for Alloy language. Currently supported: compilation_check, runtime_check")
+                raise ValueError(
+                    f"Metric '{metric}' is not yet supported for Alloy language. "
+                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification"
+                )
         elif language == "PAT":
             raise ValueError(f"PAT language support is not yet implemented")
         else:
