@@ -10,7 +10,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 import re
 
@@ -25,6 +25,18 @@ class ValidationResult:
     syntax_errors: List[str]
     semantic_errors: List[str]
     compilation_time: float
+    error_message: Optional[str] = None
+
+
+@dataclass
+class RuntimeResult:
+    """Result of Alloy runtime execution (run/check commands)"""
+    success: bool
+    output: str
+    satisfiable: bool
+    execution_time: float
+    command_results: List[Dict[str, Any]]
+    error_message: Optional[str] = None
 
 
 class AlloyValidator:
@@ -46,6 +58,7 @@ class AlloyValidator:
         self.timeout = timeout
         self.alloy_jar = Path(alloy_jar_path)
         self.validator_class = "AlloyCliValidator"
+        self.runtime_class = "AlloyRuntime"
 
         if not self.alloy_jar.exists():
             raise FileNotFoundError(f"Alloy JAR not found: {self.alloy_jar}")
