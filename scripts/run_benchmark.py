@@ -473,8 +473,10 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
     try:
         # Load task
         task_loader = get_task_loader()
-        task = task_loader.load_task(task_name, source_file, traces_folder)
-        logger.info(f"Loaded task: {task.task_name} ({task.system_type})")
+        # Normalize language parameter
+        spec_language = language.lower().replace("+", "").strip()
+        task = task_loader.load_task(task_name, source_file, traces_folder, spec_language)
+        logger.info(f"Loaded task: {task.task_name} ({task.system_type}), spec_language: {task.spec_language}")
         
         # Setup repository if needed for consistency evaluation
         if evaluation_type == "consistency":
@@ -487,9 +489,9 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             except Exception as e:
                 logger.warning(f"Repository setup failed (continuing anyway): {e}")
         
-        # Get prompt for this method
-        prompt_template = task_loader.get_task_prompt(task_name, method_name)
-        logger.info(f"Loaded prompt template ({len(prompt_template)} chars)")
+        # Get prompt for this method (language-specific)
+        prompt_template = task_loader.get_task_prompt(task_name, method_name, task.spec_language)
+        logger.info(f"Loaded prompt template for {task.spec_language} ({len(prompt_template)} chars)")
         
         # Load model (only if not using existing files)
         model = None
@@ -578,7 +580,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
 
         # Handle language-specific evaluators
         if language == "Alloy":
-            # Alloy currently supports compilation_check, runtime_check, coverage, and invariant_verification
+            # Alloy currently supports compilation_check, runtime_check, coverage, invariant_verification, and composite
             if metric == "compilation_check":
                 from tla_eval.evaluation.syntax.alloy_compilation_check import AlloyCompilationCheckEvaluator
                 evaluator = AlloyCompilationCheckEvaluator(**filtered_params)
@@ -595,10 +597,19 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 from tla_eval.evaluation.semantics.alloy_invariant_check import AlloyInvariantCheckEvaluator
                 evaluator = AlloyInvariantCheckEvaluator(**filtered_params)
                 logger.info("Using Alloy invariant evaluator")
+            elif metric == "composite":
+                # Composite metric will be handled by the generic composite handling below
+                # Create a placeholder evaluator, will be recreated in composite section
+                from tla_eval.evaluation.composite.composite_evaluation import create_composite_evaluator
+                evaluator = create_composite_evaluator(
+                    **filtered_params,
+                    spec_language=task.spec_language
+                )
+                logger.info("Using Alloy composite evaluator")
             else:
                 raise ValueError(
                     f"Metric '{metric}' is not yet supported for Alloy language. "
-                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification"
+                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification, composite"
                 )
         elif language == "PAT":
             raise ValueError(f"PAT language support is not yet implemented")
@@ -673,6 +684,14 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         # Always load method for composite evaluation to support correction iterations
                         # even when using --spec-file
                         method = get_method(method_name)
+
+                        # Recreate evaluator with spec_language for composite evaluation
+                        from tla_eval.evaluation.composite.composite_evaluation import create_composite_evaluator
+                        evaluator = create_composite_evaluator(
+                            **filtered_params,
+                            spec_language=task.spec_language
+                        )
+
                         evaluation_result = evaluator.evaluate(
                             generation_result, task_name, method_name, model_name, task.spec_module,
                             task=task, method=method
