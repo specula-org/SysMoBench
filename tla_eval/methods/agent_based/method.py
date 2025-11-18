@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Dict, Any, Optional, List, Tuple
 
-from ..base import TLAGenerationMethod, GenerationTask, GenerationOutput
+from ..base import TLAGenerationMethod, GenerationTask, GenerationOutput, format_prompt_template
 from ...config import get_configured_model
 from ...core.verification.validators import TLAValidator, ValidationResult
 from ...models.base import GenerationConfig
@@ -509,8 +509,8 @@ class AgentBasedMethod(TLAGenerationMethod):
         if task.extra_info:
             format_vars.update(task.extra_info)
 
-        # Format template with task information
-        return prompt_template.format(**format_vars)
+        # Format template with task information (without escaping literal braces)
+        return format_prompt_template(prompt_template, format_vars)
     
     def _create_correction_prompt(self, task: GenerationTask, current_spec: str, 
                                 validation_result: ValidationResult, attempt_num: int) -> str:

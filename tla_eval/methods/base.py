@@ -77,3 +77,18 @@ class TLAGenerationMethod(ABC):
             Dictionary with method metadata
         """
         pass
+
+
+def format_prompt_template(prompt_template: str, format_vars: Dict[str, Any]) -> str:
+    """
+    Safely format a prompt template without requiring callers to escape brace characters.
+
+    This replaces `{field}` placeholders using simple string replacement so that literal
+    braces used in prompt instructions (e.g., Alloy/TLA+ snippets) are preserved.
+    """
+    formatted_prompt = prompt_template
+    for key, value in format_vars.items():
+        placeholder = f"{{{key}}}"
+        if placeholder in formatted_prompt:
+            formatted_prompt = formatted_prompt.replace(placeholder, str(value))
+    return formatted_prompt
