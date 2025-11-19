@@ -115,10 +115,29 @@ class CompositeEvaluator(BaseEvaluator):
                 validation_timeout=validation_timeout
             )
 
+        elif self.spec_language == "pat":
+            # PAT evaluators
+            from ..syntax.pat_compilation_check import PATCompilationCheckEvaluator
+            from ..semantics.pat_runtime_check import PATRuntimeCheckEvaluator
+            from ..semantics.pat_invariant_check import PATInvariantCheckEvaluator
+
+            self.action_evaluator = None  # PAT doesn't have action decomposition
+            self.compilation_evaluator = PATCompilationCheckEvaluator(
+                validation_timeout=validation_timeout
+            )
+            self.runtime_check_evaluator = PATRuntimeCheckEvaluator(
+                validation_timeout=validation_timeout
+            )
+            self.manual_invariant_evaluator = PATInvariantCheckEvaluator(
+                validation_timeout=validation_timeout
+            )
+            # Other phases not yet implemented
+            self.coverage_evaluator = None  # TODO: Implement PATCoverageEvaluator
+
         else:
             raise ValueError(
                 f"Unsupported specification language: '{self.spec_language}'. "
-                f"Supported: tla, alloy"
+                f"Supported: tla, alloy, pat"
             )
     
     def evaluate(self, 
@@ -389,7 +408,7 @@ class CompositeEvaluator(BaseEvaluator):
                     # Try to get spec and config file paths from the SUCCESSFUL runtime check result
                     spec_file_path = None
                     config_file_path = None
-                    
+
                     if iteration_results and successful_iteration is not None:
                         runtime_result = None
                         # Find the runtime result from the successful iteration
@@ -397,18 +416,27 @@ class CompositeEvaluator(BaseEvaluator):
                             if iter_result.get('iteration') == successful_iteration and iter_result.get('runtime_result') and iter_result['runtime_result'].overall_success:
                                 runtime_result = iter_result['runtime_result']
                                 break
-                        
+
                         if runtime_result:
                             if hasattr(runtime_result, 'specification_file'):
                                 spec_file_path = runtime_result.specification_file
                             if hasattr(runtime_result, 'config_file_path'):
                                 config_file_path = runtime_result.config_file_path
-                    
+
                     # Call manual invariant evaluator with composite mode parameters
-                    manual_result = self.manual_invariant_evaluator.evaluate(
-                        current_generation_result, task_name, method_name, model_name, spec_module, 
-                        base_config_content, spec_file_path, config_file_path
-                    )
+                    # Different languages have different parameter requirements
+                    if self.spec_language == "tla":
+                        # TLA+ requires base_config_content parameter
+                        manual_result = self.manual_invariant_evaluator.evaluate(
+                            current_generation_result, task_name, method_name, model_name, spec_module,
+                            base_config_content, spec_file_path, config_file_path
+                        )
+                    else:
+                        # Alloy/PAT don't use base_config_content
+                        manual_result = self.manual_invariant_evaluator.evaluate(
+                            current_generation_result, task_name, method_name, model_name, spec_module,
+                            spec_file_path, config_file_path
+                        )
                     
                     success_status = "✓ PASS" if manual_result.overall_success else "✗ FAIL"
                     logger.info(f"Manual Invariant Verification: {success_status}")
@@ -426,14 +454,14 @@ class CompositeEvaluator(BaseEvaluator):
                 logger.info(f"Skipping Manual Invariant Verification (no successful iteration)")
             
             # Step 5: Coverage Analysis (optional, run regardless of success status)
-            if self.enable_coverage:
+            if self.enable_coverage and self.coverage_evaluator is not None:
                 logger.info("Running Coverage Analysis")
-                
+
                 try:
                     # Try to reuse files from the SUCCESSFUL runtime check if available
                     spec_file_path = None
                     config_file_path = None
-                    
+
                     # Look for runtime check result with files from the successful iteration
                     if successful_iteration is not None and iteration_results:
                         runtime_result = None
@@ -442,25 +470,25 @@ class CompositeEvaluator(BaseEvaluator):
                             if iter_result.get('iteration') == successful_iteration and iter_result.get('runtime_result') and iter_result['runtime_result'].overall_success:
                                 runtime_result = iter_result['runtime_result']
                                 break
-                        
+
                         if runtime_result and hasattr(runtime_result, 'specification_file'):
                             spec_file_path = runtime_result.specification_file
-                            
+
                         if runtime_result and hasattr(runtime_result, 'config_file_path'):
                             config_file_path = runtime_result.config_file_path
-                    
+
                     # Run coverage evaluation
                     coverage_result = self.coverage_evaluator.evaluate(
                         current_generation_result, task_name, method_name, model_name, spec_module,
                         spec_file_path=spec_file_path,
                         config_file_path=config_file_path
                     )
-                    
+
                     success_status = "✓ PASS" if coverage_result.overall_success else "✗ FAIL"
                     logger.info(f"Coverage Analysis: {success_status}")
-                    
+
                     composite_result.coverage_result = coverage_result
-                    
+
                 except Exception as e:
                     logger.error(f"Coverage analysis failed: {e}")
                     from ..base.result_types import SemanticEvaluationResult
@@ -469,7 +497,10 @@ class CompositeEvaluator(BaseEvaluator):
                     coverage_result.model_checking_error = str(e)
                     composite_result.coverage_result = coverage_result
             else:
-                logger.info("Coverage Analysis disabled")
+                if not self.enable_coverage:
+                    logger.info("Coverage Analysis disabled")
+                elif self.coverage_evaluator is None:
+                    logger.info(f"Coverage Analysis not available for {self.spec_language.upper()} language")
             
             # Determine overall success
             composite_result.overall_success = successful_iteration is not None
@@ -479,7 +510,9 @@ class CompositeEvaluator(BaseEvaluator):
             
             # Create output directory and save results
             output_manager = get_output_manager()
-            output_dir = output_manager.create_experiment_dir("composite", task_name, method_name, model_name)
+            output_dir = output_manager.create_experiment_dir(
+                "composite", task_name, method_name, model_name, language=self.spec_language
+            )
             
             # Print evaluation summary
             self._print_evaluation_summary_new(
