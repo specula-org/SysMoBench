@@ -544,13 +544,13 @@ class AgentBasedMethod(TLAGenerationMethod):
         # Extract error information
         error_summary = self._extract_error_summary(validation_result)
         
-        # Prepare format variables - escape any problematic characters
+        # Prepare format variables
         def safe_format(text):
-            """Safely format text to avoid string formatting issues."""
+            """Convert text to string, handling None values."""
             if text is None:
                 return "None"
-            # Replace problematic characters that might break string formatting  
-            return str(text).replace('{', '{{').replace('}', '}}')
+            # No need to escape braces when using format_prompt_template()
+            return str(text)
         
         format_vars = {
             'language': safe_format(task.language),
@@ -569,9 +569,11 @@ class AgentBasedMethod(TLAGenerationMethod):
         if task.extra_info:
             for key, value in task.extra_info.items():
                 format_vars[key] = safe_format(value)
-        
+
         try:
-            return correction_template.format(**format_vars)
+            # Use format_prompt_template to safely handle braces in code examples
+            from ..base import format_prompt_template
+            return format_prompt_template(correction_template, format_vars)
         except Exception as e:
             logger.error(f"Error formatting correction prompt: {e}")
             logger.debug(f"Format variables: {format_vars}")
