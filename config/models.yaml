@@ -3,6 +3,14 @@
 
 models:
   # User's OpenAI configuration
+  gpt-4o:
+    provider: "openai"
+    model_name: "gpt-4o"
+    api_key_env: "OPENAI_API_KEY"
+    temperature: 0.7
+    max_tokens: 16000
+    timeout: 1800
+
   gpt5:
     provider: "openai"
     model_name: "gpt-5"
