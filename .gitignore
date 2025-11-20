@@ -75,6 +75,7 @@ data/repositories/
 data/sys_traces
 run_batch_experiments.sh
 local_env_setup.sh
+batch_logs
 
 data/spec
 data/source
