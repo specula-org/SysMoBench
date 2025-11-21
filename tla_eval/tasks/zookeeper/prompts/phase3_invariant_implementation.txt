@@ -52,6 +52,12 @@ $invariant_templates
 
 7. **EXACT naming requirement**: You MUST use the exact invariant names specified in the templates above. Do not create your own names.
 
+**CRITICAL OUTPUT REQUIREMENT - READ THIS CAREFULLY:**
+Your response MUST be ONLY the JSON object - nothing else.
+- Start immediately with the opening brace: `{`
+- End with the closing brace: `}`
+- ONLY the raw JSON object
+
 ## Example Output Format
 
 ```json
@@ -69,7 +75,7 @@ $invariant_templates
 - **COMPLETENESS**: Aim to translate ALL invariants by understanding their semantic intent, not just their syntactic form
 - Use ONLY variables, constants, and operators that exist in the provided specification
 - Use EXACTLY the invariant names from the templates (preserve exact names for evaluation consistency)
-- Return ONLY valid JSON, no explanatory text before or after
+- **YOUR ENTIRE RESPONSE MUST BE THE JSON OBJECT ONLY** - Start with `{`, end with `}`, absolutely nothing else
 - Each array element must be a complete TLA+ invariant definition: "InvariantName == <expression>"
 - For complex invariants, you may use multiline format within the JSON string (use actual line breaks)
 - For simple invariants, single line format is preferred
