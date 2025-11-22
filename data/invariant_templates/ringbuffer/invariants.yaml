@@ -54,20 +54,24 @@ invariants:
   - name: "EventualProducerProgress"
     type: "liveness"
     natural_language: "If the buffer is not full, the producer will eventually be able to push"
-    formal_description: "Lock-free progress guarantee: under fair scheduling, if there is free space, producer can make progress"
+    formal_description: "Lock-free progress guarantee: under fair scheduling, if there is free space, producer can make progress. Use ENABLED to express that the action can be executed."
     tla_example: |
       EventualProducerProgress ==
-        \A p \in Producers :
-          ((tail - head) < capacity) ~> CanPush(p)
+        (~IsFull) ~> ENABLED Push
+      \* Alternative forms depending on spec structure:
+      \* (~Full(head, tail)) ~> ENABLED Produce
+      \* ((tail - head) < capacity) ~> ENABLED ProducerAction
 
   - name: "EventualConsumerProgress"
     type: "liveness"
     natural_language: "If the buffer is not empty, the consumer will eventually be able to pop"
-    formal_description: "Lock-free progress guarantee: under fair scheduling, if there are items, consumer can make progress"
+    formal_description: "Lock-free progress guarantee: under fair scheduling, if there are items, consumer can make progress. Use ENABLED to express that the action can be executed."
     tla_example: |
       EventualConsumerProgress ==
-        \A c \in Consumers :
-          (head < tail) ~> CanPop(c)
+        (~IsEmpty) ~> ENABLED Pop
+      \* Alternative forms depending on spec structure:
+      \* (~Empty(head, tail)) ~> ENABLED Consume
+      \* (head # tail) ~> ENABLED ConsumerAction
 
 metadata:
   total_invariants: 7

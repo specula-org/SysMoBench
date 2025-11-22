@@ -43,9 +43,9 @@ $invariant_templates
    **FOR LIVENESS PROPERTIES** (type: "liveness"):
    - **MUST** be TEMPORAL FORMULAS (describe execution traces)
    - **MUST** use temporal operators (`<>`, `~>`) to express "eventually" or "leads-to"
-   - **MAY** use both primed and unprimed variables as needed
-   - **CORRECT**: `EventualProgress == (head < tail) ~> (head' = head + 1)`
-   - **INCORRECT**: `EventualProgress == head < tail`  (missing temporal aspect)
+   - **MUST** use `ENABLED ActionName` to express "action can be executed"
+   - **CORRECT**: `Condition ~> ENABLED SomeAction`
+   - **INCORRECT**: `Condition ~> (var' = newValue)`  (should use ENABLED, not primed variables)
 
 5. **Constraint Compliance**:
    - Use ONLY variables, constants, and operators that exist in the specification
@@ -61,9 +61,8 @@ $invariant_templates
 ```json
 {
   "invariants": [
-    "BufferBoundsInvariant == head <= tail /\\ (tail - head) <= capacity",
-    "EmptyFullConsistency == (head = tail) => ~((tail - head) = capacity)",
-    "EventualProducerProgress == (tail - head < capacity) ~> (tail' > tail)"
+    "SafetyInvariantName == state_predicate_expression",
+    "LivenessPropertyName == Condition ~> ENABLED ActionName"
   ]
 }
 ```
