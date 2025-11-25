@@ -179,14 +179,14 @@ class AgentBasedMethod(TLAGenerationMethod):
     def _initial_generation(self, task: GenerationTask, model) -> Any:
         """Generate initial TLA+ specification using standard prompt."""
         prompt = self._create_initial_prompt(task)
-        
+
         # Create generation config from model's YAML configuration
         generation_config = GenerationConfig(
             max_tokens=model.config.get('max_tokens'),
             temperature=model.config.get('temperature'),
             top_p=model.config.get('top_p')  # Only if defined in YAML
         )
-        
+
         logger.info(f"Initial generation config from YAML: {model.config}")
         logger.debug(f"Using initial prompt ({len(prompt)} chars)")
         return model.generate_tla_specification(task.source_code, prompt, generation_config)
@@ -493,8 +493,8 @@ class AgentBasedMethod(TLAGenerationMethod):
         task_loader = get_task_loader()
         prompt_template = task_loader.get_task_prompt(
             task.task_name,
-            "agent_based",  # Use agent_based prompt for initial generation
-            task.spec_language  # Language-specific prompt
+            "direct_call",
+            task.spec_language
         )
 
         # Prepare format variables

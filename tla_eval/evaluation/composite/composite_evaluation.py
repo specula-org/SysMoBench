@@ -1125,6 +1125,11 @@ class CompositeEvaluator(BaseEvaluator):
         Returns:
             Tuple of (generation_result, config_file_path) where config_file_path is None if no config available
         """
+        # Only TLA+ uses TLC config files; Alloy/PAT should skip generation
+        if self.spec_language != "tla":
+            logger.info(f"Config generation skipped for language={self.spec_language}")
+            return generation_result, None
+
         # Check if config file is already provided
         if (generation_result.metadata and 
             generation_result.metadata.get('config_file') and
