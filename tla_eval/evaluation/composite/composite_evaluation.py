@@ -358,14 +358,26 @@ class CompositeEvaluator(BaseEvaluator):
                                 from ...config import get_configured_model
                                 model_obj = get_configured_model(model_name)
                                 
+                                # Pass config file path from runtime check if available
+                                config_file_path = None
+                                if runtime_result is not None and hasattr(runtime_result, 'config_file_path'):
+                                    config_file_path = runtime_result.config_file_path
+                                
                                 # Use agent_based's correction method
-                                correction_result = method._generate_correction(task, current_spec, all_errors, model_obj)
+                                correction_result = method._generate_correction(task, current_spec, all_errors, model_obj, config_file_path)
                                 
                                 if correction_result.success:
                                     current_spec = correction_result.generated_text
+                                    
+                                    combined_metadata = correction_result.metadata.copy() if correction_result.metadata else {}
+                                    corrected_config = None
+                                    if correction_result.metadata and isinstance(correction_result.metadata, dict):
+                                        corrected_config = correction_result.metadata.get('corrected_config')
+                                    if corrected_config is not None:
+                                        combined_metadata['corrected_config'] = corrected_config
                                     current_generation_result = GenerationResult(
                                         generated_text=current_spec,
-                                        metadata=correction_result.metadata,
+                                        metadata=combined_metadata,
                                         timestamp=time.time(),
                                         success=True
                                     )
@@ -1129,6 +1141,25 @@ class CompositeEvaluator(BaseEvaluator):
         if self.spec_language != "tla":
             logger.info(f"Config generation skipped for language={self.spec_language}")
             return generation_result, None
+
+        # Use corrected config from metadata if present
+        if (generation_result.metadata and
+            isinstance(generation_result.metadata, dict) and
+            generation_result.metadata.get('corrected_config')):
+            try:
+                config_content = generation_result.metadata['corrected_config']
+                import tempfile
+                import os
+                config_fd, config_path = tempfile.mkstemp(
+                    suffix='.cfg',
+                    prefix=f'{task_name}_{model_name}_corrected_'
+                )
+                with os.fdopen(config_fd, 'w', encoding='utf-8') as f:
+                    f.write(config_content)
+                logger.info(f"Using corrected config from metadata: {config_path}")
+                return generation_result, config_path
+            except Exception as e:
+                logger.warning(f"Failed to materialize corrected config from metadata: {e}")
 
         # Check if config file is already provided
         if (generation_result.metadata and 
