@@ -9,6 +9,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
+import re
 import yaml
 from ..methods.base import GenerationTask
 
@@ -230,7 +231,7 @@ class TaskLoader:
             traces_folder: Path to the folder containing trace files
         
         Returns:
-            List of list of traces, where each sublist is a set of distributed traces (TraceLink-based) OR
+            List of list of traces, where each sublist is a set of distributed traces (TraceLink or Zookeeper-based) OR
             List of traces, where each trace records a distributed execution (Etcd or Asterinas-based)
         
         Raises:
@@ -273,6 +274,31 @@ class TaskLoader:
                 # Return empty list instead of raising error - traces are optional
                 return []
             return all_traces
+        if trace_format == "zookeeper_based":
+            runs: Dict[int, List[Tuple[int, str, str]]] = {}
+            trace_pattern = re.compile(r"trace_(\d+)_(\d+)(?:\.[^.]+)?$")
+
+            for subfolder in sorted([p for p in traces_path.iterdir() if p.is_dir()]):
+                for trace_file in sorted(subfolder.iterdir()):
+                    if not trace_file.is_file():
+                        continue
+                    match = trace_pattern.match(trace_file.name)
+                    if not match:
+                        continue
+
+                    run_idx = int(match.group(1))
+                    node_idx = int(match.group(2))
+                    trace_content = trace_file.read_text(encoding="utf-8").strip()
+                    if trace_content:
+                        trace_name = f"{subfolder.name}/{trace_file.name}"
+                        runs.setdefault(run_idx, []).append((node_idx, trace_name, trace_content))
+
+            grouped_traces: List[List[Tuple[str, str]]] = []
+            for run_idx in sorted(runs.keys()):
+                nodes = sorted(runs[run_idx], key=lambda t: t[0])
+                grouped_traces.append([(name, content) for _, name, content in nodes])
+
+            return grouped_traces
         else:
             all_traces = []
             patterns = [
