@@ -6,23 +6,22 @@ language: "java"
 
 # Source code repository information
 repository:
-  url: "https://github.com/apache/zookeeper.git"
-  branch: "release-3.9.1"
-  version: "release-3.9.1"
+  url: "https://github.com/Lingzhi-Ouyang/Remix.git"
+  branch: "master"
 
 # Files to extract from the repository (multi-file default supported)
 default_source_file:
-  - path: "zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/FastLeaderElection.java"
+  - path: "apache-zookeeper-3.9.1/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/FastLeaderElection.java"
     description: "Fast leader election implementation (notifications, vote comparison, rounds)"
-  - path: "zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/Election.java"
+  - path: "apache-zookeeper-3.9.1/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/Election.java"
     description: "Leader election interface"
-  - path: "zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/Vote.java"
+  - path: "apache-zookeeper-3.9.1/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/Vote.java"
     description: "Vote structure used during election"
-  - path: "zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/QuorumPeer.java"
+  - path: "apache-zookeeper-3.9.1/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/QuorumPeer.java"
     description: "Quorum peer state machine driving election and role transitions"
-  - path: "zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/QuorumPeerMain.java"
+  - path: "apache-zookeeper-3.9.1/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/QuorumPeerMain.java"
     description: "ZooKeeper quorum peer entry point (starts election loop)"
-  - path: "zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/QuorumPeerConfig.java"
+  - path: "apache-zookeeper-3.9.1/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/QuorumPeerConfig.java"
     description: "Configuration loader for quorum peers (peer IDs, addresses, election settings)"
 
 # TLA+ specification module name
@@ -41,5 +40,6 @@ metadata:
 
 # Phase 3 specific configuration
 phase3:
-  trace_generation: false
-  patch_required: false
+  trace_generation: true
+  patch_required: true
+  patch_file: "data/patches/remix_ndjson_output.patch"
