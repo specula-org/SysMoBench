@@ -54,6 +54,18 @@ REQUIRED BEHAVIORAL SCOPE:
 - Compare-and-exchange retry loop for contention handling
 - Thread can acquire lock multiple times only if it releases between acquisitions
 
+MANDATORY NAMING CONVENTIONS (Trace Validation Interface):
+To ensure the specification can be validated against system traces, you MUST strictly adhere to the following naming conventions:
+
+1. Variables:
+   - The global variable representing the lock's state MUST be named: lockState
+
+2. Actions:
+   - The action for the blocking lock acquisition MUST be named: AcquireLock
+     * Description: A call that leads to lock acquisition (i.e., successfully acquires the lock).
+   - The action for the non-blocking lock attempt MUST be named: TryAcquireLock
+   - The action for releasing the lock MUST be named: ReleaseLock
+
 Generate a TLA+ specification that accurately models the spinlock's concurrent behavior.
 
 CRITICAL OUTPUT REQUIREMENTS:

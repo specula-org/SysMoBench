@@ -211,6 +211,15 @@ class RingBufferTraceGenerator(TraceGenerator):
             print(f"Docker execution completed in {execution_time:.2f}s")
             print(f"Return code: {result.returncode}")
 
+            # Debug: Save full output
+            debug_path = output_path.parent / f"debug_output_{run_id}.txt"
+            with open(debug_path, "w") as f:
+                f.write(result.stdout)
+                if result.stderr:
+                    f.write("\n=== STDERR ===\n")
+                    f.write(result.stderr)
+            print(f"Saved full output to {debug_path}")
+
             # Extract trace events from the output
             trace_events = self._parse_trace_output(result.stdout)
 
