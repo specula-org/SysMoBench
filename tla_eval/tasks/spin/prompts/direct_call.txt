@@ -59,11 +59,16 @@ To ensure the specification can be validated against system traces, you MUST str
 
 1. Variables:
    - The global variable representing the lock's state MUST be named: lockState
+     * Values MUST be exactly: "locked" and "unlocked"
 
-2. Actions:
+2. Constants:
+   - The constant representing the set of participating threads MUST be named: Threads
+
+3. Actions:
    - The action for the blocking lock acquisition MUST be named: AcquireLock
      * Description: A call that leads to lock acquisition (i.e., successfully acquires the lock).
-   - The action for the non-blocking lock attempt MUST be named: TryAcquireLock
+   - The action for a failed non-blocking lock attempt MUST be named: AcquireFail
+     * Description: A call to try_lock() that results in failure to acquire the lock.
    - The action for releasing the lock MUST be named: ReleaseLock
 
 Generate a TLA+ specification that accurately models the spinlock's concurrent behavior.
