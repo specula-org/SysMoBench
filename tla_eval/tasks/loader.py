@@ -275,30 +275,28 @@ class TaskLoader:
                 return []
             return all_traces
         if trace_format == "zookeeper_based":
-            runs: Dict[int, List[Tuple[int, str, str]]] = {}
-            trace_pattern = re.compile(r"trace_(\d+)_(\d+)(?:\.[^.]+)?$")
+            all_traces: List[List[Tuple[str, str]]] = []
+            dir_pattern = re.compile(r"trace_(\d+)\.json$")
 
             for subfolder in sorted([p for p in traces_path.iterdir() if p.is_dir()]):
-                for trace_file in sorted(subfolder.iterdir()):
+                match = dir_pattern.fullmatch(subfolder.name)
+                if not match:
+                    continue
+
+                run_idx = match.group(1)
+                distributed_trace: List[Tuple[str, str]] = []
+                for filename in ("execution", "statistics"):
+                    trace_file = subfolder / filename
                     if not trace_file.is_file():
                         continue
-                    match = trace_pattern.match(trace_file.name)
-                    if not match:
-                        continue
-
-                    run_idx = int(match.group(1))
-                    node_idx = int(match.group(2))
                     trace_content = trace_file.read_text(encoding="utf-8").strip()
-                    if trace_content:
-                        trace_name = f"{subfolder.name}/{trace_file.name}"
-                        runs.setdefault(run_idx, []).append((node_idx, trace_name, trace_content))
+                    trace_name = f"trace_{run_idx}_{filename}"
+                    distributed_trace.append((trace_name, trace_content))
 
-            grouped_traces: List[List[Tuple[str, str]]] = []
-            for run_idx in sorted(runs.keys()):
-                nodes = sorted(runs[run_idx], key=lambda t: t[0])
-                grouped_traces.append([(name, content) for _, name, content in nodes])
+                if distributed_trace:
+                    all_traces.append(distributed_trace)
 
-            return grouped_traces
+            return all_traces
         else:
             all_traces = []
             patterns = [

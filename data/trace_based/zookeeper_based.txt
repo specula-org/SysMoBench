@@ -1,28 +1,3 @@
-The first number in each file name is the trace run number and the second number is the index of the node.
+The `execution` file is a trace of a single replay run; time-ordered actions/events performed during the replay across nodes (e.g., zxid or epoch updates), effectively a step-by-step action log.
 
-A trace file encodes a single TLA+ module–like artifact whose body is an ordered list of numbered global states.
-- Each state is a conjunction of variable assignments to TLA+ expressions.
-- Expressions use standard TLA+ syntax.
-- Formatting details such as indentation and blank lines serve readability; the syntactic tokens (`STATE_n ==`, `/\`, `=`, `{}`, `[]`, `()`, `<<>>`, `:>`, `@@`, commas, and `|->`) carry the actual structure.
-
-Each state block has the form:
-
-```text
-STATE_<n> == 
-/\ <var-or-expression-1>
-/\ <var-or-expression-2>
-...
-/\ <var-or-expression-k>
-```
-Details:
-* The state header appears at the start of a line.
-* Each subsequent non-blank line in the state starts with a conjonction `/\ ` 
-* After `/\ `, the line begins either:
-  * An assignment of a named variable, or
-  * A continuation of a multi-line value (when the previous line’s value continues).
-* Typical assignment form (single-line start):
-
-  ```text
-  /\ <Identifier> = <TLA+ expression>
-  ```
-  
+The `statistics` file is the set of statistics for the same trace; each ExternalModelStatistics block is a step/phase with the step name, executed event count, average/max enabled events, elapsed time, property under check (e.g., LEADER_COMMITTED_LOG), the result (SUCCESS/FAIL), and model match status.
