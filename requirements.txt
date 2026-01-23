@@ -5,6 +5,7 @@ google-genai>=0.10.0
 pyyaml>=6.0.0
 requests>=2.25.0
 tqdm>=4.65.0
+mcp>=1.0.0
 
 # TLA+ tools integration
 subprocess32>=3.5.4; python_version < "3.0"
