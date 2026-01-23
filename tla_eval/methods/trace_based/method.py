@@ -143,7 +143,11 @@ class TraceBasedMethod(AgentBasedMethod):
             raise ValueError("trace_format must be provided in task.extra_info for trace_based method")
 
         traces = task.traces
-        if trace_format == "etcd_based" or task.extra_info.get("trace_sample", None) is not None:
+        if trace_format == "zookeeper" and task.extra_info.get("trace_sample", None) is not None:
+            # sample a few distributed traces
+            sample_size = task.extra_info.get("trace_sample") or 3
+            traces = sample(traces, sample_size)
+        elif trace_format == "etcd_based" or task.extra_info.get("trace_sample", None) is not None:
             # etcd traces are large; sample a few to avoid overflowing request size/context
             sample_size = task.extra_info.get("trace_sample") or 3
             if isinstance(traces, list):

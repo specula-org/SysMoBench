@@ -9,6 +9,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
+import re
 import yaml
 from ..methods.base import GenerationTask
 
@@ -230,7 +231,7 @@ class TaskLoader:
             traces_folder: Path to the folder containing trace files
         
         Returns:
-            List of list of traces, where each sublist is a set of distributed traces (TraceLink-based) OR
+            List of list of traces, where each sublist is a set of distributed traces (TraceLink or Zookeeper-based) OR
             List of traces, where each trace records a distributed execution (Etcd or Asterinas-based)
         
         Raises:
@@ -272,6 +273,29 @@ class TaskLoader:
             if not all_traces:
                 # Return empty list instead of raising error - traces are optional
                 return []
+            return all_traces
+        if trace_format == "zookeeper_based":
+            all_traces: List[List[Tuple[str, str]]] = []
+            dir_pattern = re.compile(r"trace_(\d+)\.json$")
+
+            for subfolder in sorted([p for p in traces_path.iterdir() if p.is_dir()]):
+                match = dir_pattern.fullmatch(subfolder.name)
+                if not match:
+                    continue
+
+                run_idx = match.group(1)
+                distributed_trace: List[Tuple[str, str]] = []
+                for filename in ("execution", "statistics"):
+                    trace_file = subfolder / filename
+                    if not trace_file.is_file():
+                        continue
+                    trace_content = trace_file.read_text(encoding="utf-8").strip()
+                    trace_name = f"trace_{run_idx}_{filename}"
+                    distributed_trace.append((trace_name, trace_content))
+
+                if distributed_trace:
+                    all_traces.append(distributed_trace)
+
             return all_traces
         else:
             all_traces = []
