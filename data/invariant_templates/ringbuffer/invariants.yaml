@@ -19,37 +19,6 @@ invariants:
       EmptyFullConsistency ==
         ~((head = tail) /\ ((tail - head) = capacity))
 
-  # Asterinas-specific RingBuffer Invariants
-  - name: "ProducerSafety"
-    type: "safety"
-    natural_language: "Producer always checks if buffer is full before pushing"
-    formal_description: "Asterinas push semantics: producer must verify free_len() > 0 before writing, ensuring no buffer overflow"
-    tla_example: |
-      ProducerSafety ==
-        \A p \in Producers :
-          (Pushing(p)) => ((tail - head) < capacity)
-
-  - name: "ConsumerSafety"
-    type: "safety"
-    natural_language: "Consumer always checks if buffer is empty before popping"
-    formal_description: "Asterinas pop semantics: consumer must verify len() > 0 before reading, ensuring no invalid reads"
-    tla_example: |
-      ConsumerSafety ==
-        \A c \in Consumers :
-          (Popping(c)) => (head < tail)
-
-  - name: "BatchOperationAtomicity"
-    type: "safety"
-    natural_language: "Batch operations (push_slice/pop_slice) are all-or-nothing"
-    formal_description: "Asterinas batch semantics: push_slice/pop_slice either completes fully or fails immediately, no partial operations"
-    tla_example: |
-      BatchOperationAtomicity ==
-        /\ \A p \in Producers, n \in Nat :
-            (PushingSlice(p, n)) => ((tail - head + n) <= capacity)
-        /\ \A c \in Consumers, n \in Nat :
-            (PoppingSlice(c, n)) => ((tail - head) >= n)
-
-
   # Generic Liveness Properties
   - name: "EventualProducerProgress"
     type: "liveness"
@@ -74,8 +43,8 @@ invariants:
       \* (head # tail) ~> ENABLED ConsumerAction
 
 metadata:
-  total_invariants: 7
-  safety_invariants: 5
+  total_invariants: 4
+  safety_invariants: 2
   liveness_invariants: 2
   generic_invariants: 4  # BufferBoundsInvariant, EmptyFullConsistency, EventualProducerProgress, EventualConsumerProgress
-  asterinas_specific_invariants: 4  # ProducerSafety, ConsumerSafety, BatchOperationAtomicity, WrappingCorrectness
+  asterinas_specific_invariants: 0
