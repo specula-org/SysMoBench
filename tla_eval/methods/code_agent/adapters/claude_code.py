@@ -68,7 +68,7 @@ class ClaudeCodeAdapter(BaseCodeAgentAdapter):
             "--mcp-config", str(mcp_config_path),
             "--model", model,
             "--output-format", self.config.output_format,
-            "--no-session-persistence",
+            # "--no-session-persistence",  # 暂时注释掉，方便调试查看聊天记录
             self.config.initial_prompt,
         ]
 
