@@ -291,6 +291,284 @@ class InvariantTranslator:
         return translated_invariants
 
 
+class AgentInvariantTranslator:
+    """
+    Translates generic invariant templates using Claude Code agent.
+
+    This provides higher quality translations than single LLM calls by allowing
+    the agent to iteratively refine its work.
+    """
+
+    def __init__(self, timeout: int = 600):
+        """
+        Initialize the agent-based translator.
+
+        Args:
+            timeout: Timeout for Claude Code execution in seconds (default: 10 minutes)
+        """
+        self.name = "agent_invariant_translator"
+        self.timeout = timeout
+
+    def translate_all_invariants(self,
+                                templates: List[InvariantTemplate],
+                                tla_content: str,
+                                task_name: str,
+                                model_name: str) -> Tuple[bool, Dict[str, str], str]:
+        """
+        Translate all invariant templates using Claude Code agent.
+
+        Args:
+            templates: List of invariant templates to translate
+            tla_content: Target TLA+ specification content
+            task_name: Name of the task
+            model_name: Model name (used for Claude Code --model parameter)
+
+        Returns:
+            Tuple of (success, {invariant_name: translated_invariant}, error_message)
+        """
+        import asyncio
+        import json
+        import tempfile
+        import shutil
+
+        try:
+            # Create temporary workspace
+            workspace_dir = Path(tempfile.mkdtemp(prefix="inv_translator_"))
+            logger.info(f"Created agent workspace at: {workspace_dir}")
+
+            try:
+                # Write specification file
+                spec_file = workspace_dir / "specification.tla"
+                spec_file.write_text(tla_content, encoding="utf-8")
+
+                # Write templates as YAML
+                templates_data = []
+                for t in templates:
+                    templates_data.append({
+                        "name": t.name,
+                        "type": t.type,
+                        "natural_language": t.natural_language,
+                        "formal_description": t.formal_description,
+                        "tla_example": t.tla_example
+                    })
+
+                templates_file = workspace_dir / "templates.yaml"
+                with open(templates_file, 'w', encoding='utf-8') as f:
+                    yaml.dump(templates_data, f, default_flow_style=False, allow_unicode=True)
+
+                # Create output directory
+                output_dir = workspace_dir / "output"
+                output_dir.mkdir(exist_ok=True)
+
+                # Write CLAUDE.md with instructions
+                claude_md = self._build_claude_md(templates)
+                (workspace_dir / "CLAUDE.md").write_text(claude_md, encoding="utf-8")
+
+                # Execute Claude Code
+                start_time = time.time()
+                result = asyncio.run(self._execute_claude_code(workspace_dir, model_name))
+                duration = time.time() - start_time
+
+                if not result["success"]:
+                    return False, {}, result.get("error", "Claude Code execution failed")
+
+                logger.info(f"Claude Code completed in {duration:.2f}s")
+
+                # Read output
+                output_file = output_dir / "invariants.json"
+                if not output_file.exists():
+                    return False, {}, "Agent did not produce output file: output/invariants.json"
+
+                output_content = output_file.read_text(encoding="utf-8")
+
+                # Parse JSON output
+                translated_invariants = self._parse_agent_output(output_content, templates)
+
+                logger.info(f"Successfully translated {len(translated_invariants)} invariants via agent")
+                return True, translated_invariants, None
+
+            finally:
+                # Cleanup workspace
+                shutil.rmtree(workspace_dir, ignore_errors=True)
+
+        except Exception as e:
+            logger.error(f"Agent invariant translation failed: {e}")
+            return False, {}, str(e)
+
+    def _build_claude_md(self, templates: List[InvariantTemplate]) -> str:
+        """Build CLAUDE.md instructions for the agent."""
+        template_names = ", ".join([t.name for t in templates])
+
+        return f'''# Invariant Translation Task
+
+## Your Role
+
+You are an expert in TLA+ formal verification. Your task is to translate generic invariant templates to match a specific TLA+ specification.
+
+## Input Files
+
+1. `specification.tla` - The target TLA+ specification you need to analyze
+2. `templates.yaml` - The invariant templates to translate
+
+## Task
+
+For each invariant template in `templates.yaml`:
+1. Read and understand the specification thoroughly
+2. Understand what the invariant template is trying to express
+3. Translate the template to use the actual variables, constants, and operators from the specification
+4. Ensure the translated invariant is syntactically correct TLA+
+
+## Critical Requirements
+
+### For SAFETY invariants:
+- MUST be state predicates only (no primed variables, no temporal operators)
+- Use only variables and constants that exist in the specification
+- The invariant must be a boolean expression
+
+### For LIVENESS invariants:
+- MUST use temporal operators like `<>` (eventually), `[]` (always), `~>` (leads-to)
+- Can reference primed variables if needed
+
+### TLA+ Syntax:
+- Use `\\A` for universal quantification (forall)
+- Use `\\E` for existential quantification (exists)
+- Use `\\in` for set membership
+- Use `/\\` for AND, `\\/` for OR
+- Use `=>` for implication
+- Use `~` for negation
+
+## Output
+
+Write a JSON file to `./output/invariants.json` with this exact format:
+
+```json
+{{
+  "invariants": [
+    {{
+      "name": "InvariantName",
+      "definition": "InvariantName == <translated TLA+ expression>"
+    }}
+  ]
+}}
+```
+
+## Invariants to Translate
+
+{template_names}
+
+## Workflow
+
+1. Read `specification.tla` to understand the variables, constants, and structure
+2. Read `templates.yaml` to understand each invariant's intent
+3. For each template, write the translated TLA+ invariant
+4. Save all translations to `./output/invariants.json`
+
+## Rules
+
+1. DO NOT modify the specification file
+2. Ensure all invariants are syntactically valid TLA+
+3. Use only variables and constants that exist in the specification
+4. Output MUST be valid JSON
+'''
+
+    async def _execute_claude_code(self, workspace_path: Path, model_name: str) -> dict:
+        """Execute Claude Code in the workspace."""
+        import asyncio
+
+        # Determine model to use
+        model = model_name if model_name and model_name != "default" else "sonnet"
+
+        cmd = [
+            "claude",
+            "--print",
+            "--dangerously-skip-permissions",
+            "--model", model,
+            "--output-format", "json",
+            "Read CLAUDE.md and complete the invariant translation task.",
+        ]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=workspace_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.timeout,
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                return {"success": False, "error": f"Timeout after {self.timeout} seconds"}
+
+            return {
+                "success": process.returncode == 0,
+                "stdout": stdout.decode("utf-8", errors="replace"),
+                "stderr": stderr.decode("utf-8", errors="replace"),
+                "exit_code": process.returncode,
+                "error": stderr.decode("utf-8", errors="replace") if process.returncode != 0 else None,
+            }
+
+        except FileNotFoundError:
+            return {"success": False, "error": "Claude Code CLI not found"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _parse_agent_output(self, output_content: str, templates: List[InvariantTemplate]) -> Dict[str, str]:
+        """Parse the agent's JSON output."""
+        import json
+
+        translated_invariants = {}
+
+        try:
+            data = json.loads(output_content)
+            invariants_list = data.get("invariants", [])
+
+            for inv in invariants_list:
+                name = inv.get("name", "")
+                definition = inv.get("definition", "")
+
+                if not name or not definition:
+                    continue
+
+                # Match to template names (case-insensitive)
+                for template in templates:
+                    if template.name.lower() == name.lower():
+                        translated_invariants[template.name] = definition
+                        logger.info(f"✓ Agent translated invariant: {template.name}")
+                        break
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse agent output as JSON: {e}")
+            # Try line-based parsing as fallback
+            translated_invariants = self._fallback_parse(output_content, templates)
+
+        return translated_invariants
+
+    def _fallback_parse(self, output_content: str, templates: List[InvariantTemplate]) -> Dict[str, str]:
+        """Fallback parsing when JSON fails."""
+        translated_invariants = {}
+
+        for line in output_content.split('\n'):
+            line = line.strip()
+            if ' == ' in line:
+                parts = line.split(' == ', 1)
+                if len(parts) == 2:
+                    invariant_name = parts[0].strip()
+                    invariant_definition = line  # Keep full definition
+
+                    for template in templates:
+                        if template.name.lower() == invariant_name.lower():
+                            translated_invariants[template.name] = invariant_definition
+                            break
+
+        return translated_invariants
+
+
 class StaticConfigGenerator:
     """
     Static configuration generator that creates .cfg files by string manipulation
@@ -455,17 +733,30 @@ class ManualInvariantEvaluator(BaseEvaluator):
     4. Report detailed results
     """
     
-    def __init__(self, tlc_timeout: int = 60, templates_dir: str = "data/invariant_templates"):
+    def __init__(self, tlc_timeout: int = 60, templates_dir: str = "data/invariant_templates",
+                 translator_type: str = "direct", agent_timeout: int = 600):
         """
         Initialize manual invariant evaluator.
-        
+
         Args:
             tlc_timeout: Timeout for TLC execution in seconds
             templates_dir: Directory containing invariant templates
+            translator_type: Type of translator to use:
+                - "direct": Single LLM call (default, faster)
+                - "agent": Claude Code agent (higher quality, slower)
+            agent_timeout: Timeout for agent execution in seconds (only used if translator_type="agent")
         """
         super().__init__(timeout=tlc_timeout)
         self.template_loader = InvariantTemplateLoader(templates_dir)
-        self.translator = InvariantTranslator()
+
+        # Choose translator based on type
+        if translator_type == "agent":
+            logger.info("Using AgentInvariantTranslator for invariant translation")
+            self.translator = AgentInvariantTranslator(timeout=agent_timeout)
+        else:
+            logger.info("Using InvariantTranslator (direct LLM call) for invariant translation")
+            self.translator = InvariantTranslator()
+
         self.static_config_generator = StaticConfigGenerator()
         self.tlc_runner = TLCRunner(timeout=tlc_timeout)
     
