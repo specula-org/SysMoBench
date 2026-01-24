@@ -97,12 +97,8 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
                 print(f"Recovery statistics: {vars_added} variables, {funcs_added} functions added, {recovery_attempts} attempts")
         
         # Show file locations for syntax evaluation
-        if hasattr(eval_result, 'output_directory'):
+        if hasattr(eval_result, 'output_directory') and eval_result.output_directory:
             print(f"Results saved to: {eval_result.output_directory}")
-        elif hasattr(eval_result, 'generated_specification') and eval_result.generated_specification:
-            # For other syntax evaluations without specific output directory
-            if hasattr(eval_result, 'total_actions'):
-                print(f"Results saved to output directory (check output/action_decomposition/...)")
         
         if not eval_result.overall_success:
             if not eval_result.generation_successful:
@@ -490,16 +486,21 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 logger.warning(f"Repository setup failed (continuing anyway): {e}")
         
         # Get prompt for this method (language-specific)
-        prompt_template = task_loader.get_task_prompt(task_name, method_name, task.spec_language)
-        logger.info(f"Loaded prompt template for {task.spec_language} ({len(prompt_template)} chars)")
+        # Skip prompt loading for code_agent methods - they handle prompts internally
+        if not method_name.startswith("code_agent_"):
+            prompt_template = task_loader.get_task_prompt(task_name, method_name, task.spec_language)
+            logger.info(f"Loaded prompt template for {task.spec_language} ({len(prompt_template)} chars)")
         
-        # Load model (only if not using existing files)
+        # Load model (only if not using existing files and not code_agent)
+        # code_agent methods use their own model configuration internally
         model = None
-        if not spec_file:
+        if not spec_file and not method_name.startswith("code_agent_"):
             model = get_configured_model(model_name)
             logger.info(f"Loaded model: {model.model_name}")
-        else:
+        elif spec_file:
             logger.info(f"Skipping model loading (using existing spec file)")
+        else:
+            logger.info(f"Skipping model loading (code_agent uses internal model)")
         
         # Generate TLA+ specification or use existing files
         generation_result = None
@@ -1017,8 +1018,21 @@ Examples:
     )
     
     # Determine run mode
-    single_mode = args.task and args.method and args.model
+    # For code_agent methods, --model is optional (uses adapter's default)
+    is_code_agent = args.method and args.method.startswith("code_agent_")
+    single_mode = args.task and args.method and (args.model or is_code_agent)
     batch_mode = args.tasks and args.methods and args.models
+
+    # Set default model name for code_agent methods if not specified
+    if is_code_agent and not args.model:
+        args.model = "default"  # Will use adapter's default model
+
+    # code_agent methods should default to runtime_check (Phase 1 + 2)
+    # since the agent already does both phases via submit_spec
+    if is_code_agent and not args.metric and evaluation_type == "syntax":
+        args.metric = "runtime_check"
+        evaluation_type = "semantics"
+        logger.info("code_agent: using runtime_check metric (includes Phase 1 + 2)")
     
     # Collect metric-specific parameters
     metric_params = {}

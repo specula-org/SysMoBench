@@ -623,7 +623,28 @@ class RuntimeCheckEvaluator(BaseEvaluator):
             result.invariant_generation_error = None
             
             # Step 3: Handle TLC configuration (use existing or generate new)
-            if config_file_path and Path(config_file_path).exists():
+            # First check if config_content is in metadata (from code_agent methods)
+            config_from_metadata = None
+            if hasattr(generation_result, 'metadata') and generation_result.metadata:
+                config_from_metadata = generation_result.metadata.get("config_content")
+
+            if config_from_metadata:
+                # Use config from generation result metadata
+                logger.info("Using config from generation result metadata")
+                config = config_from_metadata
+
+                # Save config file to structured output directory
+                config_file_path = output_dir / f"{module_name}.cfg"
+                with open(config_file_path, 'w', encoding='utf-8') as f:
+                    f.write(config)
+
+                result.config_file_path = str(config_file_path)
+                result.config_generation_time = 0.0
+                result.config_generation_successful = True
+                result.config_generation_error = None
+                logger.info("✓ Using config from code agent output")
+
+            elif config_file_path and Path(config_file_path).exists():
                 # Use existing config file
                 logger.info(f"Using existing config file: {config_file_path}")
                 try:
