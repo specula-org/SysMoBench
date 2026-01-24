@@ -2,7 +2,7 @@
 
 ## Your Role
 
-You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly etcd and Raft consensus.
+You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly Raft consensus.
 
 ## Task
 
@@ -24,52 +24,34 @@ Files to read:
 
 ### MANDATORY CORE ACTIONS (must include all):
 
-1. **Message Types**:
-   - MsgHup (election timeout)
-   - MsgVote/MsgVoteResp (voting)
-   - MsgApp/MsgAppResp (log replication)
+1. **Message Types** - LeaderTimeout (election timeout), RequestVoteRequest/RequestVoteResponse (voting), AppendEntriesRequest/AppendEntriesResponse (log replication), ClientGetRequest/Response and ClientPutRequest/Response (KV storage)
 
-2. **Node States** - Four states:
-   - StateFollower
-   - StateCandidate
-   - StateLeader
-   - StatePreCandidate (prevote enabled)
+2. **Node States** - Three states: StateFollower, StateCandidate, StateLeader
 
-3. **Leader Election** - Complete prevote + vote phases:
-   - PreCandidate -> Candidate -> Leader transitions
+3. **Leader Election** - Complete voting phases: Candidate → Leader transitions
 
-4. **Log Operations**:
-   - Log entry appending
-   - Consistency checks
-   - Commitment with majority quorum
+4. **Log Operations** - Log entry appending, consistency checks, commitment with majority quorum
 
-5. **Heartbeat/Timeout**:
-   - Election timeouts triggering campaigns
-   - Heartbeat prevention of elections
-
-6. **Client Proposals**:
-   - MsgProp message handling
-   - Log entry creation by leaders
+5. **Heartbeat/Timeout** - Election timeouts triggering campaigns, heartbeat prevention of elections
 
 ### EXPLICITLY EXCLUDED (do not model):
 
-- Configuration changes and joint consensus (ConfChange messages)
-- Log compaction and snapshots (MsgSnap)
-- ReadIndex optimizations (MsgReadIndex)
-- Async storage operations (LocalAppendThread, LocalApplyThread)
-- Advanced flow control and progress tracking details
+- Configuration changes and membership modifications
+- Log compaction and snapshots
+- Persistent storage implementation details
+- Network transport and serialization specifics
+- Advanced optimizations (batching, pipelining, lease-based reads)
 
 ### REQUIRED BEHAVIORAL SCOPE:
 
-- **Prevote phase**: StatePreCandidate must be modeled as it's enabled by default in etcd
-- **State transition constraints**: Follower -> PreCandidate -> Candidate -> Leader (strict transitions)
-- **Message processing by state**: only valid message types handled in each node state
-- **Term advancement rules**: nodes advance term when receiving messages with higher term
-- **Voting restrictions**: one vote per term, term must be current or newer
-- **Heartbeat mechanism**: leaders send heartbeats, followers reset election timeout on receipt
-- **Log consistency checks**: prevLogIndex/prevLogTerm validation in MsgApp processing
-- **Majority-based**: leader election and log commitment require majority quorum
-- **Network model**: basic message delays and losses
+- State transition constraints: Follower → Candidate → Leader (strict transitions)
+- Message processing by state: only valid message types handled in each node state
+- Term advancement rules: nodes advance term when receiving messages with higher term
+- Voting restrictions: one vote per term, term must be current or newer
+- Heartbeat mechanism: leaders send heartbeats, followers reset election timeout on receipt
+- Log consistency checks: prevLogIndex/prevLogTerm validation in AppendEntriesRequest/Response processing
+- Majority-based leader election and log commitment
+- Basic network message delays and losses
 
 ### SPECIFICATION REQUIREMENTS:
 
@@ -77,7 +59,7 @@ Files to read:
 2. **TypeOK**: Define a TypeOK operator for type checking
 3. **Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (WF_vars/SF_vars) to ensure liveness properties
 4. **Next Operator Structure**: The 'Next' operator SHOULD be a disjunction of atomic actions
-5. **DO NOT define invariants** (like LeaderUniqueness, LogMatching, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
+5. **DO NOT define invariants** - focus on modeling the system behavior
 
 ## Output Requirements
 

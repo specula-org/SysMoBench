@@ -2,7 +2,7 @@
 
 ## Your Role
 
-You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly etcd and Raft consensus.
+You are an expert in formal verification and TLA+ specifications with deep expertise in concurrent systems and lock-free data structures.
 
 ## Task
 
@@ -24,52 +24,61 @@ Files to read:
 
 ### MANDATORY CORE ACTIONS (must include all):
 
-1. **Message Types**:
-   - MsgHup (election timeout)
-   - MsgVote/MsgVoteResp (voting)
-   - MsgApp/MsgAppResp (log replication)
+1. **Producer Operations** - Push and push_slice operations with atomicity
+   - push(): single item enqueue (check full → write → advance tail)
+   - push_slice(): batch enqueue operation
 
-2. **Node States** - Four states:
-   - StateFollower
-   - StateCandidate
-   - StateLeader
-   - StatePreCandidate (prevote enabled)
+2. **Consumer Operations** - Pop and pop_slice operations
+   - pop(): single item dequeue (check empty → read → advance head)
+   - pop_slice(): batch dequeue operation
 
-3. **Leader Election** - Complete prevote + vote phases:
-   - PreCandidate -> Candidate -> Leader transitions
+3. **Atomic Pointers** - head and tail AtomicUsize operations
+   - Acquire ordering for reads
+   - Release ordering for writes
 
-4. **Log Operations**:
-   - Log entry appending
-   - Consistency checks
-   - Commitment with majority quorum
+4. **Wrapping Behavior** - Handle pointer wrapping at usize boundary
+   - Use modulo arithmetic for circular indexing
 
-5. **Heartbeat/Timeout**:
-   - Election timeouts triggering campaigns
-   - Heartbeat prevention of elections
+5. **Empty/Full Detection**
+   - Empty: head == tail
+   - Full: (tail - head) == capacity
 
-6. **Client Proposals**:
-   - MsgProp message handling
-   - Log entry creation by leaders
+6. **Lock-Free Progress**
+   - Producer can always make progress if buffer not full
+   - Consumer can always make progress if buffer not empty
+
+### CRITICAL SEMANTIC DISTINCTION:
+
+- **SPSC Model**: Single Producer, Single Consumer
+  * No contention on same pointer (producer owns tail, consumer owns head)
+  * Lock-free progress guarantee
+
+- **Memory Ordering**:
+  * tail.load(Acquire) ensures consumer sees producer's writes
+  * head.load(Acquire) ensures producer sees consumer's reads
+  * Release ordering on pointer updates
+
+### MODELING REQUIREMENTS:
+
+- Model head and tail as natural numbers (wrapping handled by modulo)
+- Track buffer state (empty/full/partial)
+- Model producer and consumer as separate processes
+- Ensure atomic visibility of pointer updates
 
 ### EXPLICITLY EXCLUDED (do not model):
 
-- Configuration changes and joint consensus (ConfChange messages)
-- Log compaction and snapshots (MsgSnap)
-- ReadIndex optimizations (MsgReadIndex)
-- Async storage operations (LocalAppendThread, LocalApplyThread)
-- Advanced flow control and progress tracking details
+- Memory segment management (Segment<()>)
+- Generic type parameter T details
+- VmReader/VmWriter for byte operations
+- Frame allocation specifics
+- PhantomData implementation details
 
 ### REQUIRED BEHAVIORAL SCOPE:
 
-- **Prevote phase**: StatePreCandidate must be modeled as it's enabled by default in etcd
-- **State transition constraints**: Follower -> PreCandidate -> Candidate -> Leader (strict transitions)
-- **Message processing by state**: only valid message types handled in each node state
-- **Term advancement rules**: nodes advance term when receiving messages with higher term
-- **Voting restrictions**: one vote per term, term must be current or newer
-- **Heartbeat mechanism**: leaders send heartbeats, followers reset election timeout on receipt
-- **Log consistency checks**: prevLogIndex/prevLogTerm validation in MsgApp processing
-- **Majority-based**: leader election and log commitment require majority quorum
-- **Network model**: basic message delays and losses
+- Model at least: Create, Split, Push, Pop operations
+- Show interleaving between producer and consumer
+- Demonstrate wrapping behavior
+- Include empty/full boundary conditions
 
 ### SPECIFICATION REQUIREMENTS:
 
@@ -77,7 +86,7 @@ Files to read:
 2. **TypeOK**: Define a TypeOK operator for type checking
 3. **Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (WF_vars/SF_vars) to ensure liveness properties
 4. **Next Operator Structure**: The 'Next' operator SHOULD be a disjunction of atomic actions
-5. **DO NOT define invariants** (like LeaderUniqueness, LogMatching, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
+5. **DO NOT define invariants** - focus on modeling the system behavior
 
 ## Output Requirements
 
@@ -91,7 +100,7 @@ You must generate TWO files in the `./output/` directory:
 
 2. **TLC Configuration**: `./output/{spec_module}.cfg`
    - Define SPECIFICATION (e.g., Spec)
-   - Define CONSTANTS (e.g., Nodes, MaxTerm, MaxLogLen)
+   - Define CONSTANTS (e.g., Capacity)
    - Do NOT include INVARIANT definitions (they will be added separately)
 
 ## Validation Tool

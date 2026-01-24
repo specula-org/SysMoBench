@@ -94,7 +94,7 @@ To ensure the specification can be validated against system traces, you MUST str
 
 ### SPECIFICATION REQUIREMENTS:
 
-1. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, Naturals, FiniteSets
+1. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags
 2. **TypeOK**: Define a TypeOK operator for type checking
 3. **Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (WF_vars/SF_vars) to ensure liveness properties
 4. **Next Operator Structure**: The 'Next' operator SHOULD be a disjunction of atomic actions (e.g., Next == \E t \in Threads : AcquireLock(t) \/ ...)

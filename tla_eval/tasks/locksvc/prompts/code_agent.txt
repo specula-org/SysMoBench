@@ -2,7 +2,7 @@
 
 ## Your Role
 
-You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly etcd and Raft consensus.
+You are an expert in formal verification and TLA+ specifications with deep expertise in concurrent systems and synchronization primitives.
 
 ## Task
 
@@ -24,52 +24,33 @@ Files to read:
 
 ### MANDATORY CORE ACTIONS (must include all):
 
-1. **Message Types**:
-   - MsgHup (election timeout)
-   - MsgVote/MsgVoteResp (voting)
-   - MsgApp/MsgAppResp (log replication)
+1. **Lock/Unlock Requests** - Client sends lock() request, receives GrantMsg, then sends unlock() on release
 
-2. **Node States** - Four states:
-   - StateFollower
-   - StateCandidate
-   - StateLeader
-   - StatePreCandidate (prevote enabled)
+2. **Server Queue Handling** - Server enqueues LockMsg senders, grants lock immediately if queue empty, dequeues on UnlockMsg
 
-3. **Leader Election** - Complete prevote + vote phases:
-   - PreCandidate -> Candidate -> Leader transitions
+3. **Grant Dispatch** - Server sends GrantMsg to the head of the queue when a lock is available
 
-4. **Log Operations**:
-   - Log entry appending
-   - Consistency checks
-   - Commitment with majority quorum
+4. **Client Critical Section** - Client enters criticalSection only after receiving GrantMsg, sets hasLock = true
 
-5. **Heartbeat/Timeout**:
-   - Election timeouts triggering campaigns
-   - Heartbeat prevention of elections
-
-6. **Client Proposals**:
-   - MsgProp message handling
-   - Log entry creation by leaders
+5. **Mailbox Communication** - ReliableLink read/write over bag-based mailboxes (message send/receive abstraction)
 
 ### EXPLICITLY EXCLUDED (do not model):
 
-- Configuration changes and joint consensus (ConfChange messages)
-- Log compaction and snapshots (MsgSnap)
-- ReadIndex optimizations (MsgReadIndex)
-- Async storage operations (LocalAppendThread, LocalApplyThread)
-- Advanced flow control and progress tracking details
+- Debug formatting and interface implementations
+- Thread ownership tracking complexities beyond basic exclusion
+- Advanced guard type variations (lifetime management complexities)
+- Hardware memory ordering details (Acquire/Release ordering - handle at logical atomicity level only)
+- Detailed wait_until() retry loop implementation (abstract as waiting state)
 
 ### REQUIRED BEHAVIORAL SCOPE:
 
-- **Prevote phase**: StatePreCandidate must be modeled as it's enabled by default in etcd
-- **State transition constraints**: Follower -> PreCandidate -> Candidate -> Leader (strict transitions)
-- **Message processing by state**: only valid message types handled in each node state
-- **Term advancement rules**: nodes advance term when receiving messages with higher term
-- **Voting restrictions**: one vote per term, term must be current or newer
-- **Heartbeat mechanism**: leaders send heartbeats, followers reset election timeout on receipt
-- **Log consistency checks**: prevLogIndex/prevLogTerm validation in MsgApp processing
-- **Majority-based**: leader election and log commitment require majority quorum
-- **Network model**: basic message delays and losses
+- Boolean ownership state tracked via hasLock[client]: false (unlocked) ↔ true (locked)
+- Exclusive access enforcement: at most one client in criticalSection
+- FIFO-like queue maintained at server (Append on LockMsg, Tail on UnlockMsg, Head granted)
+- Client can reacquire lock only after unlock message is processed
+- Lock acquisition: blocking until GrantMsg arrives vs non-blocking network sends
+- Automatic GrantMsg dispatch ensures queued clients eventually progress
+- Thread (client) may be waiting in acquireLock state until GrantMsg received
 
 ### SPECIFICATION REQUIREMENTS:
 
@@ -77,7 +58,7 @@ Files to read:
 2. **TypeOK**: Define a TypeOK operator for type checking
 3. **Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (WF_vars/SF_vars) to ensure liveness properties
 4. **Next Operator Structure**: The 'Next' operator SHOULD be a disjunction of atomic actions
-5. **DO NOT define invariants** (like LeaderUniqueness, LogMatching, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
+5. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
 
 ## Output Requirements
 
@@ -91,7 +72,7 @@ You must generate TWO files in the `./output/` directory:
 
 2. **TLC Configuration**: `./output/{spec_module}.cfg`
    - Define SPECIFICATION (e.g., Spec)
-   - Define CONSTANTS (e.g., Nodes, MaxTerm, MaxLogLen)
+   - Define CONSTANTS (e.g., Clients, Server)
    - Do NOT include INVARIANT definitions (they will be added separately)
 
 ## Validation Tool

@@ -2,7 +2,7 @@
 
 ## Your Role
 
-You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly etcd and Raft consensus.
+You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly Raft consensus algorithm.
 
 ## Task
 
@@ -24,52 +24,50 @@ Files to read:
 
 ### MANDATORY CORE ACTIONS (must include all):
 
-1. **Message Types**:
-   - MsgHup (election timeout)
-   - MsgVote/MsgVoteResp (voting)
-   - MsgApp/MsgAppResp (log replication)
+1. **State Transitions** - BecomeFollower, BecomeCandidate, BecomePreCandidate, BecomeLeader - node state changes
 
-2. **Node States** - Four states:
-   - StateFollower
-   - StateCandidate
-   - StateLeader
-   - StatePreCandidate (prevote enabled)
+2. **Vote Processing** - RecvRequestVote, RecvRequestVoteResponse - leader election voting
 
-3. **Leader Election** - Complete prevote + vote phases:
-   - PreCandidate -> Candidate -> Leader transitions
+3. **Log Replication** - RecvAppendEntries, RecvAppendEntriesResponse - log entry synchronization
 
-4. **Log Operations**:
-   - Log entry appending
-   - Consistency checks
-   - Commitment with majority quorum
+4. **Leader Operations** - SendAppendEntries, SendHeartbeat - leader-initiated log replication
 
-5. **Heartbeat/Timeout**:
-   - Election timeouts triggering campaigns
-   - Heartbeat prevention of elections
+5. **Election Management** - ElectionStart, ElectionTimeout - triggering and managing elections
 
-6. **Client Proposals**:
-   - MsgProp message handling
-   - Log entry creation by leaders
+6. **Log Management** - LogAppend, LogDelete, LogCommit - managing replicated log entries
+
+7. **Periodic Tasks** - PeriodicElectionTimeout, PeriodicHeartbeat - time-based operations
+
+8. **Node Management** - AddNode, RemoveNode - cluster membership changes
+
+9. **Snapshot Handling** - SnapshotBegin, SnapshotEnd - log compaction operations
+
+10. **Configuration** - ApplyConfigChange - handling membership configuration changes
 
 ### EXPLICITLY EXCLUDED (do not model):
 
-- Configuration changes and joint consensus (ConfChange messages)
-- Log compaction and snapshots (MsgSnap)
-- ReadIndex optimizations (MsgReadIndex)
-- Async storage operations (LocalAppendThread, LocalApplyThread)
-- Advanced flow control and progress tracking details
+- Detailed memory management and heap functions (raft_malloc, raft_free)
+- Low-level callback mechanisms and user data handling
+- Specific log storage implementation details (persistence backend)
+- Statistics collection and performance metrics
+- Advanced features like leader transfer and lease-based reads
+- Network transport and serialization specifics
 
 ### REQUIRED BEHAVIORAL SCOPE:
 
-- **Prevote phase**: StatePreCandidate must be modeled as it's enabled by default in etcd
-- **State transition constraints**: Follower -> PreCandidate -> Candidate -> Leader (strict transitions)
-- **Message processing by state**: only valid message types handled in each node state
-- **Term advancement rules**: nodes advance term when receiving messages with higher term
-- **Voting restrictions**: one vote per term, term must be current or newer
-- **Heartbeat mechanism**: leaders send heartbeats, followers reset election timeout on receipt
-- **Log consistency checks**: prevLogIndex/prevLogTerm validation in MsgApp processing
-- **Majority-based**: leader election and log commitment require majority quorum
-- **Network model**: basic message delays and losses
+- Four node states: FOLLOWER, PRECANDIDATE, CANDIDATE, LEADER with proper transitions
+- Term management: currentTerm advancement and term-based message validation
+- Voting mechanism: one vote per term, majority-based leader election
+- Pre-vote optimization: PRECANDIDATE state to prevent unnecessary term increases
+- Log consistency: prevLogIndex/prevLogTerm validation in append entries
+- Log commitment: majority-based commit index advancement
+- Heartbeat mechanism: leader heartbeats and follower timeout detection
+- Election timeout randomization: preventing split votes
+- Configuration changes: adding/removing nodes with proper coordination
+- Snapshot integration: log compaction and state transfer
+- Message processing: appropriate handling based on current node state
+- Term advancement: nodes update term when receiving higher-term messages
+- Vote persistence: maintaining voted-for candidate across same-term state changes
 
 ### SPECIFICATION REQUIREMENTS:
 
@@ -77,7 +75,7 @@ Files to read:
 2. **TypeOK**: Define a TypeOK operator for type checking
 3. **Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (WF_vars/SF_vars) to ensure liveness properties
 4. **Next Operator Structure**: The 'Next' operator SHOULD be a disjunction of atomic actions
-5. **DO NOT define invariants** (like LeaderUniqueness, LogMatching, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
+5. **DO NOT define invariants** - focus on modeling the system behavior
 
 ## Output Requirements
 

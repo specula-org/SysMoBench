@@ -2,7 +2,7 @@
 
 ## Your Role
 
-You are an expert in formal verification and TLA+ specifications with deep expertise in distributed systems, particularly etcd and Raft consensus.
+You are an expert in formal verification and TLA+ specifications with deep expertise in concurrent systems and synchronization primitives.
 
 ## Task
 
@@ -24,52 +24,39 @@ Files to read:
 
 ### MANDATORY CORE ACTIONS (must include all):
 
-1. **Message Types**:
-   - MsgHup (election timeout)
-   - MsgVote/MsgVoteResp (voting)
-   - MsgApp/MsgAppResp (log replication)
+1. **Lock/Unlock Operations** - lock(), try_lock(), unlock() methods with proper blocking/non-blocking semantics
 
-2. **Node States** - Four states:
-   - StateFollower
-   - StateCandidate
-   - StateLeader
-   - StatePreCandidate (prevote enabled)
+2. **Atomic CAS** - compare_exchange operation on AtomicBool (false→true acquire, store false release) - logical atomicity level
 
-3. **Leader Election** - Complete prevote + vote phases:
-   - PreCandidate -> Candidate -> Leader transitions
+3. **WaitQueue Blocking** - wait_until() blocking mechanism, wake_one() FIFO notification on unlock
 
-4. **Log Operations**:
-   - Log entry appending
-   - Consistency checks
-   - Commitment with majority quorum
+4. **Guard Lifecycle** - MutexGuard creation on lock(), automatic unlock on Drop (creation/destruction only)
 
-5. **Heartbeat/Timeout**:
-   - Election timeouts triggering campaigns
-   - Heartbeat prevention of elections
+5. **Thread Interleaving** - Multiple threads competing for exclusive access with different orderings
 
-6. **Client Proposals**:
-   - MsgProp message handling
-   - Log entry creation by leaders
+6. **Thread State Management** - Waiting/blocked thread states when lock is held by others
 
 ### EXPLICITLY EXCLUDED (do not model):
 
-- Configuration changes and joint consensus (ConfChange messages)
-- Log compaction and snapshots (MsgSnap)
-- ReadIndex optimizations (MsgReadIndex)
-- Async storage operations (LocalAppendThread, LocalApplyThread)
-- Advanced flow control and progress tracking details
+- Arc-based locking (lock_arc method and ArcMutexGuard)
+- UnsafeCell implementation details
+- get_mut() zero-cost access
+- Debug formatting and trait implementations
+- Thread ownership tracking complexities beyond basic exclusion
+- Advanced guard type variations (lifetime management complexities)
+- Hardware memory ordering details (Acquire/Release ordering - handle at logical atomicity level only)
+- Detailed wait_until() retry loop implementation (abstract as waiting state)
+- Guard Deref/DerefMut access patterns (only model creation/destruction)
 
 ### REQUIRED BEHAVIORAL SCOPE:
 
-- **Prevote phase**: StatePreCandidate must be modeled as it's enabled by default in etcd
-- **State transition constraints**: Follower -> PreCandidate -> Candidate -> Leader (strict transitions)
-- **Message processing by state**: only valid message types handled in each node state
-- **Term advancement rules**: nodes advance term when receiving messages with higher term
-- **Voting restrictions**: one vote per term, term must be current or newer
-- **Heartbeat mechanism**: leaders send heartbeats, followers reset election timeout on receipt
-- **Log consistency checks**: prevLogIndex/prevLogTerm validation in MsgApp processing
-- **Majority-based**: leader election and log commitment require majority quorum
-- **Network model**: basic message delays and losses
+- Simple AtomicBool state: false (unlocked) ↔ true (locked)
+- Exclusive access enforcement (only one thread in critical section)
+- WaitQueue-based blocking and wakeup coordination with FIFO fairness (wake_one uses pop_front())
+- Thread can reacquire lock only after releasing it
+- Non-blocking try_lock() vs blocking lock() semantics differentiation
+- Guard lifecycle: creation on successful lock acquisition, automatic unlock on Drop (abstract level only)
+- Thread waiting state abstraction: threads can be in waiting/blocked state when lock is held by others
 
 ### SPECIFICATION REQUIREMENTS:
 
@@ -77,7 +64,7 @@ Files to read:
 2. **TypeOK**: Define a TypeOK operator for type checking
 3. **Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (WF_vars/SF_vars) to ensure liveness properties
 4. **Next Operator Structure**: The 'Next' operator SHOULD be a disjunction of atomic actions
-5. **DO NOT define invariants** (like LeaderUniqueness, LogMatching, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
+5. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - only include TypeOK, Init, actions, Next, Spec, and Vars
 
 ## Output Requirements
 
@@ -91,7 +78,7 @@ You must generate TWO files in the `./output/` directory:
 
 2. **TLC Configuration**: `./output/{spec_module}.cfg`
    - Define SPECIFICATION (e.g., Spec)
-   - Define CONSTANTS (e.g., Nodes, MaxTerm, MaxLogLen)
+   - Define CONSTANTS (e.g., Threads = {{t1, t2, t3}})
    - Do NOT include INVARIANT definitions (they will be added separately)
 
 ## Validation Tool
