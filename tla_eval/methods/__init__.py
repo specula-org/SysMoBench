@@ -9,7 +9,15 @@ from .base import TLAGenerationMethod
 from .direct_call import DirectCallMethod
 from .agent_based import AgentBasedMethod
 from .trace_based import TraceBasedMethod
-from .code_agent import CodeAgentMethod, ClaudeCodeAdapter, ClaudeCodeConfig
+from .code_agent import (
+    CodeAgentMethod,
+    ClaudeCodeAdapter,
+    ClaudeCodeConfig,
+    CodexAdapter,
+    CodexConfig,
+    GeminiAdapter,
+    GeminiConfig,
+)
 
 # Method registry for simple methods (no special initialization)
 _METHODS = {
@@ -21,6 +29,8 @@ _METHODS = {
 # Code agent adapters registry
 _CODE_AGENT_ADAPTERS = {
     "claude_code": (ClaudeCodeAdapter, ClaudeCodeConfig),
+    "codex": (CodexAdapter, CodexConfig),
+    "gemini": (GeminiAdapter, GeminiConfig),
 }
 
 
@@ -57,7 +67,7 @@ def _create_code_agent_method(adapter_name: str, **kwargs) -> CodeAgentMethod:
     Create a code agent method with the specified adapter.
 
     Args:
-        adapter_name: Name of the adapter (e.g., "claude_code")
+        adapter_name: Name of the adapter (e.g., "claude_code", "codex", "gemini")
         **kwargs: Configuration options
 
     Returns:
@@ -69,9 +79,11 @@ def _create_code_agent_method(adapter_name: str, **kwargs) -> CodeAgentMethod:
 
     adapter_class, config_class = _CODE_AGENT_ADAPTERS[adapter_name]
 
-    # Extract adapter-specific config
-    model = kwargs.pop("model", "sonnet")
-    timeout = kwargs.pop("timeout", 1800)
+    # Extract adapter-specific config, using config_class defaults
+    # Create a default config to get the default model
+    default_config = config_class()
+    model = kwargs.pop("model", default_config.model)
+    timeout = kwargs.pop("timeout", default_config.timeout)
 
     config = config_class(model=model, timeout=timeout)
     adapter = adapter_class(config=config)
@@ -102,6 +114,10 @@ __all__ = [
     "CodeAgentMethod",
     "ClaudeCodeAdapter",
     "ClaudeCodeConfig",
+    "CodexAdapter",
+    "CodexConfig",
+    "GeminiAdapter",
+    "GeminiConfig",
     "get_method",
     "list_available_methods",
 ]

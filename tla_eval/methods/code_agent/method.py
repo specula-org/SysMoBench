@@ -19,13 +19,21 @@ from .adapters.base import BaseCodeAgentAdapter
 logger = logging.getLogger(__name__)
 
 
+# Instruction filename mapping for different adapters
+INSTRUCTION_FILENAMES = {
+    "claude_code": "CLAUDE.md",
+    "codex": "CLAUDE.md",      # Codex doesn't have a specific file, use CLAUDE.md
+    "gemini": "GEMINI.md",
+}
+
+
 class CodeAgentMethod(TLAGenerationMethod):
     """
     Code Agent-based method for TLA+ generation.
 
     This method:
-    1. Prepares a workspace with task instructions (CLAUDE.md)
-    2. Launches a code agent (e.g., Claude Code) in the workspace
+    1. Prepares a workspace with task instructions (CLAUDE.md/GEMINI.md)
+    2. Launches a code agent (e.g., Claude Code, Codex, Gemini) in the workspace
     3. The agent reads code, generates specs, and validates using submit_spec tool
     4. Collects the final output from the workspace
     """
@@ -42,7 +50,7 @@ class CodeAgentMethod(TLAGenerationMethod):
         Initialize the code agent method.
 
         Args:
-            adapter: Code agent adapter (e.g., ClaudeCodeAdapter)
+            adapter: Code agent adapter (e.g., ClaudeCodeAdapter, CodexAdapter, GeminiAdapter)
             max_attempts: Maximum submission attempts for validation
             output_dir: Directory for saving evaluation outputs
             workspace_base: Base directory for workspaces (uses temp if not specified)
@@ -61,6 +69,11 @@ class CodeAgentMethod(TLAGenerationMethod):
 
         # Prompt builder
         self.prompt_builder = PromptBuilder()
+
+        # Determine instruction filename based on adapter
+        self.instruction_filename = INSTRUCTION_FILENAMES.get(
+            adapter.agent_name, "CLAUDE.md"
+        )
 
     def _find_mcp_server_path(self) -> Path:
         """Find the path to submit_spec MCP server."""
@@ -138,6 +151,7 @@ class CodeAgentMethod(TLAGenerationMethod):
                 max_attempts=self.max_attempts,
                 source_code_base=source_code_base,
                 prompt_content=prompt_content,
+                instruction_filename=self.instruction_filename,
             )
 
             logger.info(f"Workspace prepared at: {workspace_path}")

@@ -47,6 +47,7 @@ class TaskWorkspace:
         max_attempts: int,
         source_code_base: Path,
         prompt_content: str,
+        instruction_filename: str = "CLAUDE.md",
     ) -> Path:
         """
         Prepare workspace directory for a task.
@@ -55,7 +56,9 @@ class TaskWorkspace:
             task: The generation task
             max_attempts: Maximum submission attempts allowed
             source_code_base: Base path for source code repository
-            prompt_content: Content of CLAUDE.md (task instructions)
+            prompt_content: Content of instruction file (task instructions)
+            instruction_filename: Name of the instruction file (default: CLAUDE.md)
+                                  Use GEMINI.md for Gemini CLI
 
         Returns:
             Path to the prepared workspace
@@ -74,8 +77,13 @@ class TaskWorkspace:
         # Create symlinks to source files
         self._link_source_files(task, source_dir, source_code_base)
 
-        # Write CLAUDE.md
-        (self.workspace_path / "CLAUDE.md").write_text(prompt_content, encoding="utf-8")
+        # Write instruction file (CLAUDE.md, GEMINI.md, etc.)
+        (self.workspace_path / instruction_filename).write_text(prompt_content, encoding="utf-8")
+
+        # Also write CLAUDE.md as fallback if using different filename
+        # This ensures compatibility with agents that expect CLAUDE.md
+        if instruction_filename != "CLAUDE.md":
+            (self.workspace_path / "CLAUDE.md").write_text(prompt_content, encoding="utf-8")
 
         return self.workspace_path
 
