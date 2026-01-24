@@ -292,7 +292,9 @@ def filter_metric_params(metric: str, params: dict) -> dict:
         },
         "invariant_verification": {
             "tlc_timeout",
-            "templates_dir"
+            "templates_dir",
+            "translator_type",
+            "agent_timeout"
         },
 
         # Consistency metrics
@@ -311,7 +313,9 @@ def filter_metric_params(metric: str, params: dict) -> dict:
             "invariant_iterations",
             "keep_temp_files",
             "max_correction_attempts",
-            "enable_coverage"
+            "enable_coverage",
+            "inv_translator_type",
+            "inv_agent_timeout"
         }
     }
 
@@ -895,6 +899,8 @@ Examples:
                        help="Use existing specTrace.tla and specTrace.cfg files from the same directory as --spec-file (requires --spec-file)")
     parser.add_argument("--create-mapping", action="store_true",
                        help="Generate mapping file using LLM for trace conversion (for trace_validation metric)")
+    parser.add_argument("--inv-translator-type", choices=["direct", "agent"], default="direct",
+                       help="Invariant translator type: 'direct' uses single LLM call, 'agent' uses Claude Code agent (default: direct)")
 
     # Input selection
     parser.add_argument("--task", help="Single task name")
@@ -1050,6 +1056,10 @@ Examples:
         metric_params['with_exist_specTrace'] = args.with_exist_specTrace
     if getattr(args, 'create_mapping', None):
         metric_params['create_mapping'] = args.create_mapping
+    if getattr(args, 'inv_translator_type', None):
+        metric_params['translator_type'] = args.inv_translator_type
+        # For composite metric, use different parameter name
+        metric_params['inv_translator_type'] = args.inv_translator_type
 
     if single_mode:
         # Single benchmark
