@@ -45,6 +45,7 @@ class ClaudeCodeAdapter(BaseCodeAgentAdapter):
         self,
         workspace_path: Path,
         mcp_config_path: Path,
+        model_override: Optional[str] = None,
     ) -> ExecutionResult:
         """
         Execute Claude Code in the workspace.
@@ -52,16 +53,20 @@ class ClaudeCodeAdapter(BaseCodeAgentAdapter):
         Args:
             workspace_path: Path to workspace containing CLAUDE.md and source_code/
             mcp_config_path: Path to MCP configuration JSON file
+            model_override: Optional model to use instead of config default
 
         Returns:
             ExecutionResult with execution outcome
         """
+        # Use override model if provided, otherwise use config default
+        model = model_override or self.config.model
+
         cmd = [
             "claude",
             "--print",
             "--dangerously-skip-permissions",
             "--mcp-config", str(mcp_config_path),
-            "--model", self.config.model,
+            "--model", model,
             "--output-format", self.config.output_format,
             "--no-session-persistence",
             self.config.initial_prompt,

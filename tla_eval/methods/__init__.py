@@ -77,11 +77,12 @@ def _create_code_agent_method(adapter_name: str, **kwargs) -> CodeAgentMethod:
     adapter = adapter_class(config=config)
 
     # Create method with remaining kwargs
+    # Default workspace_base to "workspaces" for persistent storage
     return CodeAgentMethod(
         adapter=adapter,
         max_attempts=kwargs.pop("max_attempts", 3),
         output_dir=kwargs.pop("output_dir", None),
-        workspace_base=kwargs.pop("workspace_base", None),
+        workspace_base=kwargs.pop("workspace_base", "workspaces"),
         keep_workspace=kwargs.pop("keep_workspace", True),
     )
 

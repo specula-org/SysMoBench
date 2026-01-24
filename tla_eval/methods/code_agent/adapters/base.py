@@ -40,6 +40,7 @@ class BaseCodeAgentAdapter(ABC):
         self,
         workspace_path: Path,
         mcp_config_path: Path,
+        model_override: Optional[str] = None,
     ) -> ExecutionResult:
         """
         Execute the code agent in the given workspace.
@@ -53,6 +54,7 @@ class BaseCodeAgentAdapter(ABC):
         Args:
             workspace_path: Path to prepared workspace directory
             mcp_config_path: Path to MCP configuration file
+            model_override: Optional model to use instead of adapter's default
 
         Returns:
             ExecutionResult with execution outcome and metadata

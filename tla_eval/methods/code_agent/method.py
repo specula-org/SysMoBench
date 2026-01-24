@@ -51,8 +51,9 @@ class CodeAgentMethod(TLAGenerationMethod):
         super().__init__(f"code_agent_{adapter.agent_name}")
         self.adapter = adapter
         self.max_attempts = max_attempts
-        self.output_dir = Path(output_dir) if output_dir else Path("output")
-        self.workspace_base = Path(workspace_base) if workspace_base else None
+        # Ensure output_dir is absolute for MCP server
+        self.output_dir = (Path(output_dir) if output_dir else Path("output")).resolve()
+        self.workspace_base = Path(workspace_base).resolve() if workspace_base else None
         self.keep_workspace = keep_workspace
 
         # Path to submit_spec MCP server
@@ -156,6 +157,7 @@ class CodeAgentMethod(TLAGenerationMethod):
             result = await self.adapter.execute(
                 workspace_path=workspace_path,
                 mcp_config_path=mcp_config_path,
+                model_override=model_name,
             )
 
             logger.info(f"Agent execution completed. Success: {result.success}, Duration: {result.duration_seconds:.2f}s")
@@ -174,11 +176,16 @@ class CodeAgentMethod(TLAGenerationMethod):
                 "exit_code": result.exit_code,
                 "has_spec_output": spec_content is not None,
                 "has_config_output": config_content is not None,
+                # Include config content so evaluator can use it
+                "config_content": config_content,
             }
 
-            # Include raw output if available (might be large)
+            # Save raw output to workspace for debugging
             if result.raw_output:
                 metadata["raw_output_length"] = len(result.raw_output)
+                raw_output_file = workspace_path / "claude_output.txt"
+                raw_output_file.write_text(result.raw_output, encoding="utf-8")
+                metadata["raw_output_file"] = str(raw_output_file)
 
             # Determine success
             success = spec_content is not None and len(spec_content.strip()) > 0
