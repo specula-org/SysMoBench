@@ -43,7 +43,9 @@ class CompositeEvaluator(BaseEvaluator):
                  keep_temp_files: bool = False,
                  max_correction_attempts: int = 3,
                  enable_coverage: bool = True,
-                 spec_language: str = "tla"):
+                 spec_language: str = "tla",
+                 inv_translator_type: str = "direct",
+                 inv_agent_timeout: int = 600):
         """
         Initialize composite evaluator.
 
@@ -54,6 +56,8 @@ class CompositeEvaluator(BaseEvaluator):
             max_correction_attempts: Maximum number of global correction attempts
             enable_coverage: Whether to run coverage analysis
             spec_language: Target specification language ("tla", "alloy", "pat")
+            inv_translator_type: Invariant translator type ("direct" or "agent")
+            inv_agent_timeout: Timeout for agent translator in seconds
         """
         super().__init__(timeout=validation_timeout)
         self.max_iterations = invariant_iterations
@@ -61,6 +65,8 @@ class CompositeEvaluator(BaseEvaluator):
         self.max_correction_attempts = max_correction_attempts
         self.enable_coverage = enable_coverage
         self.spec_language = spec_language.lower().replace("+", "").strip()
+        self.inv_translator_type = inv_translator_type
+        self.inv_agent_timeout = inv_agent_timeout
 
         # Initialize language-specific evaluators
         self._init_evaluators(validation_timeout)
@@ -88,7 +94,9 @@ class CompositeEvaluator(BaseEvaluator):
                 tlc_timeout=validation_timeout
             )
             self.manual_invariant_evaluator = ManualInvariantEvaluator(
-                tlc_timeout=validation_timeout
+                tlc_timeout=validation_timeout,
+                translator_type=self.inv_translator_type,
+                agent_timeout=self.inv_agent_timeout
             )
             self.coverage_evaluator = CoverageEvaluator(
                 tlc_timeout=validation_timeout
@@ -1258,7 +1266,9 @@ class CompositeEvaluator(BaseEvaluator):
 def create_composite_evaluator(validation_timeout: int = 30,
                               invariant_iterations: int = 3,
                               keep_temp_files: bool = False,
-                              spec_language: str = "tla") -> CompositeEvaluator:
+                              spec_language: str = "tla",
+                              inv_translator_type: str = "direct",
+                              inv_agent_timeout: int = 600) -> CompositeEvaluator:
     """
     Factory function to create a composite evaluator.
 
@@ -1267,6 +1277,8 @@ def create_composite_evaluator(validation_timeout: int = 30,
         invariant_iterations: Number of invariant verification iterations
         keep_temp_files: Whether to keep temporary files for debugging
         spec_language: Target specification language ("tla", "alloy", "pat")
+        inv_translator_type: Invariant translator type ("direct" or "agent")
+        inv_agent_timeout: Timeout for agent translator in seconds
 
     Returns:
         CompositeEvaluator instance
@@ -1275,5 +1287,7 @@ def create_composite_evaluator(validation_timeout: int = 30,
         validation_timeout=validation_timeout,
         invariant_iterations=invariant_iterations,
         keep_temp_files=keep_temp_files,
-        spec_language=spec_language
+        spec_language=spec_language,
+        inv_translator_type=inv_translator_type,
+        inv_agent_timeout=inv_agent_timeout
     )
