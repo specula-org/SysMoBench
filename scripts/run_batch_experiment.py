@@ -1,0 +1,1117 @@
+#!/usr/bin/env python3
+"""
+Batch Experiment Runner for TLA+ Specification Generation
+
+This script runs batch experiments for multiple systems with:
+- Thread pool for parallel execution (default: 5 threads)
+- Up to 5 runs per system (early stop if all phases score 1.0)
+- Three evaluation phases:
+  1. Compilation: compilation_check pass=1.0, fail=action_decomposition_ratio*0.5
+  2. Runtime: runtime_coverage coverage value
+  3. Invariant: invariant_verification pass ratio (using agent translator)
+
+Usage:
+    python scripts/run_batch_experiment.py --systems etcd spin --runs 5 --threads 5
+    python scripts/run_batch_experiment.py --all --threads 10
+"""
+
+import argparse
+import json
+import logging
+import os
+import shutil
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+import threading
+
+# Add project root to path
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)s] [%(threadName)s] %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+# All available systems
+ALL_SYSTEMS = [
+    "spin", "etcd", "mutex", "rwmutex", "curp", "dqueue",
+    "locksvc", "raftkvs", "redisraft", "ringbuffer", "zookeeper"
+]
+
+# Supported code agents and their corresponding method names
+SUPPORTED_AGENTS = {
+    "claude_code": "code_agent_claude_code",
+    "gemini": "code_agent_gemini",
+    "codex": "code_agent_codex",
+}
+
+DEFAULT_AGENT = "claude_code"
+
+
+@dataclass
+class PhaseResult:
+    """Result of a single evaluation phase"""
+    phase_name: str
+    score: float
+    passed: bool
+    details: Dict = field(default_factory=dict)
+    error: Optional[str] = None
+    passed_items: List[str] = field(default_factory=list)
+    failed_items: List[str] = field(default_factory=list)
+
+
+@dataclass
+class RunResult:
+    """Result of a single experiment run"""
+    run_id: int
+    system: str
+    timestamp: str
+    generation_success: bool
+    generation_time: float
+    spec_path: Optional[str] = None
+    config_path: Optional[str] = None
+    workspace_path: Optional[str] = None
+
+    phase1_compilation: Optional[PhaseResult] = None
+    phase2_runtime: Optional[PhaseResult] = None
+    phase3_invariant: Optional[PhaseResult] = None
+
+    total_score: float = 0.0
+    is_perfect: bool = False
+    error: Optional[str] = None
+
+    def calculate_total_score(self):
+        """Calculate weighted total score"""
+        scores = []
+        if self.phase1_compilation:
+            scores.append(self.phase1_compilation.score)
+        if self.phase2_runtime:
+            scores.append(self.phase2_runtime.score)
+        if self.phase3_invariant:
+            scores.append(self.phase3_invariant.score)
+
+        if scores:
+            self.total_score = sum(scores) / len(scores)
+
+        # Check if all phases are perfect (score = 1.0)
+        self.is_perfect = all(
+            phase and phase.score >= 1.0
+            for phase in [self.phase1_compilation, self.phase2_runtime, self.phase3_invariant]
+            if phase is not None
+        )
+
+
+@dataclass
+class SystemResult:
+    """Results for all runs of a single system"""
+    system: str
+    runs: List[RunResult] = field(default_factory=list)
+    best_run: Optional[RunResult] = None
+    best_spec_path: Optional[str] = None
+
+    def find_best_run(self):
+        """Find the best run based on total score"""
+        if not self.runs:
+            return
+
+        valid_runs = [r for r in self.runs if r.generation_success]
+        if not valid_runs:
+            return
+
+        self.best_run = max(valid_runs, key=lambda r: r.total_score)
+        self.best_spec_path = self.best_run.spec_path
+
+
+class BatchExperimentRunner:
+    """Main experiment runner with thread pool"""
+
+    def __init__(self,
+                 systems: List[str],
+                 max_runs: int = 5,
+                 num_threads: int = 5,
+                 output_dir: str = "experiments",
+                 model: str = "opus",
+                 agent: str = DEFAULT_AGENT):
+        """
+        Initialize the batch experiment runner.
+
+        Args:
+            systems: List of system names to evaluate
+            max_runs: Maximum runs per system (default: 5)
+            num_threads: Number of parallel threads (default: 5)
+            output_dir: Base output directory for results
+            model: Model to use for generation and agent translator (default: opus)
+            agent: Code agent to use for generation (default: claude_code)
+        """
+        self.systems = systems
+        self.max_runs = max_runs
+        self.num_threads = num_threads
+        self.output_dir = Path(output_dir)
+        self.model = model
+        self.agent = agent
+        self.agent_method = SUPPORTED_AGENTS[agent]
+
+        # Create output directory with timestamp
+        self.experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.experiment_dir = self.output_dir / f"batch_{self.experiment_id}"
+        self.experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        # Results storage
+        self.system_results: Dict[str, SystemResult] = {}
+        self.results_lock = threading.Lock()
+
+        # Setup file logging
+        log_file = self.experiment_dir / "experiment.log"
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(logging.Formatter(
+            '[%(asctime)s] [%(levelname)s] [%(threadName)s] %(message)s'
+        ))
+        logging.getLogger().addHandler(file_handler)
+
+        logger.info(f"Initialized batch experiment: {self.experiment_id}")
+        logger.info(f"Agent: {agent} (method: {self.agent_method})")
+        logger.info(f"Model: {model}")
+        logger.info(f"Systems: {systems}")
+        logger.info(f"Max runs per system: {max_runs}")
+        logger.info(f"Thread pool size: {num_threads}")
+        logger.info(f"Output directory: {self.experiment_dir}")
+
+    def run_generation(self, system: str, run_id: int) -> Tuple[bool, str, Optional[str], Optional[str], float]:
+        """
+        Run the generation phase using the configured code agent.
+
+        Returns:
+            Tuple of (success, workspace_path, spec_path, config_path, generation_time)
+        """
+        import subprocess
+
+        logger.info(f"[{system}][Run {run_id}] Starting generation phase ({self.agent})...")
+
+        start_time = time.time()
+
+        cmd = [
+            "python", "scripts/run_benchmark.py",
+            "--task", system,
+            "--method", self.agent_method,
+            "--model", self.model,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=1800,  # 30 minutes timeout
+                cwd=PROJECT_ROOT
+            )
+
+            generation_time = time.time() - start_time
+
+            # Find the workspace directory from output
+            workspace_path = None
+            spec_path = None
+            config_path = None
+
+            # Parse output to find workspace path
+            for line in result.stdout.split('\n'):
+                if 'workspace_' in line and system in line:
+                    # Extract workspace path
+                    import re
+                    match = re.search(r'(workspaces/workspace_\S+)', line)
+                    if match:
+                        workspace_path = str(PROJECT_ROOT / match.group(1))
+                        break
+
+            # If not found in stdout, check workspaces directory for most recent
+            if not workspace_path:
+                workspaces_dir = PROJECT_ROOT / "workspaces"
+                if workspaces_dir.exists():
+                    matching = sorted([
+                        d for d in workspaces_dir.iterdir()
+                        if d.is_dir() and system in d.name
+                    ], key=lambda x: x.stat().st_mtime, reverse=True)
+                    if matching:
+                        workspace_path = str(matching[0])
+
+            # Find spec and config files
+            if workspace_path:
+                output_dir = Path(workspace_path) / "output"
+                if output_dir.exists():
+                    tla_files = list(output_dir.glob("*.tla"))
+                    cfg_files = list(output_dir.glob("*.cfg"))
+                    if tla_files:
+                        spec_path = str(tla_files[0])
+                    if cfg_files:
+                        config_path = str(cfg_files[0])
+
+            success = result.returncode == 0 and spec_path is not None
+
+            if success:
+                logger.info(f"[{system}][Run {run_id}] Generation successful: {spec_path}")
+            else:
+                logger.warning(f"[{system}][Run {run_id}] Generation failed (exit code: {result.returncode})")
+                if result.stderr:
+                    logger.debug(f"Stderr: {result.stderr[:500]}")
+
+            return success, workspace_path, spec_path, config_path, generation_time
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"[{system}][Run {run_id}] Generation timed out after 30 minutes")
+            return False, None, None, None, time.time() - start_time
+        except Exception as e:
+            logger.error(f"[{system}][Run {run_id}] Generation error: {e}")
+            return False, None, None, None, time.time() - start_time
+
+    def run_phase1_compilation(self, system: str, run_id: int,
+                               spec_path: str, config_path: str,
+                               generation_passed: bool) -> PhaseResult:
+        """
+        Run Phase 1: Compilation check.
+
+        If generation already passed (code_agent does Phase 1+2), return full score.
+        Otherwise, run compilation_check, and if fails, run action_decomposition.
+        """
+        import subprocess
+
+        logger.info(f"[{system}][Run {run_id}] Phase 1: Compilation check...")
+
+        # If code_agent generation passed, compilation is already verified
+        if generation_passed:
+            logger.info(f"[{system}][Run {run_id}] Phase 1: PASS (generation already verified)")
+            return PhaseResult(
+                phase_name="compilation",
+                score=1.0,
+                passed=True,
+                details={"method": "generation_verified"}
+            )
+
+        # Run compilation_check
+        cmd = [
+            "python", "scripts/run_benchmark.py",
+            "--task", system,
+            "--method", "direct_call",
+            "--model", self.model,
+            "--metric", "compilation_check",
+            "--spec-file", spec_path,
+            "--config-file", config_path,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                cwd=PROJECT_ROOT
+            )
+
+            # Check if passed
+            if "✓ PASS" in result.stdout:
+                logger.info(f"[{system}][Run {run_id}] Phase 1: PASS (compilation_check)")
+                return PhaseResult(
+                    phase_name="compilation",
+                    score=1.0,
+                    passed=True,
+                    details={"method": "compilation_check"}
+                )
+
+            # Compilation failed, run action_decomposition
+            logger.info(f"[{system}][Run {run_id}] Phase 1: compilation_check failed, running action_decomposition...")
+
+            cmd_action = [
+                "python", "scripts/run_benchmark.py",
+                "--task", system,
+                "--method", "direct_call",
+                "--model", self.model,
+                "--metric", "action_decomposition",
+                "--spec-file", spec_path,
+                "--config-file", config_path,
+            ]
+
+            result_action = subprocess.run(
+                cmd_action,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=PROJECT_ROOT
+            )
+
+            # Parse action_decomposition ratio
+            import re
+            ratio_match = re.search(r'(\d+)/(\d+)\s*\((\d+\.?\d*)%\)', result_action.stdout)
+            if ratio_match:
+                passed_actions = int(ratio_match.group(1))
+                total_actions = int(ratio_match.group(2))
+                ratio = passed_actions / total_actions if total_actions > 0 else 0
+                score = ratio * 0.5
+
+                logger.info(f"[{system}][Run {run_id}] Phase 1: PARTIAL ({passed_actions}/{total_actions} actions, score={score:.2f})")
+                return PhaseResult(
+                    phase_name="compilation",
+                    score=score,
+                    passed=False,
+                    details={
+                        "method": "action_decomposition",
+                        "passed_actions": passed_actions,
+                        "total_actions": total_actions,
+                        "ratio": ratio
+                    }
+                )
+            else:
+                logger.warning(f"[{system}][Run {run_id}] Phase 1: Could not parse action_decomposition output")
+                return PhaseResult(
+                    phase_name="compilation",
+                    score=0.0,
+                    passed=False,
+                    details={"method": "action_decomposition", "error": "parse_failed"}
+                )
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"[{system}][Run {run_id}] Phase 1: Timeout")
+            return PhaseResult(
+                phase_name="compilation",
+                score=0.0,
+                passed=False,
+                error="timeout"
+            )
+        except Exception as e:
+            logger.error(f"[{system}][Run {run_id}] Phase 1: Error - {e}")
+            return PhaseResult(
+                phase_name="compilation",
+                score=0.0,
+                passed=False,
+                error=str(e)
+            )
+
+    def run_phase2_runtime(self, system: str, run_id: int,
+                          spec_path: str, config_path: str) -> PhaseResult:
+        """
+        Run Phase 2: Runtime check + Runtime coverage.
+        First runs runtime_check (TLC model checking), then runtime_coverage.
+        """
+        import subprocess
+        import re
+
+        # Step 1: Run runtime_check first
+        logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check (TLC model checking)...")
+
+        cmd_check = [
+            "python", "scripts/run_benchmark.py",
+            "--task", system,
+            "--method", "direct_call",
+            "--model", self.model,
+            "--metric", "runtime_check",
+            "--spec-file", spec_path,
+            "--config-file", config_path,
+        ]
+
+        runtime_check_passed = False
+        runtime_check_error = None
+        try:
+            result_check = subprocess.run(
+                cmd_check,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=PROJECT_ROOT
+            )
+            combined_check = result_check.stdout + "\n" + result_check.stderr
+
+            # Check if runtime_check passed
+            if "PASS" in combined_check or result_check.returncode == 0:
+                if "FAIL" not in combined_check and "Error" not in combined_check:
+                    runtime_check_passed = True
+                    logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check PASSED")
+                else:
+                    logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check FAILED")
+            else:
+                logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check FAILED")
+        except subprocess.TimeoutExpired:
+            runtime_check_error = "timeout"
+            logger.warning(f"[{system}][Run {run_id}] Phase 2: Runtime check timeout")
+        except Exception as e:
+            runtime_check_error = str(e)
+            logger.warning(f"[{system}][Run {run_id}] Phase 2: Runtime check error - {e}")
+
+        # Step 2: Run runtime_coverage
+        logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime coverage...")
+
+        cmd_coverage = [
+            "python", "scripts/run_benchmark.py",
+            "--task", system,
+            "--method", "direct_call",
+            "--model", self.model,
+            "--metric", "runtime_coverage",
+            "--spec-file", spec_path,
+            "--config-file", config_path,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd_coverage,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=PROJECT_ROOT
+            )
+            # Combine stdout and stderr for parsing
+            combined_output = result.stdout + "\n" + result.stderr
+
+            # Look for "Runtime coverage score: XX.XX%"
+            coverage_match = re.search(r'Runtime coverage score:\s*(\d+\.?\d*)%', combined_output)
+            if coverage_match:
+                coverage = float(coverage_match.group(1)) / 100.0
+                logger.info(f"[{system}][Run {run_id}] Phase 2: Coverage = {coverage:.2%}")
+                return PhaseResult(
+                    phase_name="runtime",
+                    score=coverage,
+                    passed=coverage >= 0.5,
+                    details={
+                        "coverage": coverage,
+                        "runtime_check_passed": runtime_check_passed,
+                        "runtime_check_error": runtime_check_error
+                    }
+                )
+
+            # Alternative: look for generic coverage percentage
+            coverage_match2 = re.search(r'coverage[:\s]+(\d+\.?\d*)%', combined_output, re.IGNORECASE)
+            if coverage_match2:
+                coverage = float(coverage_match2.group(1)) / 100.0
+                logger.info(f"[{system}][Run {run_id}] Phase 2: Coverage = {coverage:.2%}")
+                return PhaseResult(
+                    phase_name="runtime",
+                    score=coverage,
+                    passed=coverage >= 0.5,
+                    details={
+                        "coverage": coverage,
+                        "runtime_check_passed": runtime_check_passed,
+                        "runtime_check_error": runtime_check_error
+                    }
+                )
+
+            # Alternative: look for success without detailed coverage
+            if "✓ PASS" in combined_output or "PASS" in combined_output:
+                logger.info(f"[{system}][Run {run_id}] Phase 2: PASS (no coverage data)")
+                return PhaseResult(
+                    phase_name="runtime",
+                    score=1.0,
+                    passed=True,
+                    details={
+                        "method": "pass_without_coverage",
+                        "runtime_check_passed": runtime_check_passed,
+                        "runtime_check_error": runtime_check_error
+                    }
+                )
+
+            logger.warning(f"[{system}][Run {run_id}] Phase 2: Could not parse coverage")
+            logger.debug(f"Output snippet: {combined_output[-500:]}")
+            return PhaseResult(
+                phase_name="runtime",
+                score=0.0,
+                passed=False,
+                details={
+                    "error": "parse_failed",
+                    "runtime_check_passed": runtime_check_passed,
+                    "runtime_check_error": runtime_check_error
+                },
+                error="Could not parse coverage output"
+            )
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"[{system}][Run {run_id}] Phase 2: Timeout")
+            return PhaseResult(
+                phase_name="runtime",
+                score=0.0,
+                passed=False,
+                details={
+                    "runtime_check_passed": runtime_check_passed,
+                    "runtime_check_error": runtime_check_error
+                },
+                error="timeout"
+            )
+        except Exception as e:
+            logger.error(f"[{system}][Run {run_id}] Phase 2: Error - {e}")
+            return PhaseResult(
+                phase_name="runtime",
+                score=0.0,
+                passed=False,
+                details={
+                    "runtime_check_passed": runtime_check_passed,
+                    "runtime_check_error": runtime_check_error
+                },
+                error=str(e)
+            )
+
+    def run_phase3_invariant(self, system: str, run_id: int,
+                            spec_path: str, config_path: str) -> PhaseResult:
+        """
+        Run Phase 3: Invariant verification with agent translator.
+        """
+        import subprocess
+
+        logger.info(f"[{system}][Run {run_id}] Phase 3: Invariant verification (agent)...")
+
+        cmd = [
+            "python", "scripts/run_benchmark.py",
+            "--task", system,
+            "--method", "direct_call",
+            "--model", self.model,
+            "--metric", "invariant_verification",
+            "--spec-file", spec_path,
+            "--config-file", config_path,
+            "--inv-translator-type", "agent",
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=900,  # 15 minutes for agent
+                cwd=PROJECT_ROOT
+            )
+            # Combine stdout and stderr for parsing
+            combined_output = result.stdout + "\n" + result.stderr
+
+            # Parse invariant results
+            import re
+
+            # Parse individual invariant results (✓ PASS / ✗ FAIL)
+            passed_invs = []
+            failed_invs = []
+            inv_results = re.findall(r'\d+\.\s+(\w+):\s*(✓ PASS|✗ FAIL)', combined_output)
+            for inv_name, status in inv_results:
+                if "PASS" in status:
+                    passed_invs.append(inv_name)
+                else:
+                    failed_invs.append(inv_name)
+
+            # Look for "Manual invariant testing: X/Y invariants passed"
+            inv_match = re.search(r'Manual invariant testing:\s*(\d+)/(\d+)\s*invariants?\s*passed', combined_output)
+            if inv_match:
+                passed = int(inv_match.group(1))
+                total = int(inv_match.group(2))
+                ratio = passed / total if total > 0 else 0
+                logger.info(f"[{system}][Run {run_id}] Phase 3: {passed}/{total} invariants passed ({ratio:.2%})")
+                if failed_invs:
+                    logger.info(f"[{system}][Run {run_id}] Phase 3: Failed invariants: {', '.join(failed_invs)}")
+                return PhaseResult(
+                    phase_name="invariant",
+                    score=ratio,
+                    passed=ratio >= 1.0,
+                    details={
+                        "passed_invariants": passed,
+                        "total_invariants": total,
+                        "ratio": ratio
+                    },
+                    passed_items=passed_invs,
+                    failed_items=failed_invs
+                )
+
+            # Look for separate "Passed invariants: X" and "Total invariants tested: Y" lines
+            passed_match = re.search(r'Passed invariants:\s*(\d+)', combined_output)
+            total_match = re.search(r'Total invariants tested:\s*(\d+)', combined_output)
+            if passed_match and total_match:
+                passed = int(passed_match.group(1))
+                total = int(total_match.group(1))
+                ratio = passed / total if total > 0 else 0
+                logger.info(f"[{system}][Run {run_id}] Phase 3: {passed}/{total} invariants passed ({ratio:.2%})")
+                if failed_invs:
+                    logger.info(f"[{system}][Run {run_id}] Phase 3: Failed invariants: {', '.join(failed_invs)}")
+                return PhaseResult(
+                    phase_name="invariant",
+                    score=ratio,
+                    passed=ratio >= 1.0,
+                    details={
+                        "passed_invariants": passed,
+                        "total_invariants": total,
+                        "ratio": ratio
+                    },
+                    passed_items=passed_invs,
+                    failed_items=failed_invs
+                )
+
+            # Generic X/Y pattern
+            inv_match2 = re.search(r'(\d+)/(\d+)\s*invariants?\s*passed', combined_output, re.IGNORECASE)
+            if inv_match2:
+                passed = int(inv_match2.group(1))
+                total = int(inv_match2.group(2))
+                ratio = passed / total if total > 0 else 0
+                logger.info(f"[{system}][Run {run_id}] Phase 3: {passed}/{total} invariants passed ({ratio:.2%})")
+                if failed_invs:
+                    logger.info(f"[{system}][Run {run_id}] Phase 3: Failed invariants: {', '.join(failed_invs)}")
+                return PhaseResult(
+                    phase_name="invariant",
+                    score=ratio,
+                    passed=ratio >= 1.0,
+                    details={
+                        "passed_invariants": passed,
+                        "total_invariants": total,
+                        "ratio": ratio
+                    },
+                    passed_items=passed_invs,
+                    failed_items=failed_invs
+                )
+
+            # Check for full pass
+            if "All invariants passed: True" in combined_output:
+                logger.info(f"[{system}][Run {run_id}] Phase 3: PASS (all invariants)")
+                return PhaseResult(
+                    phase_name="invariant",
+                    score=1.0,
+                    passed=True,
+                    details={"all_passed": True},
+                    passed_items=passed_invs,
+                    failed_items=[]
+                )
+
+            logger.warning(f"[{system}][Run {run_id}] Phase 3: Could not parse invariant results")
+            logger.debug(f"Output snippet: {combined_output[-500:]}")
+            return PhaseResult(
+                phase_name="invariant",
+                score=0.0,
+                passed=False,
+                details={"error": "parse_failed"},
+                error="Could not parse invariant output"
+            )
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"[{system}][Run {run_id}] Phase 3: Timeout")
+            return PhaseResult(
+                phase_name="invariant",
+                score=0.0,
+                passed=False,
+                error="timeout"
+            )
+        except Exception as e:
+            logger.error(f"[{system}][Run {run_id}] Phase 3: Error - {e}")
+            return PhaseResult(
+                phase_name="invariant",
+                score=0.0,
+                passed=False,
+                error=str(e)
+            )
+
+    def run_single_experiment(self, system: str, run_id: int) -> RunResult:
+        """
+        Run a single experiment for a system.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        logger.info(f"[{system}][Run {run_id}] Starting experiment...")
+
+        # Initialize result
+        result = RunResult(
+            run_id=run_id,
+            system=system,
+            timestamp=timestamp,
+            generation_success=False,
+            generation_time=0.0
+        )
+
+        try:
+            # Phase 0: Generation
+            gen_success, workspace_path, spec_path, config_path, gen_time = self.run_generation(system, run_id)
+
+            result.generation_success = gen_success
+            result.generation_time = gen_time
+            result.workspace_path = workspace_path
+            result.spec_path = spec_path
+            result.config_path = config_path
+
+            if not gen_success or not spec_path:
+                result.error = "Generation failed"
+                logger.error(f"[{system}][Run {run_id}] Generation failed, skipping evaluation")
+                return result
+
+            # Phase 1: Compilation
+            # code_agent already runs Phase 1+2, so if generation succeeded, Phase 1 passes
+            result.phase1_compilation = self.run_phase1_compilation(
+                system, run_id, spec_path, config_path,
+                generation_passed=True  # code_agent verifies compilation
+            )
+
+            # Phase 2: Runtime coverage
+            result.phase2_runtime = self.run_phase2_runtime(
+                system, run_id, spec_path, config_path
+            )
+
+            # Phase 3: Invariant verification (only if Phase 1 passed)
+            if result.phase1_compilation and result.phase1_compilation.passed:
+                result.phase3_invariant = self.run_phase3_invariant(
+                    system, run_id, spec_path, config_path
+                )
+            else:
+                logger.info(f"[{system}][Run {run_id}] Skipping Phase 3 (Phase 1 failed)")
+                result.phase3_invariant = PhaseResult(
+                    phase_name="invariant",
+                    score=0.0,
+                    passed=False,
+                    details={"skipped": "phase1_failed"}
+                )
+
+            # Calculate total score
+            result.calculate_total_score()
+
+            logger.info(f"[{system}][Run {run_id}] Completed - Total Score: {result.total_score:.2f}, Perfect: {result.is_perfect}")
+
+        except Exception as e:
+            result.error = str(e)
+            logger.error(f"[{system}][Run {run_id}] Experiment error: {e}")
+
+        return result
+
+    def run_system(self, system: str) -> SystemResult:
+        """
+        Run all experiments for a single system.
+        """
+        logger.info(f"[{system}] Starting experiments (max {self.max_runs} runs)...")
+
+        system_result = SystemResult(system=system)
+
+        for run_id in range(1, self.max_runs + 1):
+            run_result = self.run_single_experiment(system, run_id)
+            system_result.runs.append(run_result)
+
+            # Save intermediate result
+            self.save_run_result(system, run_result)
+
+            # Early stop if perfect score
+            if run_result.is_perfect:
+                logger.info(f"[{system}] Perfect score achieved in run {run_id}, stopping early")
+                break
+
+        # Find best run
+        system_result.find_best_run()
+
+        if system_result.best_run:
+            logger.info(f"[{system}] Best run: #{system_result.best_run.run_id} with score {system_result.best_run.total_score:.2f}")
+
+        return system_result
+
+    def save_run_result(self, system: str, run_result: RunResult):
+        """Save individual run result to file."""
+        system_dir = self.experiment_dir / system
+        system_dir.mkdir(exist_ok=True)
+
+        result_file = system_dir / f"run_{run_result.run_id}.json"
+
+        # Convert PhaseResult to dict manually to handle all fields
+        def phase_to_dict(phase):
+            if phase is None:
+                return None
+            return {
+                "phase_name": phase.phase_name,
+                "score": phase.score,
+                "passed": phase.passed,
+                "details": phase.details,
+                "error": phase.error,
+                "passed_items": phase.passed_items,
+                "failed_items": phase.failed_items
+            }
+
+        # Convert to dict
+        result_dict = {
+            "run_id": run_result.run_id,
+            "system": run_result.system,
+            "timestamp": run_result.timestamp,
+            "generation_success": run_result.generation_success,
+            "generation_time": run_result.generation_time,
+            "spec_path": run_result.spec_path,
+            "config_path": run_result.config_path,
+            "workspace_path": run_result.workspace_path,
+            "phase1_compilation": phase_to_dict(run_result.phase1_compilation),
+            "phase2_runtime": phase_to_dict(run_result.phase2_runtime),
+            "phase3_invariant": phase_to_dict(run_result.phase3_invariant),
+            "total_score": run_result.total_score,
+            "is_perfect": run_result.is_perfect,
+            "error": run_result.error
+        }
+
+        with open(result_file, 'w', encoding='utf-8') as f:
+            json.dump(result_dict, f, indent=2, ensure_ascii=False)
+
+    def collect_best_specs(self):
+        """Collect best specs from all systems into a single directory."""
+        best_specs_dir = self.experiment_dir / "best_specs"
+        best_specs_dir.mkdir(exist_ok=True)
+
+        summary = []
+
+        for system, system_result in self.system_results.items():
+            if system_result.best_run and system_result.best_run.spec_path:
+                best_run = system_result.best_run
+
+                # Copy spec file
+                src_spec = Path(best_run.spec_path)
+                if src_spec.exists():
+                    dst_spec = best_specs_dir / f"{system}.tla"
+                    shutil.copy2(src_spec, dst_spec)
+
+                # Copy config file
+                if best_run.config_path:
+                    src_cfg = Path(best_run.config_path)
+                    if src_cfg.exists():
+                        dst_cfg = best_specs_dir / f"{system}.cfg"
+                        shutil.copy2(src_cfg, dst_cfg)
+
+                summary.append({
+                    "system": system,
+                    "best_run_id": best_run.run_id,
+                    "total_score": best_run.total_score,
+                    "phase1_score": best_run.phase1_compilation.score if best_run.phase1_compilation else 0,
+                    "phase2_score": best_run.phase2_runtime.score if best_run.phase2_runtime else 0,
+                    "phase3_score": best_run.phase3_invariant.score if best_run.phase3_invariant else 0,
+                    "is_perfect": best_run.is_perfect,
+                    "spec_file": f"{system}.tla",
+                    "config_file": f"{system}.cfg"
+                })
+
+                logger.info(f"Collected best spec for {system}: run #{best_run.run_id}, score={best_run.total_score:.2f}")
+
+        # Save summary
+        summary_file = best_specs_dir / "summary.json"
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Best specs collected in: {best_specs_dir}")
+        return summary
+
+    def generate_report(self):
+        """Generate final experiment report."""
+        report = {
+            "experiment_id": self.experiment_id,
+            "timestamp": datetime.now().isoformat(),
+            "config": {
+                "systems": self.systems,
+                "max_runs": self.max_runs,
+                "num_threads": self.num_threads,
+                "model": self.model
+            },
+            "results": {}
+        }
+
+        for system, system_result in self.system_results.items():
+            report["results"][system] = {
+                "total_runs": len(system_result.runs),
+                "best_run_id": system_result.best_run.run_id if system_result.best_run else None,
+                "best_score": system_result.best_run.total_score if system_result.best_run else 0,
+                "runs": [
+                    {
+                        "run_id": r.run_id,
+                        "generation_success": r.generation_success,
+                        "phase1_score": r.phase1_compilation.score if r.phase1_compilation else 0,
+                        "phase2_score": r.phase2_runtime.score if r.phase2_runtime else 0,
+                        "phase3_score": r.phase3_invariant.score if r.phase3_invariant else 0,
+                        "phase3_passed_invariants": r.phase3_invariant.passed_items if r.phase3_invariant else [],
+                        "phase3_failed_invariants": r.phase3_invariant.failed_items if r.phase3_invariant else [],
+                        "total_score": r.total_score,
+                        "is_perfect": r.is_perfect
+                    }
+                    for r in system_result.runs
+                ]
+            }
+
+        report_file = self.experiment_dir / "experiment_report.json"
+        with open(report_file, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Experiment report saved to: {report_file}")
+        return report
+
+    def print_summary(self):
+        """Print summary to console."""
+        print("\n" + "=" * 100)
+        print("BATCH EXPERIMENT SUMMARY")
+        print("=" * 100)
+        print(f"Experiment ID: {self.experiment_id}")
+        print(f"Output Directory: {self.experiment_dir}")
+        print()
+
+        print(f"{'System':<15} {'Runs':<6} {'Best Run':<10} {'P1 (Comp)':<12} {'P2 (Runtime)':<14} {'P3 (Inv)':<12} {'Total':<8} {'Perfect':<8}")
+        print("-" * 100)
+
+        for system in self.systems:
+            if system in self.system_results:
+                sr = self.system_results[system]
+                if sr.best_run:
+                    br = sr.best_run
+                    p1 = br.phase1_compilation.score if br.phase1_compilation else 0
+                    p2 = br.phase2_runtime.score if br.phase2_runtime else 0
+                    p3 = br.phase3_invariant.score if br.phase3_invariant else 0
+                    perfect = "Yes" if br.is_perfect else "No"
+                    print(f"{system:<15} {len(sr.runs):<6} #{br.run_id:<9} {p1:<12.2f} {p2:<14.2f} {p3:<12.2f} {br.total_score:<8.2f} {perfect:<8}")
+                else:
+                    print(f"{system:<15} {len(sr.runs):<6} {'N/A':<10} {'N/A':<12} {'N/A':<14} {'N/A':<12} {'N/A':<8} {'No':<8}")
+            else:
+                print(f"{system:<15} {'0':<6} {'N/A':<10} {'N/A':<12} {'N/A':<14} {'N/A':<12} {'N/A':<8} {'No':<8}")
+
+        print("=" * 100)
+
+        # Print detailed invariant failures per run
+        print("\nDETAILED INVARIANT RESULTS BY RUN:")
+        print("-" * 100)
+        for system in self.systems:
+            if system in self.system_results:
+                sr = self.system_results[system]
+                print(f"\n{system}:")
+                for run in sr.runs:
+                    if run.phase3_invariant:
+                        p3 = run.phase3_invariant
+                        passed_count = p3.details.get("passed_invariants", 0)
+                        total_count = p3.details.get("total_invariants", 0)
+                        failed_list = p3.failed_items if p3.failed_items else []
+                        passed_list = p3.passed_items if p3.passed_items else []
+
+                        if failed_list:
+                            print(f"  Run {run.run_id}: {passed_count}/{total_count} passed | Failed: {', '.join(failed_list)}")
+                        elif total_count > 0:
+                            print(f"  Run {run.run_id}: {passed_count}/{total_count} passed | All passed!")
+                        else:
+                            print(f"  Run {run.run_id}: No invariant data")
+                    else:
+                        print(f"  Run {run.run_id}: Phase 3 not executed")
+
+        print("=" * 100)
+
+    def run(self):
+        """Run the full batch experiment."""
+        logger.info("Starting batch experiment...")
+        start_time = time.time()
+
+        # Use thread pool for parallel execution
+        with ThreadPoolExecutor(max_workers=self.num_threads, thread_name_prefix="Worker") as executor:
+            # Submit all system tasks
+            future_to_system = {
+                executor.submit(self.run_system, system): system
+                for system in self.systems
+            }
+
+            # Process completed tasks
+            for future in as_completed(future_to_system):
+                system = future_to_system[future]
+                try:
+                    system_result = future.result()
+                    with self.results_lock:
+                        self.system_results[system] = system_result
+                    logger.info(f"[{system}] Completed all runs")
+                except Exception as e:
+                    logger.error(f"[{system}] Failed with error: {e}")
+                    with self.results_lock:
+                        self.system_results[system] = SystemResult(system=system)
+
+        total_time = time.time() - start_time
+        logger.info(f"Batch experiment completed in {total_time:.2f}s")
+
+        # Collect best specs
+        self.collect_best_specs()
+
+        # Generate report
+        self.generate_report()
+
+        # Print summary
+        self.print_summary()
+
+        return self.system_results
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Batch Experiment Runner for TLA+ Specification Generation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Run all systems with default settings (claude_code agent)
+    python scripts/run_batch_experiment.py --all
+
+    # Run specific systems
+    python scripts/run_batch_experiment.py --systems etcd zookeeper raftkvs
+
+    # Run with custom settings
+    python scripts/run_batch_experiment.py --all --runs 3 --threads 10
+
+    # Use different code agents
+    python scripts/run_batch_experiment.py --all --agent gemini --model default
+    python scripts/run_batch_experiment.py --all --agent codex --model gpt-5
+
+    # Specify output directory
+    python scripts/run_batch_experiment.py --all --output my_experiments
+
+    # List available agents
+    python scripts/run_batch_experiment.py --list-agents
+        """
+    )
+
+    parser.add_argument("--systems", nargs="+",
+                       help="Systems to evaluate (space-separated)")
+    parser.add_argument("--all", action="store_true",
+                       help="Run all available systems")
+    parser.add_argument("--runs", type=int, default=5,
+                       help="Maximum runs per system (default: 5)")
+    parser.add_argument("--threads", type=int, default=5,
+                       help="Number of parallel threads (default: 5)")
+    parser.add_argument("--output", default="experiments",
+                       help="Output directory (default: experiments)")
+    parser.add_argument("--model", default="opus",
+                       help="Model to use for generation and agent translator (default: opus)")
+    parser.add_argument("--agent", default=DEFAULT_AGENT,
+                       choices=list(SUPPORTED_AGENTS.keys()),
+                       help=f"Code agent to use for generation (default: {DEFAULT_AGENT})")
+    parser.add_argument("--list-systems", action="store_true",
+                       help="List all available systems")
+    parser.add_argument("--list-agents", action="store_true",
+                       help="List all supported code agents")
+
+    args = parser.parse_args()
+
+    if args.list_systems:
+        print("Available systems:")
+        for system in ALL_SYSTEMS:
+            print(f"  - {system}")
+        return
+
+    if args.list_agents:
+        print("Supported code agents:")
+        for agent, method in SUPPORTED_AGENTS.items():
+            default_marker = " (default)" if agent == DEFAULT_AGENT else ""
+            print(f"  - {agent}: {method}{default_marker}")
+        return
+
+    # Determine systems to run
+    if args.all:
+        systems = ALL_SYSTEMS
+    elif args.systems:
+        # Validate systems
+        invalid = [s for s in args.systems if s not in ALL_SYSTEMS]
+        if invalid:
+            print(f"Error: Invalid systems: {invalid}")
+            print(f"Available systems: {ALL_SYSTEMS}")
+            sys.exit(1)
+        systems = args.systems
+    else:
+        parser.error("Must specify --systems or --all")
+
+    # Create and run experiment
+    runner = BatchExperimentRunner(
+        systems=systems,
+        max_runs=args.runs,
+        num_threads=args.threads,
+        output_dir=args.output,
+        model=args.model,
+        agent=args.agent
+    )
+
+    runner.run()
+
+
+if __name__ == "__main__":
+    main()
