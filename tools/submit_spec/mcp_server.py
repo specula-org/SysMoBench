@@ -22,14 +22,24 @@ Usage:
 """
 
 import asyncio
+import io
+import os
 import sys
 from pathlib import Path
+
+# Suppress stdout during module imports (MCP requires clean stdout for JSON-RPC)
+# Some modules print debug info on import which breaks MCP protocol
+_real_stdout = sys.stdout
+sys.stdout = io.StringIO()
 
 # Add the src directory to the Python path
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
 from submit_spec import create_server
+
+# Restore stdout after imports
+sys.stdout = _real_stdout
 
 
 def main():
