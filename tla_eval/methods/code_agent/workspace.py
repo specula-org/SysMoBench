@@ -77,13 +77,8 @@ class TaskWorkspace:
         # Create symlinks to source files
         self._link_source_files(task, source_dir, source_code_base)
 
-        # Write instruction file (CLAUDE.md, GEMINI.md, etc.)
+        # Write instruction file (CLAUDE.md, CODEX.md, GEMINI.md, etc.)
         (self.workspace_path / instruction_filename).write_text(prompt_content, encoding="utf-8")
-
-        # Also write CLAUDE.md as fallback if using different filename
-        # This ensures compatibility with agents that expect CLAUDE.md
-        if instruction_filename != "CLAUDE.md":
-            (self.workspace_path / "CLAUDE.md").write_text(prompt_content, encoding="utf-8")
 
         return self.workspace_path
 

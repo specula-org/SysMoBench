@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Instruction filename mapping for different adapters
 INSTRUCTION_FILENAMES = {
     "claude_code": "CLAUDE.md",
-    "codex": "CLAUDE.md",      # Codex doesn't have a specific file, use CLAUDE.md
+    "codex": "CODEX.md",
     "gemini": "GEMINI.md",
 }
 
