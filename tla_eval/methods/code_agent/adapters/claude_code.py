@@ -63,11 +63,11 @@ class ClaudeCodeAdapter(BaseCodeAgentAdapter):
 
         cmd = [
             "claude",
-            "--print",
+            # "--print",  # 暂时注释掉，方便调试查看聊天记录
             "--dangerously-skip-permissions",
             "--mcp-config", str(mcp_config_path),
             "--model", model,
-            "--output-format", self.config.output_format,
+            # "--output-format", self.config.output_format,  # 需要 --print
             # "--no-session-persistence",  # 暂时注释掉，方便调试查看聊天记录
             self.config.initial_prompt,
         ]
