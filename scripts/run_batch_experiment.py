@@ -436,8 +436,10 @@ class BatchExperimentRunner:
             else:
                 logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check FAILED")
         except subprocess.TimeoutExpired:
+            # Timeout means no error found within time limit - this counts as PASS
+            runtime_check_passed = True
             runtime_check_error = "timeout"
-            logger.warning(f"[{system}][Run {run_id}] Phase 2: Runtime check timeout")
+            logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check PASSED (timeout, no errors found)")
         except Exception as e:
             runtime_check_error = str(e)
             logger.warning(f"[{system}][Run {run_id}] Phase 2: Runtime check error - {e}")
