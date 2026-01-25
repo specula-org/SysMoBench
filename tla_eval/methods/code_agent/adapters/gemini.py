@@ -16,13 +16,13 @@ from .base import BaseCodeAgentAdapter, ExecutionResult
 @dataclass
 class GeminiConfig:
     """Configuration for Gemini CLI adapter."""
-    model: str = "gemini-3-pro-preview"  # Default model
+    model: str = ""  # Use Gemini CLI default (configured in ~/.gemini/settings.json)
     timeout: int = 1800                   # 30 minutes default
     output_format: str = "text"           # text / json / stream-json
-    initial_prompt: str = "Read GEMINI.md and follow the instructions to complete the task."
+    initial_prompt: str = "follow the GEMINI.md to complete the task."
     # Polling settings for waiting output files (Gemini may run async)
     poll_interval: int = 10               # Check every 10 seconds
-    poll_timeout: int = 900               # Wait up to 15 minutes for output
+    poll_timeout: int = 600               # Wait up to 10 minutes for output
 
 
 class GeminiAdapter(BaseCodeAgentAdapter):
@@ -112,19 +112,6 @@ class GeminiAdapter(BaseCodeAgentAdapter):
         except Exception:
             return False
 
-    def _is_gemini_running(self) -> bool:
-        """Check if any Gemini-related node process is running."""
-        import subprocess
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", "node.*gemini"],
-                capture_output=True,
-                text=True,
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
-
     async def _wait_for_output_files(
         self,
         workspace_path: Path,
@@ -133,7 +120,7 @@ class GeminiAdapter(BaseCodeAgentAdapter):
         Wait for output files to be generated and complete.
 
         Polls for TLA+ files that are complete (end with ====).
-        If Gemini exits and no files appear after 2 minutes, returns early.
+        Waits up to poll_timeout seconds (default 10 minutes).
 
         Args:
             workspace_path: Path to workspace directory
@@ -143,31 +130,20 @@ class GeminiAdapter(BaseCodeAgentAdapter):
         """
         output_dir = workspace_path / "output"
         poll_count = self.config.poll_timeout // self.config.poll_interval
-        no_file_after_exit_count = 0
-        max_no_file_after_exit = 12  # 2 minutes (12 * 10 seconds)
 
-        for i in range(poll_count):
+        for _ in range(poll_count):
             await asyncio.sleep(self.config.poll_interval)
 
             # Check for .tla files
             tla_files = list(output_dir.glob("*.tla"))
 
             if tla_files:
-                # Reset counter since we have files
-                no_file_after_exit_count = 0
                 # Check if all TLA+ files are complete (end with ====)
                 all_complete = all(
                     self._is_tla_file_complete(f) for f in tla_files
                 )
                 if all_complete:
                     return True
-            else:
-                # No files yet - check if Gemini is still running
-                if not self._is_gemini_running():
-                    no_file_after_exit_count += 1
-                    if no_file_after_exit_count >= max_no_file_after_exit:
-                        # Gemini exited and no files for 2 minutes
-                        return False
 
         return False
 
@@ -190,8 +166,8 @@ class GeminiAdapter(BaseCodeAgentAdapter):
         """
         model = model_override or self.config.model
 
-        # Update MCP config (no backup needed, we just add/update our entries)
-        self._update_mcp_config(mcp_config_path)
+        # Skip MCP config update - assume ~/.gemini/settings.json is already configured
+        # self._update_mcp_config(mcp_config_path)
 
         # Create GEMINI.md from CLAUDE.md if it doesn't exist
         gemini_md = workspace_path / "GEMINI.md"
@@ -203,13 +179,11 @@ class GeminiAdapter(BaseCodeAgentAdapter):
         # Build command
         # Use positional prompt (not -p which is deprecated)
         # Use --yolo to auto-approve all tool calls
-        cmd = [
-            "gemini",
-            "--yolo",
-            "-m", model,
-            "--output-format", self.config.output_format,
-            self.config.initial_prompt,
-        ]
+        cmd = ["gemini", "--yolo"]
+        # Only add -m if model is specified and not "default"
+        if model and model != "default":
+            cmd.extend(["-m", model])
+        cmd.append(self.config.initial_prompt)
 
         start_time = time.time()
 
@@ -217,13 +191,12 @@ class GeminiAdapter(BaseCodeAgentAdapter):
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=workspace_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                # Don't capture stdout/stderr - let Gemini run naturally
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
+                await asyncio.wait_for(
+                    process.wait(),
                     timeout=self.config.timeout,
                 )
             except asyncio.TimeoutError:
@@ -238,11 +211,8 @@ class GeminiAdapter(BaseCodeAgentAdapter):
                     exit_code=-1,
                 )
 
-            output = stdout.decode("utf-8", errors="replace")
-            stderr_output = stderr.decode("utf-8", errors="replace")
-
-            # Gemini CLI main process may exit quickly while child processes
-            # continue running. Always poll for output files to ensure completion.
+            # Gemini CLI main process may exit before files are written.
+            # Poll for output files to ensure completion.
             output_dir = workspace_path / "output"
             await self._wait_for_output_files(workspace_path)
 
@@ -254,23 +224,14 @@ class GeminiAdapter(BaseCodeAgentAdapter):
                 f.stat().st_size > 0 for f in tla_files
             )
 
-            # Parse JSON output
-            parsed_output = None
-            if self.config.output_format == "json" and output.strip():
-                try:
-                    parsed_output = json.loads(output)
-                except json.JSONDecodeError:
-                    # Output might not be valid JSON
-                    pass
-
             # Success if process exited cleanly AND output files exist
             success = process.returncode == 0 and has_output
 
             return ExecutionResult(
                 success=success,
-                raw_output=output,
-                parsed_output=parsed_output,
-                error=stderr_output if not success else None,
+                raw_output="",
+                parsed_output=None,
+                error=None if success else "Gemini failed to generate output",
                 duration_seconds=duration,
                 exit_code=process.returncode,
             )
