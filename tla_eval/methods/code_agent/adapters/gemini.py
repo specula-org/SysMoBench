@@ -187,16 +187,20 @@ class GeminiAdapter(BaseCodeAgentAdapter):
 
         start_time = time.time()
 
+        # Log file to capture Gemini output for debugging
+        log_file = workspace_path / "gemini_output.log"
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=workspace_path,
-                # Don't capture stdout/stderr - let Gemini run naturally
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,  # Merge stderr into stdout
             )
 
             try:
-                await asyncio.wait_for(
-                    process.wait(),
+                stdout, _ = await asyncio.wait_for(
+                    process.communicate(),
                     timeout=self.config.timeout,
                 )
             except asyncio.TimeoutError:
@@ -210,6 +214,11 @@ class GeminiAdapter(BaseCodeAgentAdapter):
                     duration_seconds=duration,
                     exit_code=-1,
                 )
+
+            output = stdout.decode("utf-8", errors="replace")
+
+            # Save output to log file for debugging
+            log_file.write_text(output, encoding="utf-8")
 
             # Gemini CLI main process may exit before files are written.
             # Poll for output files to ensure completion.
@@ -227,11 +236,27 @@ class GeminiAdapter(BaseCodeAgentAdapter):
             # Success if process exited cleanly AND output files exist
             success = process.returncode == 0 and has_output
 
+            # Extract error message from output if failed
+            error_msg = None
+            if not success:
+                # Look for common error patterns in output
+                if "overloaded" in output.lower() or "rate limit" in output.lower():
+                    error_msg = "API overloaded or rate limited"
+                elif "401" in output or "unauthorized" in output.lower():
+                    error_msg = "Authentication error"
+                elif "timeout" in output.lower():
+                    error_msg = "Request timeout"
+                elif output.strip():
+                    # Use last 500 chars of output as error message
+                    error_msg = f"Gemini failed: {output[-500:]}"
+                else:
+                    error_msg = "Gemini failed to generate output (no output captured)"
+
             return ExecutionResult(
                 success=success,
-                raw_output="",
+                raw_output=output,
                 parsed_output=None,
-                error=None if success else "Gemini failed to generate output",
+                error=error_msg,
                 duration_seconds=duration,
                 exit_code=process.returncode,
             )

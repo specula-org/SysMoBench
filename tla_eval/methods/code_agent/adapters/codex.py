@@ -3,8 +3,10 @@ OpenAI Codex CLI adapter.
 """
 
 import asyncio
+import json
 import os
 import pty
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -12,6 +14,45 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .base import BaseCodeAgentAdapter, ExecutionResult
+
+
+def update_codex_mcp_config(task: str, spec_module: str, output_dir: str) -> None:
+    """
+    Update ~/.codex/config.toml with the correct MCP environment variables.
+
+    Args:
+        task: The task name (e.g., 'etcd', 'zookeeper')
+        spec_module: The TLA+ module name
+        output_dir: Output directory for submissions
+    """
+    config_path = Path.home() / ".codex" / "config.toml"
+    if not config_path.exists():
+        return
+
+    content = config_path.read_text()
+
+    # Update SYSMOBENCH_TASK
+    content = re.sub(
+        r'SYSMOBENCH_TASK\s*=\s*"[^"]*"',
+        f'SYSMOBENCH_TASK = "{task}"',
+        content
+    )
+
+    # Update SYSMOBENCH_SPEC_MODULE
+    content = re.sub(
+        r'SYSMOBENCH_SPEC_MODULE\s*=\s*"[^"]*"',
+        f'SYSMOBENCH_SPEC_MODULE = "{spec_module}"',
+        content
+    )
+
+    # Update SYSMOBENCH_OUTPUT if present
+    content = re.sub(
+        r'SYSMOBENCH_OUTPUT\s*=\s*"[^"]*"',
+        f'SYSMOBENCH_OUTPUT = "{output_dir}"',
+        content
+    )
+
+    config_path.write_text(content)
 
 
 @dataclass
@@ -120,13 +161,26 @@ class CodexAdapter(BaseCodeAgentAdapter):
 
         Args:
             workspace_path: Path to workspace containing CLAUDE.md and source_code/
-            mcp_config_path: Path to MCP configuration JSON file (not used, config in ~/.codex/config.toml)
+            mcp_config_path: Path to MCP configuration JSON file
             model_override: Optional model to use instead of config default
 
         Returns:
             ExecutionResult with execution outcome
         """
         model = model_override or self.config.model
+
+        # Update ~/.codex/config.toml with correct task from mcp_config
+        try:
+            with open(mcp_config_path) as f:
+                mcp_config = json.load(f)
+            env_vars = mcp_config.get("mcpServers", {}).get("sysmobench", {}).get("env", {})
+            task = env_vars.get("SYSMOBENCH_TASK", "")
+            spec_module = env_vars.get("SYSMOBENCH_SPEC_MODULE", "")
+            output_dir = env_vars.get("SYSMOBENCH_OUTPUT", "output")
+            if task and spec_module:
+                update_codex_mcp_config(task, spec_module, output_dir)
+        except Exception:
+            pass  # If we can't update config, continue anyway
 
         # Build command
         cmd = [
