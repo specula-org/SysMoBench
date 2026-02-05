@@ -1,7 +1,7 @@
 # SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems
 
 [![Paper](https://img.shields.io/badge/arXiv-2509.23130-b31b1b.svg)](https://arxiv.org/abs/2509.23130)
-[![Conference](https://img.shields.io/badge/Venue-ICLR%202026-blue.svg)](https://openreview.net/forum?id=xxxxx) > 📢 **News**: Our paper "**SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems**" has been accepted to **ICLR 2026**! 🚀
+[![Conference](https://img.shields.io/badge/Venue-ICLR%202026-blue.svg)](https://openreview.net/forum?id=SAeaTz8YoM&referrer=%5Bthe%20profile%20of%20Qian%20Cheng%5D(%2Fprofile%3Fid%3D~Qian_Cheng8)) > **News**: Our paper "**SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems**" has been accepted to **ICLR 2026**! 
 
 ## Overview
 
