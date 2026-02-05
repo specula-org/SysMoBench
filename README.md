@@ -1,5 +1,8 @@
 # SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems
 
+[![Paper](https://img.shields.io/badge/arXiv-2509.23130-b31b1b.svg)](https://arxiv.org/abs/2509.23130)
+[![Conference](https://img.shields.io/badge/Venue-ICLR%202026-blue.svg)](https://openreview.net/forum?id=xxxxx) > 📢 **News**: Our paper "**SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems**" has been accepted to **ICLR 2026**! 🚀
+
 ## Overview
 
 Formal models are essential to specifying large, complex computer systems and verifying their correctness, but are notoriously expensive to write and maintain. Recent advances in generative AI show promise in generating certain forms of specifications. However, existing work mostly targets small code, not complete systems. It is unclear whether AI can deal with realistic system artifacts, as this requires abstracting their complex behavioral properties into formal models.
