@@ -260,7 +260,7 @@ class BatchExperimentRunner:
         try:
             result = run_with_timeout_kill_process_group(
                 cmd,
-                timeout=1,  # 30 minutes timeout
+                timeout=1800,  # 30 minutes timeout
                 cwd=PROJECT_ROOT
             )
 
