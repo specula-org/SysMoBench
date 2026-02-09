@@ -74,8 +74,6 @@ tools/cfa/input/debug_*.tla
 tools/cfa/input/test_*.tla
 data/repositories/
 data/sys_traces/*
-!data/sys_traces/spin/
-!data/sys_traces/spin/**
 run_batch_experiments.sh
 local_env_setup.sh
 batch_logs
