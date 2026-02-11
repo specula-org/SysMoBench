@@ -293,7 +293,7 @@ class InvariantTranslator:
 
 class AgentInvariantTranslator:
     """
-    Translates generic invariant templates using Claude Code agent.
+    Translates generic invariant templates using an agent CLI (Claude Code or Codex).
 
     This provides higher quality translations than single LLM calls by allowing
     the agent to iteratively refine its work.
@@ -315,13 +315,13 @@ class AgentInvariantTranslator:
                                 task_name: str,
                                 model_name: str) -> Tuple[bool, Dict[str, str], str]:
         """
-        Translate all invariant templates using Claude Code agent.
+        Translate all invariant templates using an agent CLI.
 
         Args:
             templates: List of invariant templates to translate
             tla_content: Target TLA+ specification content
             task_name: Name of the task
-            model_name: Model name (used for Claude Code --model parameter)
+            model_name: Model name (used for agent model parameter)
 
         Returns:
             Tuple of (success, {invariant_name: translated_invariant}, error_message)
@@ -337,6 +337,9 @@ class AgentInvariantTranslator:
             logger.info(f"Created agent workspace at: {workspace_dir}")
 
             try:
+                agent_cli = self._select_agent_cli(model_name)
+                instruction_filename = "CODEX.md" if agent_cli == "codex" else "CLAUDE.md"
+
                 # Write specification file
                 spec_file = workspace_dir / "specification.tla"
                 spec_file.write_text(tla_content, encoding="utf-8")
@@ -360,19 +363,21 @@ class AgentInvariantTranslator:
                 output_dir = workspace_dir / "output"
                 output_dir.mkdir(exist_ok=True)
 
-                # Write CLAUDE.md with instructions
+                # Write agent instructions
                 claude_md = self._build_claude_md(templates)
-                (workspace_dir / "CLAUDE.md").write_text(claude_md, encoding="utf-8")
+                (workspace_dir / instruction_filename).write_text(claude_md, encoding="utf-8")
 
-                # Execute Claude Code
+                # Execute agent CLI
                 start_time = time.time()
-                result = asyncio.run(self._execute_claude_code(workspace_dir, model_name))
+                result = asyncio.run(
+                    self._execute_agent_cli(workspace_dir, model_name, agent_cli)
+                )
                 duration = time.time() - start_time
 
                 if not result["success"]:
-                    return False, {}, result.get("error", "Claude Code execution failed")
+                    return False, {}, result.get("error", "Agent execution failed")
 
-                logger.info(f"Claude Code completed in {duration:.2f}s")
+                logger.info(f"{agent_cli} agent completed in {duration:.2f}s")
 
                 # Read output
                 output_file = output_dir / "invariants.json"
@@ -394,6 +399,13 @@ class AgentInvariantTranslator:
         except Exception as e:
             logger.error(f"Agent invariant translation failed: {e}")
             return False, {}, str(e)
+
+    def _select_agent_cli(self, model_name: str) -> str:
+        """Select agent CLI from model name. Claude models use claude; others use codex."""
+        normalized = (model_name or "").strip().lower()
+        if not normalized or normalized == "default" or normalized.startswith("claude"):
+            return "claude"
+        return "codex"
 
     def _build_claude_md(self, templates: List[InvariantTemplate]) -> str:
         """Build CLAUDE.md instructions for the agent."""
@@ -471,21 +483,32 @@ Write a JSON file to `./output/invariants.json` with this exact format:
 4. Output MUST be valid JSON
 '''
 
-    async def _execute_claude_code(self, workspace_path: Path, model_name: str) -> dict:
-        """Execute Claude Code in the workspace."""
+    async def _execute_agent_cli(self, workspace_path: Path, model_name: str, agent_cli: str) -> dict:
+        """Execute Claude Code or Codex in the workspace."""
         import asyncio
 
-        # Determine model to use
-        model = model_name if model_name and model_name != "default" else "sonnet"
-
-        cmd = [
-            "claude",
-            "--print",
-            "--dangerously-skip-permissions",
-            "--model", model,
-            "--output-format", "json",
-            "Read CLAUDE.md and complete the invariant translation task.",
-        ]
+        if agent_cli == "codex":
+            model = model_name if model_name and model_name not in {"default", "codex"} else ""
+            cmd = [
+                "codex",
+                "exec",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--skip-git-repo-check",
+            ]
+            if model:
+                cmd.extend(["-m", model])
+            cmd.append("Read CODEX.md and complete the invariant translation task.")
+        else:
+            # Determine model to use for Claude Code
+            model = model_name if model_name and model_name != "default" else "sonnet"
+            cmd = [
+                "claude",
+                "--print",
+                "--dangerously-skip-permissions",
+                "--model", model,
+                "--output-format", "json",
+                "Read CLAUDE.md and complete the invariant translation task.",
+            ]
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -514,6 +537,8 @@ Write a JSON file to `./output/invariants.json` with this exact format:
             }
 
         except FileNotFoundError:
+            if agent_cli == "codex":
+                return {"success": False, "error": "Codex CLI not found"}
             return {"success": False, "error": "Claude Code CLI not found"}
         except Exception as e:
             return {"success": False, "error": str(e)}
