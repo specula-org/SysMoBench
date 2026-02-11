@@ -19,7 +19,9 @@ import argparse
 import json
 import logging
 import os
+import signal
 import shutil
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -55,6 +57,58 @@ SUPPORTED_AGENTS = {
 }
 
 DEFAULT_AGENT = "claude_code"
+
+
+def run_with_timeout_kill_process_group(
+    cmd: List[str],
+    timeout: int,
+    cwd: Path,
+) -> subprocess.CompletedProcess:
+    """Run a command and kill its full process group if timeout is hit."""
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        def terminate_group(sig: int):
+            if hasattr(os, "killpg"):
+                os.killpg(process.pid, sig)
+            elif sig == signal.SIGTERM:
+                process.terminate()
+            else:
+                process.kill()
+
+        if process.poll() is None:
+            try:
+                terminate_group(signal.SIGTERM)
+                process.wait(timeout=5)
+            except Exception:
+                pass
+            if process.poll() is None:
+                try:
+                    terminate_group(signal.SIGKILL)
+                except Exception:
+                    pass
+            stdout, stderr = process.communicate()
+        raise subprocess.TimeoutExpired(
+            cmd=cmd,
+            timeout=timeout,
+            output=stdout,
+            stderr=stderr,
+        )
+
+    return subprocess.CompletedProcess(
+        args=cmd,
+        returncode=process.returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 @dataclass
@@ -192,8 +246,6 @@ class BatchExperimentRunner:
         Returns:
             Tuple of (success, workspace_path, spec_path, config_path, generation_time)
         """
-        import subprocess
-
         logger.info(f"[{system}][Run {run_id}] Starting generation phase ({self.agent})...")
 
         start_time = time.time()
@@ -206,10 +258,8 @@ class BatchExperimentRunner:
         ]
 
         try:
-            result = subprocess.run(
+            result = run_with_timeout_kill_process_group(
                 cmd,
-                capture_output=True,
-                text=True,
                 timeout=1800,  # 30 minutes timeout
                 cwd=PROJECT_ROOT
             )
@@ -280,8 +330,6 @@ class BatchExperimentRunner:
         If generation already passed (code_agent does Phase 1+2), return full score.
         Otherwise, run compilation_check, and if fails, run action_decomposition.
         """
-        import subprocess
-
         logger.info(f"[{system}][Run {run_id}] Phase 1: Compilation check...")
 
         # If code_agent generation passed, compilation is already verified
@@ -306,10 +354,8 @@ class BatchExperimentRunner:
         ]
 
         try:
-            result = subprocess.run(
+            result = run_with_timeout_kill_process_group(
                 cmd,
-                capture_output=True,
-                text=True,
                 timeout=300,
                 cwd=PROJECT_ROOT
             )
@@ -337,10 +383,8 @@ class BatchExperimentRunner:
                 "--config-file", config_path,
             ]
 
-            result_action = subprocess.run(
+            result_action = run_with_timeout_kill_process_group(
                 cmd_action,
-                capture_output=True,
-                text=True,
                 timeout=600,
                 cwd=PROJECT_ROOT
             )
@@ -398,7 +442,6 @@ class BatchExperimentRunner:
         Run Phase 2: Runtime check + Runtime coverage.
         First runs runtime_check (TLC model checking), then runtime_coverage.
         """
-        import subprocess
         import re
 
         # Step 1: Run runtime_check first
@@ -458,10 +501,8 @@ class BatchExperimentRunner:
         ]
 
         try:
-            result = subprocess.run(
+            result = run_with_timeout_kill_process_group(
                 cmd_coverage,
-                capture_output=True,
-                text=True,
                 timeout=600,
                 cwd=PROJECT_ROOT
             )
@@ -558,8 +599,6 @@ class BatchExperimentRunner:
         """
         Run Phase 3: Invariant verification with agent translator.
         """
-        import subprocess
-
         logger.info(f"[{system}][Run {run_id}] Phase 3: Invariant verification (agent)...")
 
         cmd = [
@@ -574,10 +613,8 @@ class BatchExperimentRunner:
         ]
 
         try:
-            result = subprocess.run(
+            result = run_with_timeout_kill_process_group(
                 cmd,
-                capture_output=True,
-                text=True,
                 timeout=900,  # 15 minutes for agent
                 cwd=PROJECT_ROOT
             )
