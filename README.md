@@ -40,6 +40,13 @@ cd SysMoBench
 pip install -e .
 ```
 
+This installs the recommended unified model path based on `litellm`.
+If you also want the older vendor-specific SDK adapters, install:
+
+```bash
+pip install -e ".[legacy-providers]"
+```
+
 2. Download TLA+ tools:
 
 ```bash
@@ -54,6 +61,8 @@ export ANTHROPIC_API_KEY="your-key"
 export GEMINI_API_KEY="your-key"
 export DEEPSEEK_API_KEY="your-key"
 ```
+
+`config/models.yaml` can keep legacy provider names like `openai` or `anthropic`, but they now route through the unified LiteLLM adapter by default when `litellm` is installed.
 
 4. Verify installation:
 
@@ -96,6 +105,10 @@ Results saved to: output/spin/direct_call/claude/
 ```
 
 For detailed usage instructions, see [Usage Guide](docs/Usage.md).
+
+## Unified Model Access
+
+The model layer now uses a unified adapter built on `litellm`, so you do not need a separate code path for each hosted provider. Existing provider names in `config/models.yaml` remain valid for backward compatibility, and `legacy_*` adapters are still available if you explicitly need the old native SDK behavior.
 
 ## Benchmark Tasks
 

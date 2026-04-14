@@ -76,34 +76,47 @@ SysMoBench evaluates models across **four dimensions**:
 ### File Location
 `config/models.yaml`
 
+### Install Modes
+
+- Recommended: `pip install -e .`
+- If you need the old native SDK adapters too: `pip install -e ".[legacy-providers]"`
+
 ### Configuration Format
 
 ```yaml
 models:
   <model_name>:
-    provider: "openai" | "anthropic" | "genai" | "deepseek" | "yunwu"
-    model_name: "<actual-model-name>"
+    provider: "litellm" | "openai" | "anthropic" | "genai" | "deepseek" | "yunwu" | "legacy_openai" | "legacy_anthropic" | "legacy_genai"
+    model_name: "<litellm-model-name>"
     api_key_env: "<ENV_VAR_NAME>"
     temperature: <float>
     max_tokens: <int>
     timeout: <int>        # seconds, optional
     top_p: <float>        # optional
-    url: "<endpoint>"     # optional, for custom endpoints
+    url: "<endpoint>"     # optional, for OpenAI-compatible endpoints
+    litellm_params:       # optional, provider-specific passthrough params
+      <key>: <value>
 ```
 
 ### Examples
 
 ```yaml
 models:
-  # Anthropic Claude
+  # Anthropic Claude via LiteLLM
   claude:
-    provider: "anthropic"
-    model_name: "claude-sonnet-4-20250514"
+    provider: "litellm"
+    model_name: "anthropic/claude-sonnet-4-20250514"
     api_key_env: "ANTHROPIC_API_KEY"
     temperature: 0.1
     max_tokens: 64000
     top_p: 0.9
 ```
+
+Compatibility notes:
+
+- Existing `provider: "openai" | "anthropic" | "genai" | "deepseek" | "yunwu"` entries still work and now route through the LiteLLM adapter by default.
+- Use `legacy_openai`, `legacy_anthropic`, or `legacy_genai` if you need to force the old native SDK adapters.
+- The checked-in `config/models.yaml` intentionally keeps the old provider names so the repo still runs even before `litellm` is installed.
 
 ### Usage
 
