@@ -18,6 +18,15 @@ from tla_eval.config import get_config_manager, get_configured_model
 from tla_eval.models.base import GenerationConfig
 
 
+def _is_litellm_available() -> bool:
+    try:
+        import litellm  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def test_model_connection(model_name: str):
     """
     Test connection to a specific model.
@@ -33,7 +42,12 @@ def test_model_connection(model_name: str):
         # Get configured model
         model = get_configured_model(model_name)
         print(f"✓ Model initialized successfully")
-        print(f"  Model info: {model.get_model_info()}")
+        model_info = model.get_model_info()
+        print(f"  Adapter: {model_info.get('adapter_type', 'unknown')}")
+        print(f"  Provider: {model_info.get('provider', 'unknown')}")
+        if model_info.get("effective_provider"):
+            print(f"  Effective provider: {model_info['effective_provider']}")
+        print(f"  Model info: {model_info}")
         
         # Check if model is available
         if not model.is_available():
@@ -155,13 +169,18 @@ def main():
     # Show API key status
     print(f"\n📋 API Key Status:")
     api_keys = {
+        "LITELLM_AVAILABLE": "Yes" if _is_litellm_available() else "No",
         "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "Not set"),
         "ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY", "Not set"),
+        "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY", "Not set"),
+        "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY", "Not set"),
         "YUNWU_API_KEY": os.getenv("YUNWU_API_KEY", "Not set"),
     }
     
     for key, value in api_keys.items():
-        status = "✓ Set" if value != "Not set" else "❌ Not set"
+        status = "✓ Set" if value not in {"Not set", "No"} else "❌ Not set"
+        if key == "LITELLM_AVAILABLE":
+            status = "✓ Installed" if value == "Yes" else "❌ Not installed"
         print(f"  {key}: {status}")
     
     print(f"\n" + "="*60)

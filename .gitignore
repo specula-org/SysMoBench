@@ -53,6 +53,7 @@ specula
 CLAUDE.md
 TLA+Parser.md
 .claude/
+.codex
 workspaces/
 
 # Java compiled files
