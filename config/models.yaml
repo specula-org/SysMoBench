@@ -2,7 +2,8 @@
 # Users configure their models here, then methods use these models
 
 models:
-  # User's OpenAI configuration
+  # Legacy provider names are still accepted.
+  # If litellm is installed, these route through the unified adapter automatically.
   gpt-4o:
     provider: "openai"
     model_name: "gpt-4o"
@@ -19,7 +20,7 @@ models:
     max_tokens: 64000
     timeout: 1800  # 30 minutes timeout for large TLA+ generation
     
-  # User's Anthropic configuration  
+  # Anthropic Claude
   claude:
     provider: "anthropic"
     model_name: "claude-sonnet-4-20250514"

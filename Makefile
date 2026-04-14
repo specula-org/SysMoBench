@@ -1,11 +1,12 @@
 # TLA+ Evaluation Framework Makefile
 
-.PHONY: install install-dev test lint format clean build help
+.PHONY: install install-legacy install-dev test lint format clean build help
 
 # Default target
 help:
 	@echo "Available commands:"
 	@echo "  install      Install the package"
+	@echo "  install-legacy  Install with legacy native provider SDKs"
 	@echo "  install-dev  Install with development dependencies"
 	@echo "  test         Run tests"
 	@echo "  lint         Run linting checks"
@@ -17,6 +18,9 @@ help:
 # Installation
 install:
 	pip install -e .
+
+install-legacy:
+	pip install -e ".[legacy-providers]"
 
 install-dev:
 	pip install -e ".[dev]"
@@ -50,4 +54,4 @@ example:
 
 # Test models
 test-models:
-	python3 scripts/test_models.py
+	python3 tests/test_models/test_model_connection.py
