@@ -244,10 +244,14 @@ class ModelAdapter(ABC):
         Returns:
             Dictionary containing model metadata
         """
+        safe_config = self.config.copy()
+        if "api_key" in safe_config:
+            safe_config["api_key"] = "***redacted***"
+
         return {
             "model_name": self.model_name,
             "adapter_type": self.__class__.__name__,
-            "config": self.config
+            "config": safe_config,
         }
 
     def validate_config(self) -> List[str]:

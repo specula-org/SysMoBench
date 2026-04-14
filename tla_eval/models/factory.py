@@ -12,6 +12,7 @@ from .base import ModelAdapter, ModelUnavailableError
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
 from .genai_adapter import GenAIAdapter
+from .litellm_adapter import LiteLLMAdapter, LITELLM_AVAILABLE
 from .exist_spec_adapter import ExistSpecAdapter
 
 logger = logging.getLogger(__name__)
@@ -22,11 +23,28 @@ class ModelFactory:
     
     # Registry of available model adapters
     _ADAPTERS: Dict[str, Type[ModelAdapter]] = {
+        "litellm": LiteLLMAdapter,
+        "openai": LiteLLMAdapter,
+        "anthropic": LiteLLMAdapter,
+        "genai": LiteLLMAdapter,
+        "google_genai": LiteLLMAdapter,  # Alternative name
+        "gemini": LiteLLMAdapter,
+        "deepseek": LiteLLMAdapter,
+        "yunwu": LiteLLMAdapter,
+        "legacy_openai": OpenAIAdapter,
+        "legacy_anthropic": AnthropicAdapter,
+        "legacy_genai": GenAIAdapter,
+        "exist_spec": ExistSpecAdapter,
+    }
+
+    _LEGACY_ADAPTERS: Dict[str, Type[ModelAdapter]] = {
         "openai": OpenAIAdapter,
         "anthropic": AnthropicAdapter,
         "genai": GenAIAdapter,
-        "google_genai": GenAIAdapter,  # Alternative name
-        "exist_spec": ExistSpecAdapter,
+        "google_genai": GenAIAdapter,
+        "gemini": GenAIAdapter,
+        "deepseek": OpenAIAdapter,
+        "yunwu": OpenAIAdapter,
     }
     
     # Predefined model configurations
@@ -34,7 +52,7 @@ class ModelFactory:
         # OpenAI models
         "openai_gpt4": {
             "provider": "openai",
-            "model_name": "claude",
+            "model_name": "gpt-4",
             "temperature": 0.1,
         },
         "openai_gpt4_turbo": {
@@ -147,16 +165,38 @@ class ModelFactory:
                     f"model_name required when using provider '{provider}'"
                 )
         
-        # Get adapter class - for unknown providers, try OpenAI-compatible API
+        # Get adapter class - for unknown providers, prefer LiteLLM's broader provider coverage
         if provider not in cls._ADAPTERS:
-            logger.info(f"Unknown provider '{provider}', trying OpenAI-compatible adapter")
-            adapter_class = OpenAIAdapter
+            if LITELLM_AVAILABLE:
+                logger.info(f"Unknown provider '{provider}', trying LiteLLM adapter")
+                adapter_class = LiteLLMAdapter
+            else:
+                logger.info(f"Unknown provider '{provider}', trying OpenAI-compatible adapter")
+                adapter_class = OpenAIAdapter
         else:
             adapter_class = cls._ADAPTERS[provider]
+
+        if (
+            adapter_class is LiteLLMAdapter
+            and not LITELLM_AVAILABLE
+            and provider in cls._LEGACY_ADAPTERS
+        ):
+            logger.warning(
+                "LiteLLM not installed; falling back to legacy adapter for provider '%s'",
+                provider,
+            )
+            adapter_class = cls._LEGACY_ADAPTERS[provider]
         
         try:
             # Create adapter instance
-            adapter = adapter_class(model_name=model_name, **config)
+            adapter_config = config.copy()
+            if adapter_class is LiteLLMAdapter:
+                adapter_config.setdefault("provider", provider)
+
+            if adapter_class is ExistSpecAdapter:
+                adapter = adapter_class(**adapter_config)
+            else:
+                adapter = adapter_class(model_name=model_name, **adapter_config)
             
             # Validate configuration
             validation_errors = adapter.validate_config()
@@ -204,7 +244,9 @@ class ModelFactory:
         return {
             "predefined_models": list(cls._PREDEFINED_MODELS.keys()),
             "providers": list(cls._ADAPTERS.keys()),
-            "predefined_configs": cls._PREDEFINED_MODELS.copy()
+            "recommended_provider": "litellm",
+            "legacy_providers": list(cls._LEGACY_ADAPTERS.keys()),
+            "predefined_configs": cls._PREDEFINED_MODELS.copy(),
         }
     
     @classmethod

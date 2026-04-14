@@ -5,9 +5,10 @@ This module provides adapters for various Large Language Model providers,
 enabling uniform access to different APIs and local models for TLA+ generation.
 
 Available adapters:
-- OpenAIAdapter: OpenAI GPT models (GPT-4, GPT-3.5, etc.)
-- AnthropicAdapter: Anthropic Claude models (Claude 3 family)
-- GenAIAdapter: Google GenAI models (Gemini family)
+- LiteLLMAdapter: Unified adapter for most hosted chat models
+- OpenAIAdapter: Legacy native OpenAI adapter
+- AnthropicAdapter: Legacy native Anthropic adapter
+- GenAIAdapter: Legacy native Google GenAI adapter
 
 Features:
 - Automatic retry on 503 Service Unavailable errors (up to 3 retries with 30s delay)
@@ -20,8 +21,12 @@ Usage:
     # Using predefined model configuration
     model = get_model_adapter("openai_gpt4")
     
-    # Using custom configuration
-    model = get_model_adapter("openai", model_name="claude", temperature=0.2)
+    # Using recommended LiteLLM configuration
+    model = get_model_adapter(
+        "litellm",
+        model_name="anthropic/claude-sonnet-4-20250514",
+        temperature=0.2,
+    )
     
     # All adapters automatically retry on service unavailable errors
     result = model.generate_tla_specification(source_code, prompt_template)
@@ -37,6 +42,7 @@ from .base import (
     RateLimitError
 )
 
+from .litellm_adapter import LiteLLMAdapter
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
 from .genai_adapter import GenAIAdapter
@@ -55,6 +61,7 @@ __all__ = [
     "RateLimitError",
     
     # Adapter implementations
+    "LiteLLMAdapter",
     "OpenAIAdapter",
     "AnthropicAdapter", 
     "GenAIAdapter",
