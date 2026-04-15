@@ -14,9 +14,13 @@
 # Optional:
 #   --task=<name>           Task name (e.g. etcd, spin). Auto-detected if --spec
 #                           lives under tla_eval/tasks/<name>/ or named accordingly.
+#   --actions=<list>        Comma-separated list of actions to evaluate (locks scope).
+#                           If unset, agent picks. Strongly recommended to set.
+#                           Example: --actions=ElectionTimeout,HandleVoteRequest,ClientProposal
 #   --workspace-root=<dir>  Where to create the per-eval workspace
 #                           (default: ./wv-workspaces)
 #   --agent=<name>          Agent adapter (default: claude-code)
+#   --model=<id>            Model ID (default: claude-sonnet-4-5)
 #   --max-budget=<usd>      Max API spend (default: unlimited)
 #   --dry-run               Set up workspace and print prompt, don't launch
 #   --keep-repo             Keep the repo copy in workspace (default: delete, save patch)
@@ -55,7 +59,9 @@ REPO_PATH=""
 TASK_NAME=""
 WORKSPACE_ROOT="$PWD/wv-workspaces"
 AGENT="claude-code"
+MODEL="sonnet"
 MAX_BUDGET=""
+ACTIONS=""
 DRY_RUN=false
 KEEP_REPO=false
 
@@ -66,7 +72,9 @@ for arg in "$@"; do
     --task=*)           TASK_NAME="${arg#*=}" ;;
     --workspace-root=*) WORKSPACE_ROOT="${arg#*=}" ;;
     --agent=*)          AGENT="${arg#*=}" ;;
+    --model=*)          MODEL="${arg#*=}" ;;
     --max-budget=*)     MAX_BUDGET="${arg#*=}" ;;
+    --actions=*)        ACTIONS="${arg#*=}" ;;
     --dry-run)          DRY_RUN=true ;;
     --keep-repo)        KEEP_REPO=true ;;
     --help|-h)
@@ -173,6 +181,20 @@ Also consult as needed:
 - $SKILL_DIR/references/score_interpretation.md
 - $SKILL_DIR/examples/ (worked examples for spin and etcd)
 
+## Scope (HARD CONSTRAINT)
+
+$(
+if [[ -n "$ACTIONS" ]]; then
+  echo "Evaluate EXACTLY these actions: $ACTIONS"
+  echo ""
+  echo "Do NOT expand scope to additional actions. If other actions look interesting,"
+  echo "list them in 'Flagged Issues / Future Work' in the final report, but do not evaluate them."
+else
+  echo "Evaluate EXACTLY 3 core actions: pick them based on the task's most-emphasized behaviors."
+  echo "Do NOT exceed 3. List any additional candidates in 'Future Work'."
+fi
+)
+
 ## Critical rules
 
 1. Follow the skill. Don't invent your own methodology.
@@ -180,16 +202,21 @@ Also consult as needed:
    STOP and report "benchmark data problem", do not proceed to scoring.
 3. Every score you produce needs an explanation based on evidence (specific
    windows or patterns). No mystery numbers.
-4. You can modify $WORKSPACE/repo/ for instrumentation. Original is preserved;
+4. **Respect the scope above. No silent scope expansion.**
+5. **Check existing examples first.** If spec/ matches an example under
+   tla_eval/skills/wv-eval/examples/<task>/ai_spec_*/ (same file contents), you
+   can REUSE existing WV_*.tla and make_windows.py by copying them. Don't rewrite
+   from scratch if an identical spec is already worked out.
+6. You can modify $WORKSPACE/repo/ for instrumentation. Original is preserved;
    your changes are saved as a patch automatically.
 
 ## Final output
 
 Write to $WORKSPACE/reports/final_report.md with:
-- Per-action pass rate
+- Per-action pass rate (only for actions in scope)
 - Explanation for each score
 - Contract-compliance assessment
-- Flagged issues (if any)
+- Flagged issues / Future work (actions outside scope, abstraction limitations, etc.)
 PROMPT_EOF
 
 echo "================================================"
@@ -197,6 +224,8 @@ echo " Workspace: $WORKSPACE"
 echo " Spec:      $SPEC_PATH"
 echo " Repo:      $REPO_PATH → $WORKSPACE/repo (copy)"
 echo " Task:      $TASK_NAME"
+echo " Model:     $MODEL"
+echo " Actions:   ${ACTIONS:-<agent picks ≤3>}"
 echo " Skill:     $SKILL_DIR/guide.md"
 echo "================================================"
 
@@ -219,8 +248,10 @@ echo "  Log: $LOG_FILE"
 
 BUDGET_ARG=""
 [[ -n "$MAX_BUDGET" ]] && BUDGET_ARG="--max-budget=$MAX_BUDGET"
+MODEL_ARG=""
+[[ -n "$MODEL" ]] && MODEL_ARG="--model=$MODEL"
 
-"$ADAPTER" --prompt-file="$WORKSPACE/.prompt.md" --log="$LOG_FILE" $BUDGET_ARG || AGENT_EXIT=$?
+"$ADAPTER" --prompt-file="$WORKSPACE/.prompt.md" --log="$LOG_FILE" $BUDGET_ARG $MODEL_ARG || AGENT_EXIT=$?
 
 echo ""
 echo "[$(date '+%H:%M:%S')] Agent finished."

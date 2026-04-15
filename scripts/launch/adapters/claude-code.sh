@@ -22,6 +22,7 @@ PROMPT=""
 PROMPT_FILE=""
 MAX_TURNS=""
 MAX_BUDGET=""
+MODEL=""
 LOG_FILE=""
 BACKGROUND=false
 
@@ -31,6 +32,7 @@ for arg in "$@"; do
     --prompt-file=*) PROMPT_FILE="${arg#*=}" ;;
     --max-turns=*)   MAX_TURNS="${arg#*=}" ;;  # deprecated, ignored
     --max-budget=*)  MAX_BUDGET="${arg#*=}" ;;
+    --model=*)       MODEL="${arg#*=}" ;;
     --log=*)         LOG_FILE="${arg#*=}" ;;
     --background)    BACKGROUND=true ;;
     --help|-h)
@@ -85,6 +87,11 @@ unset CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
 # ── Build command ──
 
 CMD=(claude --print --dangerously-skip-permissions --output-format json)
+
+# Model selection (optional)
+if [[ -n "$MODEL" ]]; then
+  CMD+=(--model "$MODEL")
+fi
 
 # Budget control
 if [[ -n "$MAX_BUDGET" && "$MAX_BUDGET" != "0" ]]; then
