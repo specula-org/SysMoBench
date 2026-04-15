@@ -56,8 +56,26 @@ All `generate_windows.py` implementations output this schema, one record per lin
 ## Example: etcd
 
 ```json
-{"window_id": 1, "trace_id": "normal_election", "action": "ClientRequest", "actor": 1, "pre_state": {"currentTerm": {"1": 1, "2": 1, "3": 1}, "state": {"1": "StateLeader", "2": "StateFollower", "3": "StateFollower"}, "votedFor": {"1": 1, "2": 1, "3": 1}, "commitIndex": {"1": 1, "2": 1, "3": 1}, "logLen": {"1": 1, "2": 1, "3": 1}}, "post_state": {...}}
+{"window_id": 1, "trace_id": "normal_election", "action": "ClientRequest", "actor": 1, "pre_state": {"currentTerm": {"1": 1, "2": 1, "3": 1}, "state": {"1": "StateLeader", "2": "StateFollower", "3": "StateFollower"}, "votedFor": {"1": 1, "2": 1, "3": 1}, "commitIndex": {"1": 1, "2": 1, "3": 1}, "logLen": {"1": 1, "2": 1, "3": 1}, "logLastTerm": {"1": 1, "2": 1, "3": 1}}, "post_state": {...}}
 ```
+
+## Log abstraction (logLen + logLastTerm)
+
+TLA+ specs model `log` as a sequence of entries. Faithfully serializing full log contents into windows is wasteful and often impossible (trace doesn't record every entry). Instead, we use a **two-field abstraction**:
+
+- **`logLen`**: integer, length of each node's log.
+- **`logLastTerm`**: integer, the `term` of the last log entry (or 0 if log is empty).
+
+Together these capture what spec actions typically read from the log:
+- `Len(log[n])` — matches `logLen[n]`
+- `log[n][Len(log[n])].term` (i.e., `LastLogTerm(n)`) — matches `logLastTerm[n]`
+
+For actions doing deep log inspection (e.g., `HandleAppendEntries` checking `log[n][prevLogIndex].term`), this abstraction is lossy in the middle entries. In practice `prevLogIndex = logLen` covers the common case and `logLastTerm` is sufficient. Document any further relaxations in the WV module itself.
+
+State reconstruction rules (in `generate_windows.py`):
+- On log-growing events (ClientRequest, HandleAppendEntriesRequest accept): `logLen` += delta; `logLastTerm` = term of newly-appended entry (typically the event's `term` field or the message's `term`).
+- On events that don't change log: unchanged.
+- On truncation (rare): best-effort reset; flag in window metadata if unavoidable.
 
 ## What happens next
 

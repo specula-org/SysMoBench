@@ -41,6 +41,7 @@ def convert_state(s):
         "votedFor":    [map_votedfor(s[n]["votedFor"]) for n in NODES],
         "commitIndex": [s[n]["commitIndex"] for n in NODES],
         "logLen":      [s[n]["logLen"] for n in NODES],
+        "logLastTerm": [s[n].get("logLastTerm", 0) for n in NODES],
     }
 
 

@@ -37,17 +37,32 @@ def initial_cluster_state():
             "votedFor": 0,
             "commitIndex": 0,
             "logLen": 0,
+            "logLastTerm": 0,
         }
         for n in NODES
     }
 
 
 def update_node_state(node_state, event):
-    """Subject node's post-state = event's schema fields (fall back to current)."""
+    """Subject node's post-state = event's schema fields (fall back to current).
+
+    Also maintains logLastTerm:
+    - When logLen grows (ClientRequest or accepted HandleAppendEntriesRequest),
+      the newly-appended entry's term is the event's `term` (for ClientRequest =
+      leader's currentTerm; for MsgApp accept = message/leader's term).
+    - Otherwise logLastTerm is unchanged.
+    """
     new = dict(node_state)
+    old_len = new["logLen"]
     for schema_key, trace_key in SCHEMA_FIELDS.items():
         if trace_key in event:
             new[schema_key] = event[trace_key]
+    new_len = new["logLen"]
+    if new_len > old_len and "term" in event:
+        new["logLastTerm"] = event["term"]
+    elif new_len == 0:
+        new["logLastTerm"] = 0
+    # else: unchanged
     return new
 
 
@@ -78,13 +93,24 @@ def extract_input(event, pre_cluster):
         }
     if ev == "HandleAppendEntriesRequest":
         sender = pre_cluster.get(str(src), {})
+        receiver = pre_cluster.get(node, {})
+        # Reconstruct MsgApp: receiver's pre-state tells us where leader picks up
+        # (assumes leader appends at the receiver's current end — the common case).
+        pre_len = receiver.get("logLen", 0)
+        pre_last_term = receiver.get("logLastTerm", 0)
+        # Derive entries from logLen delta observed in this event
+        post_len = event.get("logLen", pre_len)
+        num_entries = max(0, post_len - pre_len)
+        entry_term = event.get("term", 0)
+        entries = [{"term": entry_term, "data": "dummy"}] * num_entries
         return {
             "type": "MsgApp",
             "from": src,
             "to": int(node),
             "term": event.get("msgTerm", event.get("term", 0)),
-            "prevLogIndex": event.get("prevLogIndex", 0),
-            "prevLogTerm": event.get("prevLogTerm", 0),
+            "prevLogIndex": pre_len,
+            "prevLogTerm": pre_last_term,
+            "entries": entries,
             "commitIndex": event.get("leaderCommit", sender.get("commitIndex", 0)),
         }
     if ev == "HandleAppendEntriesResponse":

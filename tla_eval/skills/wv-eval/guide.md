@@ -41,8 +41,13 @@ Before anything else, verify traces comply with the task's required granularity.
    - For each claim, look for evidence or counter-evidence in the traces.
 4. Classify the trace set:
    - **All compliant** → proceed to Step 1.
-   - **Partial violation** (some windows comply, some don't) → note which to exclude, proceed with the compliant subset.
-   - **All non-compliant** → STOP. Write a `reports/contract_violation.md` explaining what's missing, and exit. Do not attempt to score the spec — the benchmark data is broken, not the spec.
+   - **Partial violation** (some windows comply, some don't) → exclude the non-compliant subset, record the exclusion in `reports/trace_compliance.md`, proceed with the compliant subset.
+   - **Non-compliant (all or most traces)** → the trace is wrong, not the spec. Fix the trace:
+     - If traces come from a configurable system (e.g., etcd): adjust config (e.g., enable PreVote) and re-instrument/re-run the harness.
+     - If traces come from synthetic generation: fix the generator to emit the missing events.
+     - Regenerate until traces satisfy the contract.
+     - Only after traces are compliant do you start scoring.
+     - If the trace cannot be fixed within this task (e.g., system doesn't support required behavior): STOP and report to user — this is a benchmark-setup problem, not a scoring problem.
 
 See `references/score_interpretation.md` for how contract issues manifest in scores if you miss them here.
 
