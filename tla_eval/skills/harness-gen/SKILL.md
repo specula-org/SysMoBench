@@ -1,0 +1,14 @@
+---
+name: harness-gen
+description: "Trace harness generation for SysMoBench. Use when bootstrapping a new task: clone the system into artifacts/<task>/, instrument it to emit NDJSON traces at the task-required granularity, write a run.sh, and produce INSTRUMENTATION.md. One-time work per task; the resulting harness is reused for every spec evaluation via the wv-eval skill."
+---
+
+Read `guide.md` for the full workflow methodology.
+
+## SysMoBench conventions (overrides Specula paths in guide.md)
+
+- Cloned source lives at `artifacts/<task>/` (see `artifacts/README.md`).
+- The task's prompt at `tla_eval/tasks/<task>/prompts/` defines what must be modeled — the harness must emit events for each required behavior at the right granularity.
+- After instrumenting, update `tla_eval/tasks/<task>/task.yaml`'s `wv.repo_path` to point at the cloned tree, and fill `wv.harness` (`instrumentation_file`, `test_file`, `run_command`).
+- Trace output goes to `artifacts/<task>/traces/` by default (or a path defined by `wv.harness.traces_output_env`).
+- Downstream consumer: the `wv-eval` skill will re-run this harness when spec evaluation needs fresh/compliant traces.
