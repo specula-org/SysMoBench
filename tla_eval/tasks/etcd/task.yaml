@@ -37,3 +37,28 @@ phase3:
   trace_generation: true
   patch_required: false  # No patch needed - TraceLogger is built-in
   description: "etcd raft has built-in TraceLogger support, just needs with_tla build tag"
+
+# WV (action-window validation) configuration
+# Only infrastructure + evaluation scope go here. Schema variables,
+# auxiliary variables, and value conventions are derived by the agent
+# from reading the spec — not prescribed in this file.
+wv:
+  # Local instrumented repo (launcher uses as default --repo)
+  repo_path: "/home/ubuntu/Specula/case-studies/etcd-raft/artifact/raft"
+
+  # Semantic scope of evaluation. These are canonical names for the
+  # behaviors being evaluated. Agent maps them to whatever the spec
+  # calls them. Locks scope across runs so specs are comparable.
+  target_actions:
+    - ElectionTimeout
+    - HandleVoteRequest
+    - ClientProposal
+    - HandleAppendEntries
+    - HandleHeartbeat
+
+  # Harness info (for regenerating traces when agent needs compliant ones).
+  harness:
+    instrumentation_file: "tla_spec_trace.go"
+    test_file: "tla_trace_test.go"
+    run_command: "go test -tags with_tla -run 'TestTLATrace_' -count=1 -v ."
+    traces_output_env: "TRACES_DIR"
