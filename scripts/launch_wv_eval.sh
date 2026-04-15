@@ -85,10 +85,37 @@ for arg in "$@"; do
   esac
 done
 
+# ── Load defaults from task.yaml if --task given ─────────
+
+if [[ -n "$TASK_NAME" ]]; then
+  TASK_YAML="$PROJECT_ROOT/tla_eval/tasks/$TASK_NAME/task.yaml"
+  if [[ -f "$TASK_YAML" ]]; then
+    # Fill in --repo and --actions from task.yaml's wv: block if not overridden
+    if [[ -z "$REPO_PATH" ]]; then
+      REPO_PATH=$(python3 -c "
+import yaml, sys
+with open('$TASK_YAML') as f:
+    d = yaml.safe_load(f) or {}
+r = (d.get('wv') or {}).get('repo_path')
+print(r if r else '')
+" 2>/dev/null)
+    fi
+    if [[ -z "$ACTIONS" ]]; then
+      ACTIONS=$(python3 -c "
+import yaml
+with open('$TASK_YAML') as f:
+    d = yaml.safe_load(f) or {}
+a = (d.get('wv') or {}).get('target_actions') or []
+print(','.join(a))
+" 2>/dev/null)
+    fi
+  fi
+fi
+
 # ── Validate inputs ──────────────────────────────────────
 
 [[ -z "$SPEC_PATH" ]] && { echo "ERROR: --spec is required"; exit 1; }
-[[ -z "$REPO_PATH" ]] && { echo "ERROR: --repo is required"; exit 1; }
+[[ -z "$REPO_PATH" ]] && { echo "ERROR: --repo is required (or set wv.repo_path in task.yaml)"; exit 1; }
 [[ ! -e "$SPEC_PATH" ]] && { echo "ERROR: spec not found: $SPEC_PATH"; exit 1; }
 [[ ! -d "$REPO_PATH" ]] && { echo "ERROR: repo not found: $REPO_PATH"; exit 1; }
 

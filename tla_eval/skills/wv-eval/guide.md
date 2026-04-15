@@ -14,8 +14,22 @@ You read task prompts, write instrumentation, write WV modules, interpret scores
 |---|---|---|
 | Spec under eval | `<workspace>/spec/` | Read-only reference |
 | System source | `<workspace>/repo/` | COPY — modify freely for instrumentation |
-| Task prompt | `tla_eval/tasks/<task>/prompts/` | The contract |
+| Task prompt | `tla_eval/tasks/<task>/prompts/` | The contract (what specs must model) |
+| **Task config** | `tla_eval/tasks/<task>/task.yaml` | **Read the `wv:` block for evaluation scope + harness info** |
 | Your workspace | `<workspace>/` | Where you write everything |
+
+### The `wv:` block in task.yaml
+
+This block contains only infrastructure and scope — not modeling answers:
+
+- `repo_path`: local path to the instrumented system code.
+- `target_actions`: canonical semantic names of actions in scope. Map them to whatever the spec under evaluation calls them (e.g., canonical `HandleVoteRequest` may be named `HandleVote` or `DeliverVote` in a given spec).
+- `harness`: info for regenerating traces (instrumentation files, run command). Use this when you need to re-instrument or re-run the harness.
+
+What's NOT in this block (derive from the spec yourself):
+- Which variables are schema vs auxiliary — read the spec and decide based on what the task prompt requires to be modeled.
+- Value conventions (e.g., how `None` is encoded) — read the spec's TypeOK and Init.
+- Log entry shape, message field names, etc. — per-spec, you discover them.
 
 ## Outputs
 
