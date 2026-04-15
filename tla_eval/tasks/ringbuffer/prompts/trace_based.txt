@@ -46,6 +46,9 @@ REQUIRED BEHAVIORAL SCOPE:
 - Ensure atomic visibility of pointer updates
 - SPSC semantics: no contention on same pointer
 
+EVALUATION METHOD:
+Your specification will be validated against execution traces collected from the real system. For each observed state transition in a trace, we check whether one of your actions, applied from the trace's pre-state, reaches the trace's post-state in exactly one step. Each target action is graded independently (pass rate across sampled windows).
+
 Generate a TLA+ specification that accurately models the ring buffer's concurrent behavior.
 
 CRITICAL OUTPUT REQUIREMENTS:

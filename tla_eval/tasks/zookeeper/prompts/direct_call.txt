@@ -60,6 +60,9 @@ REQUIRED BEHAVIORAL SCOPE:
 - Demonstrate quorum-based leader selection
 - Include epoch advancement scenarios
 
+EVALUATION METHOD:
+Your specification will be validated against execution traces collected from the real system. For each observed state transition in a trace, we check whether one of your actions, applied from the trace's pre-state, reaches the trace's post-state in exactly one step. Each target action is graded independently (pass rate across sampled windows).
+
 Generate a complete, compilable TLA+ specification that captures the core Fast Leader Election semantics while respecting the trace validation naming conventions.
 
 CRITICAL OUTPUT REQUIREMENTS:
