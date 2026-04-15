@@ -51,6 +51,62 @@ def update_node_state(node_state, event):
     return new
 
 
+def extract_input(event, pre_cluster):
+    """Reconstruct the triggering message for message-handling events.
+    Returns None for non-message events."""
+    ev = event["event"]
+    src = event.get("src")
+    node = str(event["node"])
+
+    if ev == "HandleRequestVoteRequest":
+        sender = pre_cluster.get(str(src), {})
+        return {
+            "type": "MsgVote",
+            "from": src,
+            "to": int(node),
+            "term": event.get("msgTerm", 0),
+            "logIndex": sender.get("logLen", 0),
+            "logTerm": 0,  # approximation: last log term not tracked
+        }
+    if ev == "HandleRequestVoteResponse":
+        return {
+            "type": "MsgVoteResp",
+            "from": src,
+            "to": int(node),
+            "term": event.get("msgTerm", event.get("term", 0)),
+            "voteGranted": not event.get("reject", False),
+        }
+    if ev == "HandleAppendEntriesRequest":
+        sender = pre_cluster.get(str(src), {})
+        return {
+            "type": "MsgApp",
+            "from": src,
+            "to": int(node),
+            "term": event.get("msgTerm", event.get("term", 0)),
+            "prevLogIndex": event.get("prevLogIndex", 0),
+            "prevLogTerm": event.get("prevLogTerm", 0),
+            "commitIndex": event.get("leaderCommit", sender.get("commitIndex", 0)),
+        }
+    if ev == "HandleAppendEntriesResponse":
+        return {
+            "type": "MsgAppResp",
+            "from": src,
+            "to": int(node),
+            "term": event.get("term", 0),
+            "success": not event.get("reject", False),
+            "matchIndex": event.get("matchIndex", 0),
+        }
+    if ev == "HandleHeartbeat":
+        return {
+            "type": "MsgHeartbeat",
+            "from": src,
+            "to": int(node),
+            "term": event.get("term", 0),
+            "commitIndex": event.get("leaderCommit", 0),
+        }
+    return None
+
+
 def generate_windows_for_trace(trace_id, events, target_event):
     """Emit windows for events matching target_event."""
     cluster = initial_cluster_state()
@@ -63,14 +119,18 @@ def generate_windows_for_trace(trace_id, events, target_event):
         post_cluster = copy.deepcopy(cluster)
 
         if e["event"] == target_event:
-            windows.append({
+            window = {
                 "trace_id": trace_id,
                 "ts": e["ts"],
                 "event": e["event"],
                 "node": node,
                 "pre_state": pre_cluster,
                 "post_state": post_cluster,
-            })
+            }
+            inp = extract_input(e, pre_cluster)
+            if inp is not None:
+                window["input"] = inp
+            windows.append(window)
 
     return windows
 

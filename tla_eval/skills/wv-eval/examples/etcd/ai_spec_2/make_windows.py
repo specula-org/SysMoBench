@@ -51,13 +51,18 @@ def main():
             w = json.loads(line)
             if w["event"] != TRACE_EVENT:
                 continue
-            out.append({
+            rec = {
                 "id": len(out) + 1,
                 "trace_id": w["trace_id"],
                 "node": int(w["node"]),
                 "pre": convert_state(w["pre_state"]),
                 "post": convert_state(w["post_state"]),
-            })
+            }
+            if "input" in w:
+                # pass through: WV TLA+ module is responsible for adapting
+                # field names if the spec uses different ones
+                rec["input"] = w["input"]
+            out.append(rec)
     with open(DST, "w") as f:
         for w in out:
             f.write(json.dumps(w) + "\n")

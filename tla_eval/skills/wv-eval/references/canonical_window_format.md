@@ -31,7 +31,21 @@ All `generate_windows.py` implementations output this schema, one record per lin
 
 3. **`actor` refers to the node id** that triggered the action, for node-scoped actions. It may be `null` for globally-scoped actions.
 
-4. **`input` is optional** and used only for actions that consume external data (e.g., `HandleVoteRequest(m)` where `m` is a message). Its schema is free-form — whatever captures enough of the message to determine which spec action to fire.
+4. **`input` is required for message-handling actions** (e.g., `HandleVoteRequest(m)`). It captures the triggering message as a TLA+-compatible record. Recommended schema:
+
+   ```json
+   "input": {
+     "type": "MsgVote",           // message type (task-level name)
+     "from": <node_id>,            // sender
+     "to": <node_id>,              // receiver (same as actor)
+     "term": <int>,                // message's term
+     "<other_field>": <value>      // payload (logIndex, prevLogIndex, entries, etc.)
+   }
+   ```
+
+   The fields required depend on the action. For `HandleVoteRequest`: `type, from, to, term, logIndex, logTerm`. For `HandleAppendEntriesRequest`: `type, from, to, term, prevLogIndex, prevLogTerm, entries, commitIndex`. Look at the spec's action to know what fields it reads.
+
+   If the trace doesn't carry a field, reconstruct it from context (e.g., sender's last log metadata from per-event state tracking).
 
 ## Example: spin
 
