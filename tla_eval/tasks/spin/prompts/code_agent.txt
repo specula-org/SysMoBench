@@ -74,6 +74,10 @@ Files to read:
 - Compare-and-exchange retry loop for contention handling
 - Thread can acquire lock multiple times only if it releases between acquisitions
 
+### EVALUATION METHOD:
+
+Your specification will be validated against execution traces collected from the real system. For each observed state transition in a trace, we check whether one of your actions, applied from the trace's pre-state, reaches the trace's post-state in exactly one step. Each target action is graded independently (pass rate across sampled windows).
+
 ### MANDATORY NAMING CONVENTIONS (Trace Validation Interface):
 
 To ensure the specification can be validated against system traces, you MUST strictly adhere to the following naming conventions:
