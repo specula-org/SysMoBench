@@ -16,6 +16,17 @@ Most "unfair" scores come from (1)–(3), not (4).
 
 ## Score patterns
 
+### "Spec broken" — no score at all (detected in Step 1)
+
+Examples from the prototype:
+- **Symbol collision** (etcd `20260125_115416`): spec defined `Min(s) == ...` and `Max(s) == ...`. Community Modules' `FiniteSetsExt` (transitively loaded) also defines them. TLC refuses to load → `Multiple declarations or definitions for symbol Min`.
+- **Parse error** (etcd `20260126_182328`): line 159 has an expression TLC can't parse → `Encountered "Beginning of definition" at line 159`.
+- **Double-priming** (etcd `20260126_182746`): `DeliverProp` has `/\ msgs' = RemoveAt(...)` and `/\ msgs' = FoldSet(...)` — two assignments to `msgs'` in one action. Semantic error.
+
+**How to report**: "Evaluation failed — spec does not compile. Error: <quote>. Severity: cannot evaluate. Recommend: 0 on all actions, or mark as DNQ (did not qualify)."
+
+Don't try to patch the spec. The AI's job was to produce valid TLA+; it didn't.
+
 ### 100% pass — "spec reproduces observed behavior"
 
 Interpretation: the spec's action definition, when applied from every observed pre-state, reaches every observed post-state.

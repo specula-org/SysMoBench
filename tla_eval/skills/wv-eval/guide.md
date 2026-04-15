@@ -46,15 +46,38 @@ Before anything else, verify traces comply with the task's required granularity.
 
 See `references/score_interpretation.md` for how contract issues manifest in scores if you miss them here.
 
-### Step 1 — Analyze the spec
+### Step 1 — Analyze the spec (and verify it compiles)
 
-Read `<workspace>/spec/*.tla`. Produce mental model of:
+**First: verify the spec parses and compiles.** Broken specs can't be INSTANCEd, so WV can't score them.
+
+```bash
+cd <workspace>/spec
+java -cp $TLA_JAR:$COMMUNITY_JAR tla2sany.SANY <spec>.tla
+```
+
+Look for:
+- `Multiple declarations or definitions for symbol X` — spec defines an operator (like `Min`/`Max`) that collides with Community Modules (`FiniteSetsExt` etc.). The spec is broken.
+- `Parse Error` — the AI produced malformed TLA+.
+
+**If spec doesn't compile**: STOP scoring. Write `reports/spec_broken.md` with the error details and classify as:
+- Severity: **cannot evaluate**
+- Reason: compile error in AI-generated spec (quote the specific error)
+- Recommendation: treat as 0 on all actions, OR mark evaluation as failed
+
+This is itself a useful score signal: the AI produced invalid TLA+. Don't try to patch the spec yourself.
+
+**If spec compiles**, produce the mental model:
 - **Variables**: split into **schema variables** (what the task cares about, will appear in windows) and **auxiliary variables** (everything else).
 - **Actions**: all disjuncts of `Next`. These are evaluation units.
 - **Per-action preconditions and effects**: what each action reads, writes, and leaves UNCHANGED.
 - **TypeOK**: the domain of each variable (used to choose aux defaults).
 
-Write this analysis to `<workspace>/reports/spec_analysis.md`.
+Write this to `<workspace>/reports/spec_analysis.md`.
+
+**Known spec-quality issues to flag** (from prototype experience):
+- Double-primed variables in a single action (e.g., `msgs' = RemoveAt(...) /\ msgs' = Append(...)`) — TLA+ semantic error, spec is broken.
+- Missing TypeOK or Init — spec structurally incomplete.
+- Action with empty `Next` disjunct — no actual behavior modeled.
 
 ### Step 2 — Design instrumentation
 
