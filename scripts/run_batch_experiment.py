@@ -200,7 +200,8 @@ class BatchExperimentRunner:
                  agent: str = DEFAULT_AGENT,
                  enable_wv: bool = False,
                  wv_budget: float = 5.0,
-                 wv_timeout: int = 1800):
+                 wv_timeout: int = 1800,
+                 inv_model: str = "sonnet"):
         """
         Initialize the batch experiment runner.
 
@@ -225,6 +226,7 @@ class BatchExperimentRunner:
         self.enable_wv = enable_wv
         self.wv_budget = wv_budget
         self.wv_timeout = wv_timeout
+        self.inv_model = inv_model
 
         # Create output directory with timestamp
         self.experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -613,11 +615,14 @@ class BatchExperimentRunner:
         """
         logger.info(f"[{system}][Run {run_id}] Phase 3: Invariant verification (agent)...")
 
+        # Use self.inv_model (default: "sonnet") for Phase 3b's agent translator.
+        # This runs Claude Code CLI which uses Claude Code's own credentials,
+        # NOT the user's paid API. See memory/feedback_api_usage_policy.md.
         cmd = [
             "python", "scripts/run_benchmark.py",
             "--task", system,
             "--method", "direct_call",
-            "--model", self.model,
+            "--model", self.inv_model,
             "--metric", "invariant_verification",
             "--spec-file", spec_path,
             "--config-file", config_path,
@@ -1223,6 +1228,9 @@ Examples:
                        help="Max API budget (USD) per WV evaluation (default: 5)")
     parser.add_argument("--wv-timeout", type=int, default=1800,
                        help="Timeout (seconds) per WV evaluation (default: 1800)")
+    parser.add_argument("--inv-model", default="sonnet",
+                       help="Model for Phase 3b invariant-translator agent CLI (default: sonnet). "
+                            "Uses Claude Code's own credentials, NOT user's paid API.")
     parser.add_argument("--list-systems", action="store_true",
                        help="List all available systems")
     parser.add_argument("--list-agents", action="store_true",
@@ -1268,6 +1276,7 @@ Examples:
         enable_wv=args.enable_wv,
         wv_budget=args.wv_budget,
         wv_timeout=args.wv_timeout,
+        inv_model=args.inv_model,
     )
 
     runner.run()
