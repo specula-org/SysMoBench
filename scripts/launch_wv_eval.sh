@@ -54,6 +54,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILL_DIR="$PROJECT_ROOT/tla_eval/skills/wv-eval"
 
+# Source .env if present (API keys, base URLs)
+[[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
+
 SPEC_PATH=""
 REPO_PATH=""
 TASK_NAME=""
@@ -93,10 +96,12 @@ if [[ -n "$TASK_NAME" ]]; then
     # Fill in --repo and --actions from task.yaml's wv: block if not overridden
     if [[ -z "$REPO_PATH" ]]; then
       REPO_PATH=$(python3 -c "
-import yaml, sys
+import yaml, sys, os
 with open('$TASK_YAML') as f:
     d = yaml.safe_load(f) or {}
 r = (d.get('wv') or {}).get('repo_path')
+if r and not os.path.isabs(r):
+    r = os.path.join('$PROJECT_ROOT', r)
 print(r if r else '')
 " 2>/dev/null)
     fi

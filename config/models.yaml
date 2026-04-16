@@ -66,5 +66,25 @@ models:
     thinking_budget: 32768
 
 
+  # === GPTsAPI proxy models (for WV experiments) ===
+
+  claude_sonnet_proxy:
+    provider: "anthropic"
+    model_name: "claude-sonnet-4-6"
+    base_url: "https://api.gptsapi.net"
+    api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+
+  deepseek_r1_proxy:
+    provider: "openai"                    # DeepSeek uses OpenAI-compatible API
+    model_name: "deepseek-reasoner"
+    base_url: "https://api.gptsapi.net"
+    api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+
 # Default model to use if not specified
 default_model: "my_yunwu"

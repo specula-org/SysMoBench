@@ -40,17 +40,19 @@ phase3:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 wv:
-  # Spinlock uses Docker-based trace generation via existing SysMoBench module.
-  # Re-instrumenting the Asterinas kernel is non-trivial.
-  repo_path: null
+  # Local Asterinas source clone (shallow). Agent instruments the kernel here.
+  repo_path: "artifacts/spin"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
   target_actions:
     - AcquireLock
     - ReleaseLock
 
-  # Harness info
+  # Harness info (Docker-based; QEMU kernel tests emit NDJSON)
   harness:
     type: "docker"
     docker_image: "asterinas/asterinas:0.16.0-20250822"
-    module_path: "tla_eval/core/trace_generation/spin/module.py"
+    reference_patch: "data/patches/asterinas_tla_trace.patch"
+    patch_note: "Existing patch against older HEAD; may need adaptation for current main branch."
+    test_target: "test_spin_trace"
+    existing_module: "tla_eval/core/trace_generation/spin/module.py"
