@@ -55,13 +55,24 @@ Before anything else, verify traces comply with the task's required granularity.
    - For each claim, look for evidence or counter-evidence in the traces.
 4. Classify the trace set:
    - **All compliant** → proceed to Step 1.
-   - **Partial violation** (some windows comply, some don't) → exclude the non-compliant subset, record the exclusion in `reports/trace_compliance.md`, proceed with the compliant subset.
-   - **Non-compliant (all or most traces)** → the trace is wrong, not the spec. Fix the trace:
-     - If traces come from a configurable system (e.g., etcd): adjust config (e.g., enable PreVote) and re-instrument/re-run the harness.
-     - If traces come from synthetic generation: fix the generator to emit the missing events.
-     - Regenerate until traces satisfy the contract.
-     - Only after traces are compliant do you start scoring.
-     - If the trace cannot be fixed within this task (e.g., system doesn't support required behavior): STOP and report to user — this is a benchmark-setup problem, not a scoring problem.
+   - **Any violations found** → do NOT silently filter. First diagnose WHY the windows violate the contract:
+
+     **Type A — Instrumentation defect**: non-compliant windows share a consistent pattern (e.g., "all failures are missing event X for actor Y"), indicating the trace generator missed logging some transitions that DO happen in the real system. Examples: synthetic generator drops events on fast paths; production instrumentation enabled at wrong code location.
+     - Fix: **re-instrument and regenerate traces until fully compliant**. Filtering is forbidden — it hides a trace-data bug.
+
+     **Type B — Out-of-scope behavior**: non-compliant windows represent behaviors the task explicitly excluded (e.g., `EXPLICITLY EXCLUDED` section of task prompt lists a behavior, but the real system still emits those events). The windows are about behavior the task decided not to evaluate.
+     - Fix: exclude those windows, document in `reports/trace_compliance.md` with explicit reference to the task's exclusion rule.
+
+     **Type C — Benchmark-setup error**: all or most windows violate the contract uniformly, system fundamentally cannot emit at the required granularity (e.g., task requires PreCandidate but etcd was configured without PreVote).
+     - Fix: halt evaluation, report to user. This is a benchmark data preparation problem.
+
+5. **Choice of action** must be justified in `reports/trace_compliance.md`:
+   - State which Type (A/B/C) applies and cite evidence (which windows, what pattern, reference to task prompt).
+   - If Type A: show the re-instrumentation (patch / new emit points) and confirm regenerated traces are compliant.
+   - If Type B: cite the task's exclusion rule verbatim.
+   - If Type C: stop.
+
+**Under no circumstance** should non-compliant windows be silently excluded without Type classification. An agent that does so is producing misleading scores.
 
 See `references/score_interpretation.md` for how contract issues manifest in scores if you miss them here.
 

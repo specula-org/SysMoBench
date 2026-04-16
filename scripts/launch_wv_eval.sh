@@ -230,16 +230,21 @@ fi
 ## Critical rules
 
 1. Follow the skill. Don't invent your own methodology.
-2. Step 0 (contract check) is a hard gate — if the trace violates task contract,
-   STOP and report "benchmark data problem", do not proceed to scoring.
-3. Every score you produce needs an explanation based on evidence (specific
+2. Step 0 (contract check) is a hard gate. Any non-compliant windows MUST be
+   classified as Type A (instrumentation defect — re-instrument and regenerate),
+   Type B (out-of-scope — cite task prompt's exclusion), or Type C (benchmark
+   broken — halt). **Silent filtering is not allowed** — always diagnose.
+3. **Traces for this run must be freshly generated from the workspace's repo/
+   (via the harness) — do NOT reuse traces from examples/ or any other location.**
+   The workspace/traces/ directory must be populated by running the harness,
+   not by copying pre-existing files. This validates the end-to-end pipeline.
+4. Every score you produce needs an explanation based on evidence (specific
    windows or patterns). No mystery numbers.
-4. **Respect the scope above. No silent scope expansion.**
-5. **Check existing examples first.** If spec/ matches an example under
-   tla_eval/skills/wv-eval/examples/<task>/ai_spec_*/ (same file contents), you
-   can REUSE existing WV_*.tla and make_windows.py by copying them. Don't rewrite
-   from scratch if an identical spec is already worked out.
-6. You can modify $WORKSPACE/repo/ for instrumentation. Original is preserved;
+5. **Respect the scope above. No silent scope expansion.**
+6. Examples under tla_eval/skills/wv-eval/examples/ are REFERENCE only for
+   patterns (WV template, make_windows shape). Do NOT copy their traces or
+   windows into your workspace. Generate fresh ones from the real harness.
+7. You can modify $WORKSPACE/repo/ for instrumentation. Original is preserved;
    your changes are saved as a patch automatically.
 
 ## Final output
