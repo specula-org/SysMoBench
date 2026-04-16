@@ -54,8 +54,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILL_DIR="$PROJECT_ROOT/tla_eval/skills/wv-eval"
 
-# Source .env if present (API keys, base URLs)
-[[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
+# IMPORTANT: do NOT source .env here. The wv-eval agent (Claude Code CLI
+# spawned by the adapter) must use its own credentials, not the user's
+# paid API key. User's key (GPTSAPI_KEY) is only for model adapters in
+# tla_eval/models/ that handle Phase 0 generation and Phase 2/4 model
+# validation. See memory/feedback_api_usage_policy.md.
 
 SPEC_PATH=""
 REPO_PATH=""
