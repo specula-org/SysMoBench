@@ -137,6 +137,7 @@ class RunResult:
 
     phase1_compilation: Optional[PhaseResult] = None
     phase2_runtime: Optional[PhaseResult] = None
+    phase3_wv: Optional[PhaseResult] = None
     phase3_invariant: Optional[PhaseResult] = None
 
     total_score: float = 0.0
@@ -150,6 +151,8 @@ class RunResult:
             scores.append(self.phase1_compilation.score)
         if self.phase2_runtime:
             scores.append(self.phase2_runtime.score)
+        if self.phase3_wv:
+            scores.append(self.phase3_wv.score)
         if self.phase3_invariant:
             scores.append(self.phase3_invariant.score)
 
@@ -159,7 +162,7 @@ class RunResult:
         # Check if all phases are perfect (score = 1.0)
         self.is_perfect = all(
             phase and phase.score >= 1.0
-            for phase in [self.phase1_compilation, self.phase2_runtime, self.phase3_invariant]
+            for phase in [self.phase1_compilation, self.phase2_runtime, self.phase3_wv, self.phase3_invariant]
             if phase is not None
         )
 
@@ -194,7 +197,10 @@ class BatchExperimentRunner:
                  num_threads: int = 5,
                  output_dir: str = "experiments",
                  model: str = "opus",
-                 agent: str = DEFAULT_AGENT):
+                 agent: str = DEFAULT_AGENT,
+                 enable_wv: bool = False,
+                 wv_budget: float = 5.0,
+                 wv_timeout: int = 1800):
         """
         Initialize the batch experiment runner.
 
@@ -205,6 +211,9 @@ class BatchExperimentRunner:
             output_dir: Base output directory for results
             model: Model to use for generation and agent translator (default: opus)
             agent: Code agent to use for generation (default: claude_code)
+            enable_wv: Enable Phase 3 WV action-window validation (default: False)
+            wv_budget: Max API budget per WV evaluation in USD (default: 5)
+            wv_timeout: Timeout per WV evaluation in seconds (default: 1800)
         """
         self.systems = systems
         self.max_runs = max_runs
@@ -213,6 +222,9 @@ class BatchExperimentRunner:
         self.model = model
         self.agent = agent
         self.agent_method = SUPPORTED_AGENTS[agent]
+        self.enable_wv = enable_wv
+        self.wv_budget = wv_budget
+        self.wv_timeout = wv_timeout
 
         # Create output directory with timestamp
         self.experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -740,6 +752,96 @@ class BatchExperimentRunner:
                 error=str(e)
             )
 
+    def run_phase3_wv(self, system: str, run_id: int,
+                      spec_path: str) -> PhaseResult:
+        """
+        Phase 3 WV: Action-window validation via agent-driven evaluation.
+        Launches a Claude Code agent that follows the wv-eval skill.
+
+        Only runs when --enable-wv is set (costs ~$1-4 per spec).
+        """
+        logger.info(f"[{system}][Run {run_id}] Phase 3 WV: starting action-window validation...")
+
+        launcher = PROJECT_ROOT / "scripts" / "launch_wv_eval.sh"
+        workspace_root = PROJECT_ROOT / "wv-workspaces"
+
+        try:
+            result = subprocess.run(
+                [
+                    "bash", str(launcher),
+                    f"--task={system}",
+                    f"--spec={spec_path}",
+                    f"--workspace-root={workspace_root}",
+                    f"--max-budget={self.wv_budget}",
+                ],
+                capture_output=True, text=True,
+                timeout=self.wv_timeout,
+                cwd=str(PROJECT_ROOT),
+            )
+
+            # Find the workspace that was just created (latest one for this spec)
+            import glob
+            ws_pattern = str(workspace_root / "*")
+            workspaces = sorted(glob.glob(ws_pattern), key=os.path.getmtime, reverse=True)
+            if not workspaces:
+                return PhaseResult(phase_name="wv", score=0.0, passed=False,
+                                   error="no workspace created")
+
+            ws = Path(workspaces[0])
+            report_path = ws / "reports" / "final_report.md"
+            results_path = ws / "reports" / "wv_results.json"
+
+            # Try to parse structured results
+            if results_path.exists():
+                with open(results_path) as f:
+                    wv_data = json.load(f)
+                total_passed, total_windows = 0, 0
+                action_scores = {}
+                for action, info in wv_data.items():
+                    stats = info.get("stats", {})
+                    p, t = stats.get("passed", 0), stats.get("total", 0)
+                    total_passed += p
+                    total_windows += t
+                    action_scores[action] = stats.get("pass_rate", 0.0)
+                score = total_passed / total_windows if total_windows > 0 else 0.0
+                logger.info(f"[{system}][Run {run_id}] Phase 3 WV: {total_passed}/{total_windows} ({score:.1%})")
+                return PhaseResult(
+                    phase_name="wv",
+                    score=score,
+                    passed=score > 0,
+                    details={"per_action": action_scores, "total_passed": total_passed,
+                             "total_windows": total_windows, "workspace": str(ws)},
+                )
+
+            # Fallback: parse final_report.md for pass rates
+            if report_path.exists():
+                report = report_path.read_text()
+                if "Cannot evaluate" in report or "CANNOT EVALUATE" in report:
+                    logger.info(f"[{system}][Run {run_id}] Phase 3 WV: spec broken (DNQ)")
+                    return PhaseResult(phase_name="wv", score=0.0, passed=False,
+                                       details={"reason": "spec_broken", "workspace": str(ws)})
+                # Try to extract overall pass rate from summary table
+                import re
+                matches = re.findall(r'\|\s*(\d+)\s*/\s*(\d+)\s*\|', report)
+                if matches:
+                    tp = sum(int(m[0]) for m in matches)
+                    tw = sum(int(m[1]) for m in matches)
+                    score = tp / tw if tw > 0 else 0.0
+                    logger.info(f"[{system}][Run {run_id}] Phase 3 WV: {tp}/{tw} ({score:.1%})")
+                    return PhaseResult(phase_name="wv", score=score, passed=score > 0,
+                                       details={"total_passed": tp, "total_windows": tw,
+                                                 "workspace": str(ws)})
+
+            return PhaseResult(phase_name="wv", score=0.0, passed=False,
+                               error="no results found in workspace")
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[{system}][Run {run_id}] Phase 3 WV: timeout ({self.wv_timeout}s)")
+            return PhaseResult(phase_name="wv", score=0.0, passed=False, error="timeout")
+        except Exception as e:
+            logger.error(f"[{system}][Run {run_id}] Phase 3 WV: error - {e}")
+            return PhaseResult(phase_name="wv", score=0.0, passed=False, error=str(e))
+
     def run_single_experiment(self, system: str, run_id: int) -> RunResult:
         """
         Run a single experiment for a system.
@@ -784,13 +886,23 @@ class BatchExperimentRunner:
                 system, run_id, spec_path, config_path
             )
 
-            # Phase 3: Invariant verification (only if Phase 1 passed)
+            # Phase 3a: WV action-window validation (if enabled and Phase 1 passed)
+            if self.enable_wv and result.phase1_compilation and result.phase1_compilation.passed:
+                result.phase3_wv = self.run_phase3_wv(system, run_id, spec_path)
+            elif self.enable_wv:
+                logger.info(f"[{system}][Run {run_id}] Skipping Phase 3 WV (Phase 1 failed)")
+                result.phase3_wv = PhaseResult(
+                    phase_name="wv", score=0.0, passed=False,
+                    details={"skipped": "phase1_failed"}
+                )
+
+            # Phase 3b: Invariant verification (only if Phase 1 passed)
             if result.phase1_compilation and result.phase1_compilation.passed:
                 result.phase3_invariant = self.run_phase3_invariant(
                     system, run_id, spec_path, config_path
                 )
             else:
-                logger.info(f"[{system}][Run {run_id}] Skipping Phase 3 (Phase 1 failed)")
+                logger.info(f"[{system}][Run {run_id}] Skipping Phase 3b invariant (Phase 1 failed)")
                 result.phase3_invariant = PhaseResult(
                     phase_name="invariant",
                     score=0.0,
@@ -1105,6 +1217,12 @@ Examples:
     parser.add_argument("--agent", default=DEFAULT_AGENT,
                        choices=list(SUPPORTED_AGENTS.keys()),
                        help=f"Code agent to use for generation (default: {DEFAULT_AGENT})")
+    parser.add_argument("--enable-wv", action="store_true",
+                       help="Enable Phase 3 WV (action-window validation). Costs ~$1-4 per spec via Claude agent.")
+    parser.add_argument("--wv-budget", type=float, default=5.0,
+                       help="Max API budget (USD) per WV evaluation (default: 5)")
+    parser.add_argument("--wv-timeout", type=int, default=1800,
+                       help="Timeout (seconds) per WV evaluation (default: 1800)")
     parser.add_argument("--list-systems", action="store_true",
                        help="List all available systems")
     parser.add_argument("--list-agents", action="store_true",
@@ -1146,7 +1264,10 @@ Examples:
         num_threads=args.threads,
         output_dir=args.output,
         model=args.model,
-        agent=args.agent
+        agent=args.agent,
+        enable_wv=args.enable_wv,
+        wv_budget=args.wv_budget,
+        wv_timeout=args.wv_timeout,
     )
 
     runner.run()
