@@ -12,3 +12,9 @@ Read `guide.md` for the full workflow methodology.
 - After instrumenting, update `tla_eval/tasks/<task>/task.yaml`'s `wv.repo_path` to point at the cloned tree, and fill `wv.harness` (`instrumentation_file`, `test_file`, `run_command`).
 - Trace output goes to `artifacts/<task>/traces/` by default (or a path defined by `wv.harness.traces_output_env`).
 - Downstream consumer: the `wv-eval` skill will re-run this harness when spec evaluation needs fresh/compliant traces.
+
+## Orchestration: bootstrap the 9 missing tasks
+
+If you were handed this skill as part of the SysMoBench harness-bootstrap
+project, read `BOOTSTRAP_9_SYSTEMS.md` next — it lists the 9 tasks still
+needing harnesses, repo reuse hints, ordering, and per-task done-criteria.
