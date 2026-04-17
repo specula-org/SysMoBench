@@ -9,7 +9,7 @@ models:
     model_name: "gpt-4o"
     api_key_env: "OPENAI_API_KEY"
     temperature: 0.7
-    max_tokens: 16000
+    max_tokens: 200000
     timeout: 1800
 
   gpt5:
@@ -17,7 +17,7 @@ models:
     model_name: "gpt-5"
     api_key_env: "OPENAI_API_KEY"  # or set api_key directly
     temperature: 1
-    max_tokens: 64000
+    max_tokens: 200000
     timeout: 1800  # 30 minutes timeout for large TLA+ generation
     
   # Anthropic Claude
@@ -26,7 +26,7 @@ models:
     model_name: "claude-sonnet-4-20250514"
     api_key_env: "ANTHROPIC_API_KEY"
     temperature: 0.1
-    max_tokens: 64000
+    max_tokens: 200000
     top_p: 0.9
 
   deepseek_tencent:
@@ -35,7 +35,7 @@ models:
     model_name: "deepseek-r1-0528"
     api_key_env: "DEEPSEEK_TENCENT_API_KEY"
     temperature: 0.5
-    max_tokens: 32000
+    max_tokens: 200000
 
   deepseek:
     provider: "deepseek"
@@ -43,7 +43,7 @@ models:
     model_name: "deepseek-reasoner"
     api_key_env: "DEEPSEEK_API_KEY"
     temperature: 0.1
-    max_tokens: 64000
+    max_tokens: 200000
     top_p: 0.9
 
 
@@ -53,7 +53,7 @@ models:
     model_name: "gpt-5-2025-08-07"
     api_key_env: "YUNWU_API_KEY"
     temperature: 0.1
-    max_tokens: 64000
+    max_tokens: 200000
     top_p: 0.9
 
   gemini:
@@ -61,7 +61,7 @@ models:
     model_name: "gemini-2.5-pro"
     api_key_env: "GEMINI_API_KEY"
     temperature: 0.1
-    max_tokens: 64000
+    max_tokens: 200000
     top_p: 0.9
     thinking_budget: 32768
 
@@ -69,22 +69,156 @@ models:
   # === GPTsAPI proxy models (for WV experiments) ===
 
   claude_sonnet_proxy:
-    provider: "anthropic"
+    # gptsapi serves Claude via OpenAI-compatible endpoint — so the provider
+    # here is "openai" (format), NOT "anthropic". Setting it to anthropic
+    # would route as native Anthropic API which gptsapi doesn't expose.
+    provider: "openai"
     model_name: "claude-sonnet-4-6"
-    base_url: "https://api.gptsapi.net"
+    base_url: "https://api.gptsapi.net/v1"
     api_key_env: "GPTSAPI_KEY"
     temperature: 0.1
-    max_tokens: 64000
+    max_tokens: 200000
     top_p: 0.9
 
   deepseek_r1_proxy:
     provider: "openai"                    # DeepSeek uses OpenAI-compatible API
     model_name: "deepseek-reasoner"
-    base_url: "https://api.gptsapi.net"
+    base_url: "https://api.gptsapi.net/v1"
     api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    max_tokens: 200000
+    top_p: 0.9
+
+  gpt54_proxy:
+    provider: "openai"
+    model_name: "gpt-5.4"
+    base_url: "https://api.gptsapi.net/v1"
+    api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    max_tokens: 200000
+    top_p: 0.9
+
+  # Azure-hosted GPT-5.4 — user's free-tier deployment. Prefer this over
+  # gpt54_proxy when running expensive experiments (etcd etc.) because the
+  # Azure endpoint has no proxy-side retry storms.
+  gpt54_azure:
+    provider: "openai"
+    model_name: "gpt-5.4"
+    base_url: "https://sc-vs-mcbi748j-southcentralus.openai.azure.com/openai/v1"
+    api_key_env: "GPT54_AZURE_KEY"
     temperature: 0.1
     max_tokens: 64000
     top_p: 0.9
+    timeout: 900
+
+  # MiniMax M2.7 — official API via Anthropic-compatible endpoint.
+  # User-supplied comparison point: nominally weaker than gpt-5.4; a higher
+  # score here than the Azure gpt-5.4 deployment would suggest the Azure
+  # build is a degraded variant.
+  minimax_m27:
+    provider: "anthropic"
+    model_name: "MiniMax-M2.7"
+    base_url: "https://api.minimax.io/anthropic"
+    api_key_env: "MINIMAX_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    # MiniMax M2.7 does heavy reasoning on big prompts (etcd's raft.go is ~45K
+    # input tokens). An initial run hit exactly 15 min and died. Give it 30 min
+    # per attempt. Retry loop stops on API failure so worst case is single 30m.
+    timeout: 1800
+
+  # ZhipuAI GLM 5.1 — OpenAI-compatible endpoint. Reasoning model; heavy
+  # reasoning tokens consumed from max_tokens budget (output has
+  # completion_tokens_details.reasoning_tokens). 64K keeps reasoning + the
+  # actual TLA+ spec well under one call.
+  glm51:
+    provider: "openai"
+    model_name: "glm-5.1"
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    api_key_env: "ZAI_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  # === Alibaba DashScope proxy (paid, stable) ===
+  # Use these as default 2026-04-17 onward — direct providers (MiniMax,
+  # ZhipuAI) are flaky (overload + rate limits). DashScope bills but is
+  # reliable. Names suffixed with _ds to distinguish from direct-provider
+  # entries.
+
+  qwen36_plus_ds:
+    provider: "openai"
+    model_name: "qwen3.6-plus"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  kimi_k25_ds:
+    provider: "openai"
+    model_name: "kimi-k2.5"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  glm51_ds:
+    provider: "openai"
+    model_name: "glm-5.1"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  deepseek_v32_ds:
+    provider: "openai"
+    model_name: "deepseek-v3.2"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  minimax_m27_ds:
+    provider: "openai"
+    model_name: "MiniMax/MiniMax-M2.7"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  gemini31_proxy:
+    provider: "openai"                    # routed through gptsapi's OpenAI-compatible endpoint
+    model_name: "gemini-3.1-pro-preview"
+    base_url: "https://api.gptsapi.net/v1"
+    api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    max_tokens: 200000
+    top_p: 0.9
+
+  grok4_proxy:
+    provider: "openai"
+    model_name: "grok-4"
+    base_url: "https://api.gptsapi.net/v1"
+    api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    # grok-4 burns heavy reasoning tokens. 200k let it "think forever" and
+    # triggered proxy-side retries — one run cost $1.81 across 11 billed
+    # upstream calls (2026-04-16). 32k caps a single call's worst-case cost.
+    max_tokens: 32000
+    top_p: 0.9
+    timeout: 900
 
 # Default model to use if not specified
 default_model: "my_yunwu"
