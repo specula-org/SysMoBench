@@ -163,9 +163,19 @@ else
   fi
 fi
 
-# Repo: COPY (agent may modify for instrumentation)
-echo "Copying repo into workspace..."
-cp -r "$REPO_PATH" "$WORKSPACE/repo"
+# Repo: COPY (agent may modify for instrumentation).
+# Use rsync to skip heavy build output that the agent will regenerate anyway
+# (cargo target dirs, Asterinas' regression/build, Python caches). Keeping
+# .git is intentional — the next step reads HEAD from it.
+echo "Copying repo into workspace (excluding build artifacts)..."
+rsync -a \
+  --exclude='target/' \
+  --exclude='regression/build/' \
+  --exclude='__pycache__/' \
+  --exclude='*.pyc' \
+  --exclude='node_modules/' \
+  --exclude='.venv/' \
+  "$REPO_PATH"/ "$WORKSPACE/repo"/
 
 # Snapshot original repo commit for later patch generation
 (
@@ -310,8 +320,24 @@ else
 fi
 
 if ! $KEEP_REPO; then
-  rm -rf "$WORKSPACE/repo"
-  echo "  Repo copy deleted. Agent's changes saved to: $WORKSPACE/repo.patch"
+  # Docker harnesses (e.g. Asterinas) run as root inside the container and
+  # leave root-owned files in workspace/repo/**/target that a plain rm -rf
+  # can't remove. Try sudo with -n (non-interactive) first; if that isn't
+  # available, fall back to chmod (which can succeed on files the user
+  # owns the parent dir for) and swallow the rest so the script still
+  # reports the final status.
+  if ! rm -rf "$WORKSPACE/repo" 2>/dev/null; then
+    sudo -n rm -rf "$WORKSPACE/repo" 2>/dev/null || {
+      chmod -R u+w "$WORKSPACE/repo" 2>/dev/null || true
+      rm -rf "$WORKSPACE/repo" 2>/dev/null || true
+    }
+  fi
+  if [[ -d "$WORKSPACE/repo" ]]; then
+    echo "  WARNING: could not fully delete $WORKSPACE/repo (root-owned build artifacts)."
+    echo "  Run: sudo rm -rf \"$WORKSPACE/repo\" to clean up."
+  else
+    echo "  Repo copy deleted. Agent's changes saved to: $WORKSPACE/repo.patch"
+  fi
 else
   echo "  Repo copy kept at: $WORKSPACE/repo (changes also in repo.patch)"
 fi

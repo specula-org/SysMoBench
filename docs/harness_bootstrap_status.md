@@ -14,10 +14,10 @@ Per-task completion of the 9-task harness bootstrap, per
   - `tla_eval/tasks/mutex/task.yaml` — `wv.repo_path`, `wv.harness.*` fields populated
 - Events emitted: `Lock`, `TryLock`, `Unlock` (mapped to spec `AcquireLock`, `TryAcquireLock`, `ReleaseLock`)
 - Smoke: 20 trace files, 260 events total, all 3 action types present, ktest `1 passed; 0 failed`
-- WV smoke: **deferred** — launch_wv_eval.sh copies the full 1.3GB cloned tree; needs a `cp --exclude target/` fix or prior cleanup before it'll be reasonable. Structural inputs (task.yaml, traces, docs) are all in place; running the sub-agent is a downstream concern.
+- WV smoke: **PASS** (workspace `wv-workspaces/20260417_102949_mutex/`). Agent ran harness fresh from copied repo, produced 20 traces + 260 windows, Step 0 contract check 100% compliant, per-action window counts: `AcquireLock=82`, `TryAcquireLock=48`, `ReleaseLock=130`. TLC couldn't run because the sample spec (`data/spec/mutex/mutex.tla`) has two unrelated `Spec`-operator bugs (`vars` vs `Vars`; `\A t` scope collision); agent's manual check against action bodies concluded ~100% pass on all three. Harness is verified end-to-end; spec-side fix is out of scope for this task.
 - Open issues:
   - Failed `try_lock` attempts are NOT traced (only successes). Spec's `TryAcquireLock` scoring will only cover successes.
-  - Docker run leaves root-owned build artifacts in `artifacts/spin/`; requires `sudo chown -R $USER` after each run for non-docker-root users.
+  - Docker run leaves root-owned build artifacts in `artifacts/spin/` and in any `workspace/repo/target/` the WV agent creates; requires sudo or chmod to clean up. `launch_wv_eval.sh` now handles the workspace-side cleanup gracefully.
   - `cargo install --path osdk` needs `--locked` (run.sh handles it); upstream Makefile target omits the flag.
 
 ## ringbuffer
