@@ -40,12 +40,32 @@ Your specification will be validated against execution traces collected from the
 
 Generate a TLA+ specification that accurately models Xline's distributed behavior.
 
+MANDATORY NAMING CONVENTIONS (Trace Validation Interface):
+To ensure the specification can be validated against real system execution traces, the following action names MUST appear EXACTLY (case-sensitive) as top-level action operators in your TLA+ specification. The WV evaluator maps trace events to these action names — any mismatch and the action scores 0.
+
+Required actions:
+  - `Propose`
+  - `ProcessProposeLeader`
+  - `ProcessProposeNonLeader`
+  - `Commit`
+  - `ProcessCommitMsg`
+  - `LeaderChange`
+
+Each required action must be a named definition (e.g. `ActionName(args) == ...`) referenced from `Next` via `\/ \E ... : ActionName(...)` or a direct disjunct. Do not rename, merge, or split these actions — they form the contract between your spec and the trace harness.
+
+SYMBOL DECLARATION SAFETY (SANY will reject the spec otherwise):
+- Every identifier you reference must be declared or defined. Common pitfalls:
+  * `NULL` / `Nil` / `None` are NOT TLA+ built-ins. If you need a sentinel, declare it as a CONSTANT (and bind it in the cfg) or define it, e.g. `NULL == CHOOSE v : v \notin Servers`.
+  * `Min` / `Max` are NOT in the standard modules. Either `EXTENDS FiniteSetsExt` and use `Min(S)` / `Max(S)`, or define your own (e.g. `Min2(a, b) == IF a <= b THEN a ELSE b`).
+  * Every name in `VARIABLES <...>` must appear in `Init` and be transformed by `Next`; every CONSTANT must appear in the .cfg's `CONSTANTS` block with a concrete value.
+- Before emitting the spec, scan each identifier: is it (a) brought in by an EXTENDS, (b) declared as a CONSTANT/VARIABLE, or (c) defined via `==` earlier in the module? If none of the three, SANY will flag it as `Unknown operator`.
+
 CRITICAL OUTPUT REQUIREMENTS:
 1. The MODULE name must be exactly "curp" (---- MODULE curp ----)
-2. Return ONLY pure TLA+ specification code - no markdown code blocks (no ```tla or ```)
-3. Do not include any explanations, comments, or formatting markers
-4. Start your response directly with: ---- MODULE curp ----
-5. End your response with the closing ====
+2. Output EXACTLY TWO fenced code blocks — a ```tla block and a ```cfg block. Output NOTHING else (no prose, no markdown outside the fences).
+3. The ```tla block contains the full TLA+ specification, starting with ---- MODULE curp ---- and ending with ====
+4. The ```cfg block contains the TLC configuration. Use SPECIFICATION Spec (NOT INIT/NEXT), and a CONSTANTS section that assigns a concrete finite value to every CONSTANT declared in your .tla.
+5. Do NOT add INVARIANT or PROPERTY lines to the .cfg. Do NOT include comments or explanations outside the two fenced blocks.
 6. **DO NOT define invariants** (like MutualExclusion, Invariant, etc.) - focus on modeling the system behavior
 7. **MUST include EXTENDS statement**: The specification must extend at least these modules: TLC, Sequences, SequencesExt, Naturals, FiniteSets, Bags
 8. **MANDATORY Spec Definition with Fairness**: The Spec definition MUST include appropriate fairness assumptions (e.g., WF_vars/SF_vars for action operations) to ensure liveness properties.
