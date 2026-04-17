@@ -42,7 +42,20 @@ Per-task completion of the 9-task harness bootstrap, per
   - Failed `try_*` attempts not traced; only successful paths scored
 
 ## redisraft
-- Not started
+- Category: A (distributed Raft, NDJSON single-writer trace)
+- Reuses Specula case dir at `/home/ubuntu/Specula/case-studies/redisraft/` (symlink-free). Canonical instrumented raft library + harness already present from Specula.
+- Harness orchestration added this pass:
+  - `scripts/harness/redisraft/run.sh` — thin wrapper that invokes the Specula `harness/run.sh` and mirrors `.ndjson` outputs to `artifacts/redisraft/traces/`
+  - `tla_eval/tasks/redisraft/INSTRUMENTATION.md` — event schema, action mapping, coverage tables
+  - `tla_eval/tasks/redisraft/task.yaml` — `wv.harness.*` populated, including full `trace_action_map` for 5 events
+- Events emitted (via Specula `tla_trace.c` patch into `deps/raft/src/raft_server.c`): `Timeout`, `BecomeLeader`, `HandleRequestVoteRequest`, `HandleAppendEntriesRequest`, `ClientRequest` plus out-of-scope: response events, `AdvanceCommitIndex`, `TakeSnapshot`, `ProposeAddServer`, `ProposeRemoveServer`, install/end-snapshot
+- Action mapping: `Timeout`→`ElectionTimeout`+`BecomeCandidate` (same event, two spec actions); `HandleRequestVoteRequest`→`RecvRequestVote`; `HandleAppendEntriesRequest`→`RecvAppendEntries`; `ClientRequest`→`LogAppend`
+- Smoke: 3 scenarios (basic_consensus/leader_failover/snapshot_basic), 74-78 events total, all tests `ok 1`
+- WV smoke: **PASS** (workspace `wv-workspaces/20260417_132542_redisraft/`). Agent ran harness fresh from workspace copy, produced 43 windows across all 6 actions. Sample spec at `data/spec/redisraft/redisraft.tla` has a parse error (`_` as identifier in `SortedSeq`), blocking TLC. Agent's manual semantic check: `ElectionTimeout=4/4`, `BecomeCandidate=4/4`, `RecvRequestVote=8/8` would pass; `BecomeLeader=0/4` (spec's `UNCHANGED log` doesn't model the leader-elected noop append), `RecvAppendEntries`/`LogAppend` 0 (spec's `Entry={}` model gap). All blockers are spec-side, not harness.
+- Open issues:
+  - Coverage thin (~78 events, 3 scenarios). Future work: split-vote / network-partition / config-change scenarios to strengthen scoring.
+  - `RecvRequestVote` only scored on granted votes — no reject path traced.
+  - Many harness events (AdvanceCommitIndex, snapshot, response pairs) are emitted but out-of-scope under current `target_actions`.
 
 ## dqueue / locksvc / raftkvs (shared PGo clone)
 - Not started

@@ -40,9 +40,13 @@ phase3:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 wv:
+  # Points at the Specula case dir; expects the nested layout
+  # {repo_path}/harness/run.sh + {repo_path}/artifact/redisraft/
   repo_path: "/home/ubuntu/Specula/case-studies/redisraft"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
+  # The raw trace emits the event names in the right column; WV windowing
+  # translates each to the spec action on the left.
   target_actions:
     - ElectionTimeout
     - BecomeCandidate
@@ -51,5 +55,24 @@ wv:
     - RecvAppendEntries
     - LogAppend
 
-  # TODO: add harness info (instrumentation_file, test_file, run_command)
-  harness: {}
+  harness:
+    type: "native"
+    instrumentation_file: "harness/patches/instrumentation.patch"
+    test_file: "harness/src/test_trace.c"
+    run_command: "bash scripts/harness/redisraft/run.sh"
+    traces_output_env: "TRACES_DIR"
+    traces_default_dir: "artifacts/redisraft/traces"
+    instrumentation_doc: "tla_eval/tasks/redisraft/INSTRUMENTATION.md"
+    # The inner Specula harness writes to $REPO_PATH/traces/ — the wrapper
+    # mirrors those files into TRACES_DIR.
+    inner_harness: "harness/run.sh"
+    trace_action_map:
+      Timeout: "ElectionTimeout"           # Timeout also represents BecomeCandidate
+      BecomeLeader: "BecomeLeader"
+      HandleRequestVoteRequest: "RecvRequestVote"
+      HandleAppendEntriesRequest: "RecvAppendEntries"
+      ClientRequest: "LogAppend"
+    coverage_gaps:
+      - "Timeout covers both ElectionTimeout and BecomeCandidate transitions; agent decides per-action mapping"
+      - "Only 3 scenarios (basic_consensus, leader_failover, snapshot_basic) — ~74 events total"
+      - "No failed-vote / split-brain scenarios; RecvRequestVote only scored on granting path"
