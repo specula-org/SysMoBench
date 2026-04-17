@@ -71,7 +71,16 @@ Per-task completion of the 9-task harness bootstrap, per
 - WV smoke: **PASS** (workspace `wv-workspaces/20260417_142657_dqueue/`). Agent ran harness in workspace copy, 19 events, Step 0 contract compliance OK, target actions 3+3 windows present. Sample spec at `data/spec/dqueue/dqueue.tla` has `RemoveAt` symbol collision with `SequencesExt` (spec-side bug), blocking TLC — harness is verified end-to-end.
 
 ## locksvc (PGo)
-- Not started
+- Category: A (centralized lock service, MPCal 1 server + N clients)
+- Same PGo clone at `data/repositories/pgo/`
+- Harness orchestration:
+  - `scripts/harness/locksvc/locksvc_trace_test.go` — shadow of `testNClients(3)` adding `SetTraceRecorder` on server + client contexts, reusing `matcherResource`/`whileHoldingLock`/`addressFn` from the in-tree external test package
+  - `scripts/harness/locksvc/parse_traces.py` — same shape as dqueue's; disambiguates `AServer.serverRespond` by whether it wrote `GrantMsg (=3)` to `network[x]`
+  - `scripts/harness/locksvc/run.sh` — copies test into clone, runs go test, parses, reverts
+  - `tla_eval/tasks/locksvc/INSTRUMENTATION.md`, `task.yaml` (wv section filled with 4-way trace_action_map)
+- Label→action mapping: `AClient.acquireLock`→`ClientLockRequest`, `AClient.criticalSection`→`ClientCriticalSection`, `AClient.unlock`→`ClientUnlockRequest`, `AServer.serverRespond` (with `network[*]=3` write)→`ServerGrantLock`
+- Smoke: 3-client scenario, ~22-27 events, all 4 target actions represented
+- WV smoke: **PASS** (workspace `wv-workspaces/20260417_143727_locksvc/`). 25 events, 3 of each action. Sample spec has two defects (line 28 mixes record/function syntax; `ServerGrantLock` uses double-primed `network''`) — spec-side bugs, harness verified.
 
 ## raftkvs (PGo)
 - Not started

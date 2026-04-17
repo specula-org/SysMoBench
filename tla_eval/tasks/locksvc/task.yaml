@@ -39,8 +39,7 @@ phase3:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 wv:
-  # TODO: set local path to instrumented repo
-  repo_path: null
+  repo_path: "data/repositories/pgo"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
   target_actions:
@@ -49,5 +48,21 @@ wv:
     - ClientCriticalSection
     - ClientUnlockRequest
 
-  # TODO: add harness info (instrumentation_file, test_file, run_command)
-  harness: {}
+  harness:
+    type: "native"
+    instrumentation_file: "scripts/harness/locksvc/locksvc_trace_test.go"
+    test_file: "data/repositories/pgo/systems/locksvc/locksvc_test.go"
+    test_target: "Test3ClientsWithTrace"
+    run_command: "bash scripts/harness/locksvc/run.sh"
+    traces_output_env: "TRACES_DIR"
+    traces_default_dir: "artifacts/locksvc/traces"
+    instrumentation_doc: "tla_eval/tasks/locksvc/INSTRUMENTATION.md"
+    trace_action_map:
+      "AClient.acquireLock": "ClientLockRequest"
+      "AClient.criticalSection": "ClientCriticalSection"
+      "AClient.unlock": "ClientUnlockRequest"
+      "AServer.serverRespond (with GrantMsg write)": "ServerGrantLock"
+    coverage_gaps:
+      - "Test3ClientsWithTrace uses 3 clients + 1 server — ~3 ClientLockRequest, 3 ServerGrantLock, 2-3 ClientCriticalSection, 2-3 ClientUnlockRequest windows (goroutine-scheduling variance)"
+      - "serverRespond fires BOTH for grant-on-LockMsg and grant-after-Unlock; parser disambiguates via the network write's value (GrantMsg=3)"
+      - "serverRespond events WITHOUT a GrantMsg write (Lock queued behind existing holder) emitted with action=null"
