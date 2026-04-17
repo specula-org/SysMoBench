@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import threading
 
 # Add project root to path
@@ -54,6 +54,7 @@ SUPPORTED_AGENTS = {
     "claude_code": "code_agent_claude_code",
     "gemini": "code_agent_gemini",
     "codex": "code_agent_codex",
+    "direct_call": "direct_call",  # single-shot API call via configured model adapter
 }
 
 DEFAULT_AGENT = "claude_code"
@@ -113,10 +114,25 @@ def run_with_timeout_kill_process_group(
 
 @dataclass
 class PhaseResult:
-    """Result of a single evaluation phase"""
+    """Result of a single evaluation phase.
+
+    `status` semantics (distinct from score):
+      - "ran": the phase was actually evaluated. `score` is meaningful.
+               score=0.0 here means the spec truly failed this check.
+      - "skipped": cascade-skip — upstream phase failed so evaluating this
+                   phase is pointless. score=0.0 but does NOT count as a real
+                   failure; just an absence of signal.
+      - "pending": infrastructure missing (e.g., WV requires a trace harness
+                   that hasn't been built yet). score=None; to be filled in
+                   later when the infra exists.
+      - "not_evaluated": the pipeline never reached this phase (e.g.,
+                   generation failed, or the batch crashed before getting
+                   here). score=None.
+    """
     phase_name: str
-    score: float
+    score: Optional[float]
     passed: bool
+    status: str = "ran"
     details: Dict = field(default_factory=dict)
     error: Optional[str] = None
     passed_items: List[str] = field(default_factory=list)
@@ -140,30 +156,38 @@ class RunResult:
     phase3_wv: Optional[PhaseResult] = None
     phase3_invariant: Optional[PhaseResult] = None
 
+    # Per-phase API usage. phase0 = generation (dict from generation_usage.json),
+    # phase3_wv_usage = {"cost_usd", "duration_ms", "num_turns", "model_usage"}
+    # from the WV agent's .run.usage.json. Dollar amounts for phase0 are NOT
+    # included (adapter reports only tokens; user looks up $ from gptsapi dashboard).
+    phase0_usage: Optional[Dict[str, Any]] = None
+    phase3_wv_usage: Optional[Dict[str, Any]] = None
+
     total_score: float = 0.0
     is_perfect: bool = False
     error: Optional[str] = None
 
     def calculate_total_score(self):
-        """Calculate weighted total score"""
-        scores = []
-        if self.phase1_compilation:
-            scores.append(self.phase1_compilation.score)
-        if self.phase2_runtime:
-            scores.append(self.phase2_runtime.score)
-        if self.phase3_wv:
-            scores.append(self.phase3_wv.score)
-        if self.phase3_invariant:
-            scores.append(self.phase3_invariant.score)
+        """
+        Calculate total score. Default formula = equal-weighted mean over
+        phases that ACTUALLY ran. Skipped/pending/not_evaluated phases are
+        NOT averaged in (would penalise unfairly a spec whose Phase 1 failed
+        and thus never got a chance at Phase 3). Use scripts/compute_scores.py
+        for alternative formulas.
+        """
+        phases = [self.phase1_compilation, self.phase2_runtime,
+                  self.phase3_wv, self.phase3_invariant]
+        scored = [
+            p.score for p in phases
+            if p is not None and p.status == "ran" and p.score is not None
+        ]
 
-        if scores:
-            self.total_score = sum(scores) / len(scores)
+        self.total_score = sum(scored) / len(scored) if scored else 0.0
 
-        # Check if all phases are perfect (score = 1.0)
-        self.is_perfect = all(
-            phase and phase.score >= 1.0
-            for phase in [self.phase1_compilation, self.phase2_runtime, self.phase3_wv, self.phase3_invariant]
-            if phase is not None
+        # "Perfect" only makes sense if every phase ran AND every phase is 1.0.
+        ran_all = all(p is not None and p.status == "ran" for p in phases)
+        self.is_perfect = (
+            ran_all and all((p.score or 0) >= 1.0 for p in phases)
         )
 
 
@@ -265,7 +289,7 @@ class BatchExperimentRunner:
         start_time = time.time()
 
         cmd = [
-            "python", "scripts/run_benchmark.py",
+            "python3", "scripts/run_benchmark.py",
             "--task", system,
             "--method", self.agent_method,
             "--model", self.model,
@@ -274,57 +298,96 @@ class BatchExperimentRunner:
         try:
             result = run_with_timeout_kill_process_group(
                 cmd,
-                timeout=1800,  # 30 minutes timeout
+                timeout=5400,  # 90 min cap — accommodates heavy-reasoning models
+                               # (MiniMax-M2.7) doing up to 3 retry attempts on
+                               # a big prompt. Single-attempt timeout is set
+                               # per-model in models.yaml.
                 cwd=PROJECT_ROOT
             )
 
             generation_time = time.time() - start_time
 
-            # Find the workspace directory from output
+            # Determine spec/cfg paths from THIS subprocess's stdout only.
+            # The compilation_check evaluator always logs:
+            #   "Saved specification to: <abs_path>"
+            #   "Saved config to: <abs_path>"
+            # when it successfully writes its output. No logs → no files →
+            # genuine generation failure. We used to fall back to scanning
+            # the output tree by mtime, but that leaked across batches and
+            # silently fed stale specs from earlier runs into Phase 1
+            # (observed 2026-04-17 on minimax_m27 etcd re-run: Phase 0
+            # wrote nothing, fallback picked a 50-min-old spec and
+            # reported 0.46). Keep this strict.
+            import re as _re
             workspace_path = None
             spec_path = None
             config_path = None
 
-            # Parse output to find workspace path
-            for line in result.stdout.split('\n'):
-                if 'workspace_' in line and system in line:
-                    # Extract workspace path
-                    import re
-                    match = re.search(r'(workspaces/workspace_\S+)', line)
-                    if match:
-                        workspace_path = str(PROJECT_ROOT / match.group(1))
-                        break
+            # Scan both stdout AND stderr: Python's stdlib logger writes to
+            # stderr by default, so the evaluator's "Saved specification to:"
+            # line lives there, not in stdout.
+            combined = (result.stdout or "") + "\n" + (result.stderr or "")
+            spec_match = _re.search(r"Saved specification to:\s*(\S+\.tla)", combined)
+            if spec_match:
+                raw = spec_match.group(1)
+                # Evaluator may emit a relative path; resolve against project root.
+                p = Path(raw)
+                spec_path = str(p if p.is_absolute() else PROJECT_ROOT / p)
+                workspace_path = str(Path(spec_path).parent)
 
-            # If not found in stdout, check workspaces directory for most recent
-            if not workspace_path:
-                workspaces_dir = PROJECT_ROOT / "workspaces"
-                if workspaces_dir.exists():
-                    matching = sorted([
-                        d for d in workspaces_dir.iterdir()
-                        if d.is_dir() and system in d.name
-                    ], key=lambda x: x.stat().st_mtime, reverse=True)
-                    if matching:
-                        workspace_path = str(matching[0])
+            cfg_match = _re.search(r"Saved config to:\s*(\S+\.cfg)", combined)
+            if cfg_match:
+                raw = cfg_match.group(1)
+                p = Path(raw)
+                config_path = str(p if p.is_absolute() else PROJECT_ROOT / p)
 
-            # Find spec and config files
-            if workspace_path:
-                output_dir = Path(workspace_path) / "output"
-                if output_dir.exists():
-                    tla_files = list(output_dir.glob("*.tla"))
-                    cfg_files = list(output_dir.glob("*.cfg"))
-                    if tla_files:
-                        spec_path = str(tla_files[0])
-                    if cfg_files:
-                        config_path = str(cfg_files[0])
+            # Legacy code_agent path: writes to workspaces/workspace_<ts>/output/.
+            # Keep support for agents that print "workspaces/workspace_..." but
+            # drop the mtime-scan heuristic that caused stale-spec pickups.
+            if not spec_path:
+                ws_match = _re.search(r"(workspaces/workspace_\S+)", combined)
+                if ws_match:
+                    workspace_path = str(PROJECT_ROOT / ws_match.group(1))
+                    output_dir = Path(workspace_path) / "output"
+                    if output_dir.exists():
+                        tla_files = list(output_dir.glob("*.tla"))
+                        cfg_files = list(output_dir.glob("*.cfg"))
+                        if tla_files:
+                            spec_path = str(tla_files[0])
+                        if cfg_files:
+                            config_path = str(cfg_files[0])
 
             success = result.returncode == 0 and spec_path is not None
+
+            # Always persist the subprocess output so we can post-mortem any
+            # failure. Previously stdout/stderr were captured in memory and
+            # thrown away, making it impossible to tell why a Phase 0 failed
+            # (e.g., which API error came back, whether retry kicked in).
+            try:
+                gen_log_dir = self.experiment_dir / system
+                gen_log_dir.mkdir(parents=True, exist_ok=True)
+                gen_log_path = gen_log_dir / f"run_{run_id}_generation.log"
+                with open(gen_log_path, 'w', encoding='utf-8') as f:
+                    f.write(f"=== cmd ===\n{' '.join(cmd)}\n\n")
+                    f.write(f"=== returncode ===\n{result.returncode}\n\n")
+                    f.write(f"=== duration ===\n{generation_time:.1f}s\n\n")
+                    f.write("=== stdout ===\n")
+                    f.write(result.stdout or "")
+                    f.write("\n\n=== stderr ===\n")
+                    f.write(result.stderr or "")
+                logger.info(f"[{system}][Run {run_id}] Generation log saved: {gen_log_path}")
+            except Exception as e:
+                logger.warning(f"Failed to persist generation log: {e}")
 
             if success:
                 logger.info(f"[{system}][Run {run_id}] Generation successful: {spec_path}")
             else:
                 logger.warning(f"[{system}][Run {run_id}] Generation failed (exit code: {result.returncode})")
+                # Surface last lines of stderr inline so it's visible without
+                # opening the log file.
                 if result.stderr:
-                    logger.debug(f"Stderr: {result.stderr[:500]}")
+                    tail = "\n".join(result.stderr.strip().splitlines()[-20:])
+                    logger.warning(f"[{system}][Run {run_id}] stderr tail:\n{tail}")
 
             return success, workspace_path, spec_path, config_path, generation_time
 
@@ -346,8 +409,17 @@ class BatchExperimentRunner:
         """
         logger.info(f"[{system}][Run {run_id}] Phase 1: Compilation check...")
 
-        # If code_agent generation passed, compilation is already verified
-        if generation_passed:
+        # For direct_call, always run real SANY — the generator doesn't verify
+        # its own output, so trusting `generation_passed=True` lets
+        # semantically-broken specs (e.g., undeclared NULL) silently pass
+        # Phase 1 and waste downstream agent budget.
+        # Only code_agent methods that demonstrably run SANY in their loop
+        # can keep the fast path.
+        trust_self_report = (
+            generation_passed
+            and self.agent_method in ("code_agent_claude_code", "code_agent_gemini", "code_agent_codex")
+        )
+        if trust_self_report:
             logger.info(f"[{system}][Run {run_id}] Phase 1: PASS (generation already verified)")
             return PhaseResult(
                 phase_name="compilation",
@@ -358,7 +430,7 @@ class BatchExperimentRunner:
 
         # Run compilation_check
         cmd = [
-            "python", "scripts/run_benchmark.py",
+            "python3", "scripts/run_benchmark.py",
             "--task", system,
             "--method", "direct_call",
             "--model", self.model,
@@ -388,7 +460,7 @@ class BatchExperimentRunner:
             logger.info(f"[{system}][Run {run_id}] Phase 1: compilation_check failed, running action_decomposition...")
 
             cmd_action = [
-                "python", "scripts/run_benchmark.py",
+                "python3", "scripts/run_benchmark.py",
                 "--task", system,
                 "--method", "direct_call",
                 "--model", self.model,
@@ -462,7 +534,7 @@ class BatchExperimentRunner:
         logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check (TLC model checking)...")
 
         cmd_check = [
-            "python", "scripts/run_benchmark.py",
+            "python3", "scripts/run_benchmark.py",
             "--task", system,
             "--method", "direct_call",
             "--model", self.model,
@@ -483,15 +555,27 @@ class BatchExperimentRunner:
             )
             combined_check = result_check.stdout + "\n" + result_check.stderr
 
-            # Check if runtime_check passed
-            if "PASS" in combined_check or result_check.returncode == 0:
-                if "FAIL" not in combined_check and "Error" not in combined_check:
-                    runtime_check_passed = True
-                    logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check PASSED")
-                else:
-                    logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check FAILED")
-            else:
+            # Match the evaluator's exact final verdict markers. Substring-
+            # matching "FAIL"/"Error" across the entire combined output was
+            # unreliable — unrelated startup warnings like
+            # "Error loading mapping from .../mutex/mutex_mapping.json"
+            # and "Warning: Failed to load system 'zookeeper'" tripped the
+            # keyword filter and misreported a passing spec as failed
+            # (observed 2026-04-16 on sonnet/gemini spin runs).
+            if re.search(r"Runtime check:\s*✓\s*PASS", combined_check):
+                runtime_check_passed = True
+                logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check PASSED")
+            elif re.search(r"Runtime check:\s*✗\s*FAIL", combined_check):
+                runtime_check_passed = False
                 logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check FAILED")
+            elif result_check.returncode == 0:
+                # No explicit verdict line but subprocess exited cleanly — treat
+                # as PASS (TLC quietly completed without violations).
+                runtime_check_passed = True
+                logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check PASSED (no explicit verdict, exit 0)")
+            else:
+                runtime_check_passed = False
+                logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime check FAILED (exit {result_check.returncode})")
         except subprocess.TimeoutExpired:
             # Timeout means no error found within time limit - this counts as PASS
             runtime_check_passed = True
@@ -505,7 +589,7 @@ class BatchExperimentRunner:
         logger.info(f"[{system}][Run {run_id}] Phase 2: Runtime coverage...")
 
         cmd_coverage = [
-            "python", "scripts/run_benchmark.py",
+            "python3", "scripts/run_benchmark.py",
             "--task", system,
             "--method", "direct_call",
             "--model", self.model,
@@ -619,7 +703,7 @@ class BatchExperimentRunner:
         # This runs Claude Code CLI which uses Claude Code's own credentials,
         # NOT the user's paid API. See memory/feedback_api_usage_policy.md.
         cmd = [
-            "python", "scripts/run_benchmark.py",
+            "python3", "scripts/run_benchmark.py",
             "--task", system,
             "--method", "direct_call",
             "--model", self.inv_model,
@@ -789,7 +873,9 @@ class BatchExperimentRunner:
             ws_pattern = str(workspace_root / "*")
             workspaces = sorted(glob.glob(ws_pattern), key=os.path.getmtime, reverse=True)
             if not workspaces:
-                return PhaseResult(phase_name="wv", score=0.0, passed=False,
+                return PhaseResult(phase_name="wv", score=None, passed=False,
+                                   status="pending",
+                                   details={"reason": "no_workspace_created"},
                                    error="no workspace created")
 
             ws = Path(workspaces[0])
@@ -822,27 +908,54 @@ class BatchExperimentRunner:
             if report_path.exists():
                 report = report_path.read_text()
                 if "Cannot evaluate" in report or "CANNOT EVALUATE" in report:
-                    logger.info(f"[{system}][Run {run_id}] Phase 3 WV: spec broken (DNQ)")
-                    return PhaseResult(phase_name="wv", score=0.0, passed=False,
-                                       details={"reason": "spec_broken", "workspace": str(ws)})
-                # Try to extract overall pass rate from summary table
+                    # Spec compiled but WV agent couldn't meaningfully evaluate
+                    # (e.g., SANY errors found in composite step, or harness
+                    # doesn't exist yet for this task). Not a real 0 — score
+                    # is unknown until infra is fixed or spec is correct.
+                    logger.info(f"[{system}][Run {run_id}] Phase 3 WV: cannot evaluate")
+                    return PhaseResult(phase_name="wv", score=None, passed=False,
+                                       status="pending",
+                                       details={"reason": "cannot_evaluate",
+                                                "workspace": str(ws)})
+                # Try to extract per-action pass rates from the Summary table.
+                # Agents use various formats in the table cell:
+                #   | AcquireLock  | 103/103 (100%) |     → strict
+                #   | AcquireLock  | 100% (210/210) |     → wrapped
+                #   | AcquireLock  | 358 / 358      |     → spaces
+                # Parse each markdown table row, pull FIRST X/Y seen per row
+                # where X ≤ Y. Ignores unrelated numbers elsewhere in report.
                 import re
-                matches = re.findall(r'\|\s*(\d+)\s*/\s*(\d+)\s*\|', report)
+                pair_re = re.compile(r'(\d+)\s*/\s*(\d+)')
+                matches = []
+                for line in report.splitlines():
+                    if not line.lstrip().startswith('|'):
+                        continue
+                    for m in pair_re.finditer(line):
+                        x, y = int(m.group(1)), int(m.group(2))
+                        if 0 <= x <= y and y > 0:
+                            matches.append((x, y))
+                            break  # one per row
                 if matches:
-                    tp = sum(int(m[0]) for m in matches)
-                    tw = sum(int(m[1]) for m in matches)
+                    tp = sum(m[0] for m in matches)
+                    tw = sum(m[1] for m in matches)
                     score = tp / tw if tw > 0 else 0.0
                     logger.info(f"[{system}][Run {run_id}] Phase 3 WV: {tp}/{tw} ({score:.1%})")
                     return PhaseResult(phase_name="wv", score=score, passed=score > 0,
                                        details={"total_passed": tp, "total_windows": tw,
                                                  "workspace": str(ws)})
 
-            return PhaseResult(phase_name="wv", score=0.0, passed=False,
+            return PhaseResult(phase_name="wv", score=None, passed=False,
+                               status="pending",
+                               details={"reason": "no_results_in_workspace",
+                                        "workspace": str(ws)},
                                error="no results found in workspace")
 
         except subprocess.TimeoutExpired:
             logger.warning(f"[{system}][Run {run_id}] Phase 3 WV: timeout ({self.wv_timeout}s)")
-            return PhaseResult(phase_name="wv", score=0.0, passed=False, error="timeout")
+            return PhaseResult(phase_name="wv", score=None, passed=False,
+                               status="pending",
+                               details={"reason": "wv_timeout"},
+                               error="timeout")
         except Exception as e:
             logger.error(f"[{system}][Run {run_id}] Phase 3 WV: error - {e}")
             return PhaseResult(phase_name="wv", score=0.0, passed=False, error=str(e))
@@ -874,26 +987,132 @@ class BatchExperimentRunner:
             result.spec_path = spec_path
             result.config_path = config_path
 
+            # Load Phase 0 API usage (written by compilation_check.py evaluator)
+            if workspace_path:
+                usage_file = Path(workspace_path) / "generation_usage.json"
+                if usage_file.exists():
+                    try:
+                        with open(usage_file, 'r', encoding='utf-8') as f:
+                            result.phase0_usage = json.load(f)
+                    except Exception as e:
+                        logger.warning(f"[{system}] Failed to read {usage_file}: {e}")
+
             if not gen_success or not spec_path:
                 result.error = "Generation failed"
                 logger.error(f"[{system}][Run {run_id}] Generation failed, skipping evaluation")
+                # Mark every phase as not_evaluated so run_1.json doesn't
+                # show phase fields as None (ambiguous with "pending").
+                not_eval = {"reason": "generation_failed"}
+                result.phase1_compilation = PhaseResult(
+                    phase_name="compilation", score=None, passed=False,
+                    status="not_evaluated", details=not_eval
+                )
+                result.phase2_runtime = PhaseResult(
+                    phase_name="runtime", score=None, passed=False,
+                    status="not_evaluated", details=not_eval
+                )
+                result.phase3_wv = PhaseResult(
+                    phase_name="wv", score=None, passed=False,
+                    status="not_evaluated", details=not_eval
+                )
+                result.phase3_invariant = PhaseResult(
+                    phase_name="invariant", score=None, passed=False,
+                    status="not_evaluated", details=not_eval
+                )
                 return result
 
-            # Phase 1: Compilation
-            # code_agent already runs Phase 1+2, so if generation succeeded, Phase 1 passes
+            # Phase 1: Compilation (real SANY for direct_call, fast-path for code_agent)
             result.phase1_compilation = self.run_phase1_compilation(
                 system, run_id, spec_path, config_path,
-                generation_passed=True  # code_agent verifies compilation
+                generation_passed=True
             )
 
-            # Phase 2: Runtime coverage
+            phase1_ok = bool(result.phase1_compilation and result.phase1_compilation.passed)
+
+            # Cascade skip: if Phase 1 fails the spec cannot run in TLC, so
+            # Phase 2/3/3b all produce no signal and waste resources (especially
+            # the agent-based Phase 3 WV which costs real $). Short-circuit here.
+            if not phase1_ok:
+                logger.info(f"[{system}][Run {run_id}] Phase 1 failed — skipping Phase 2/3/3b")
+                skip_reason = {"skipped": "phase1_failed"}
+                result.phase2_runtime = PhaseResult(
+                    phase_name="runtime", score=None, passed=False,
+                    status="skipped", details=skip_reason
+                )
+                result.phase3_wv = PhaseResult(
+                    phase_name="wv", score=None, passed=False,
+                    status="skipped", details=skip_reason
+                )
+                result.phase3_invariant = PhaseResult(
+                    phase_name="invariant", score=None, passed=False,
+                    status="skipped", details=skip_reason
+                )
+                result.calculate_total_score()
+                logger.info(f"[{system}][Run {run_id}] Completed (early) - Total Score: {result.total_score:.2f}")
+                return result
+
+            # Phase 2: Runtime coverage (local TLC; coverage < 1.0 is NOT a gate)
             result.phase2_runtime = self.run_phase2_runtime(
                 system, run_id, spec_path, config_path
             )
 
+            # Cascade skip when Phase 2 didn't actually exercise the spec:
+            #   (a) runtime_check reported a violation (deadlock / invariant
+            #       failure / semantic error TLC catches), OR
+            #   (b) coverage == 0 — TLC explored zero states, so
+            #       "runtime_check passed" is vacuous (no violations because
+            #       nothing was evaluated; Init likely UNSAT or constants
+            #       broken). Observed 2026-04-17 on kimi_k25_ds/etcd: spec
+            #       compiled, TLC ran, coverage 0%, but Phase 3b invariant
+            #       (agent-translator, TLC-independent) scored 92% and
+            #       inflated total to 0.64.
+            # Coverage < 1.0 but > 0 is still a real signal and NOT a gate.
+            p2_details = (result.phase2_runtime.details or {}) if result.phase2_runtime else {}
+            runtime_check_passed = p2_details.get("runtime_check_passed", True)
+            coverage = p2_details.get("coverage", None)
+            zero_coverage = (coverage is not None and coverage <= 0.0)
+            if (not runtime_check_passed) or zero_coverage:
+                reason_tag = (
+                    "phase2_runtime_check_failed" if not runtime_check_passed
+                    else "phase2_zero_coverage"
+                )
+                logger.info(
+                    f"[{system}][Run {run_id}] Phase 2 not usable "
+                    f"({reason_tag}) — skipping Phase 3/3b"
+                )
+                skip_reason = {"skipped": reason_tag}
+                result.phase3_wv = PhaseResult(
+                    phase_name="wv", score=None, passed=False,
+                    status="skipped", details=skip_reason
+                )
+                result.phase3_invariant = PhaseResult(
+                    phase_name="invariant", score=None, passed=False,
+                    status="skipped", details=skip_reason
+                )
+                result.calculate_total_score()
+                logger.info(f"[{system}][Run {run_id}] Completed (early) - Total Score: {result.total_score:.2f}")
+                return result
+
             # Phase 3a: WV action-window validation (if enabled and Phase 1 passed)
             if self.enable_wv and result.phase1_compilation and result.phase1_compilation.passed:
                 result.phase3_wv = self.run_phase3_wv(system, run_id, spec_path)
+                # Load the WV agent's cost/usage breakdown
+                ws = (result.phase3_wv.details or {}).get("workspace") if result.phase3_wv else None
+                if ws:
+                    wv_usage_file = Path(ws) / ".run.usage.json"
+                    if wv_usage_file.exists():
+                        try:
+                            with open(wv_usage_file, 'r', encoding='utf-8') as f:
+                                full = json.load(f)
+                            result.phase3_wv_usage = {
+                                "cost_usd": full.get("total_cost_usd"),
+                                "duration_ms": full.get("duration_ms"),
+                                "num_turns": full.get("num_turns"),
+                                "num_tool_uses": full.get("num_tool_uses"),
+                                "model_usage": full.get("model_usage"),
+                            }
+                        except Exception as e:
+                            logger.warning(f"[{system}] Failed to read {wv_usage_file}: {e}")
             elif self.enable_wv:
                 logger.info(f"[{system}][Run {run_id}] Skipping Phase 3 WV (Phase 1 failed)")
                 result.phase3_wv = PhaseResult(
@@ -967,6 +1186,7 @@ class BatchExperimentRunner:
                 return None
             return {
                 "phase_name": phase.phase_name,
+                "status": phase.status,
                 "score": phase.score,
                 "passed": phase.passed,
                 "details": phase.details,
@@ -987,7 +1207,10 @@ class BatchExperimentRunner:
             "workspace_path": run_result.workspace_path,
             "phase1_compilation": phase_to_dict(run_result.phase1_compilation),
             "phase2_runtime": phase_to_dict(run_result.phase2_runtime),
+            "phase3_wv": phase_to_dict(run_result.phase3_wv),
             "phase3_invariant": phase_to_dict(run_result.phase3_invariant),
+            "phase0_usage": run_result.phase0_usage,
+            "phase3_wv_usage": run_result.phase3_wv_usage,
             "total_score": run_result.total_score,
             "is_perfect": run_result.is_perfect,
             "error": run_result.error
@@ -1101,11 +1324,15 @@ class BatchExperimentRunner:
                 sr = self.system_results[system]
                 if sr.best_run:
                     br = sr.best_run
-                    p1 = br.phase1_compilation.score if br.phase1_compilation else 0
-                    p2 = br.phase2_runtime.score if br.phase2_runtime else 0
-                    p3 = br.phase3_invariant.score if br.phase3_invariant else 0
+                    def _s(phase):
+                        if phase is None or phase.score is None:
+                            return "  -  "
+                        return f"{phase.score:.2f}"
+                    p1 = _s(br.phase1_compilation)
+                    p2 = _s(br.phase2_runtime)
+                    p3 = _s(br.phase3_invariant)
                     perfect = "Yes" if br.is_perfect else "No"
-                    print(f"{system:<15} {len(sr.runs):<6} #{br.run_id:<9} {p1:<12.2f} {p2:<14.2f} {p3:<12.2f} {br.total_score:<8.2f} {perfect:<8}")
+                    print(f"{system:<15} {len(sr.runs):<6} #{br.run_id:<9} {p1:<12} {p2:<14} {p3:<12} {br.total_score:<8.2f} {perfect:<8}")
                 else:
                     print(f"{system:<15} {len(sr.runs):<6} {'N/A':<10} {'N/A':<12} {'N/A':<14} {'N/A':<12} {'N/A':<8} {'No':<8}")
             else:
