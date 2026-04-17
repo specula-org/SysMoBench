@@ -6,9 +6,27 @@ successfully using the TLA tools (SANY parser).
 """
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
+
+
+_TLA_FENCE = re.compile(r"```\s*tla\s*\n(.*?)\n```", re.DOTALL | re.IGNORECASE)
+_CFG_FENCE = re.compile(r"```\s*cfg\s*\n(.*?)\n```", re.DOTALL | re.IGNORECASE)
+
+
+def split_tla_and_cfg(raw: str) -> Tuple[str, Optional[str]]:
+    """
+    Parse model output expected to contain ```tla and ```cfg fenced blocks.
+    Falls back to treating the whole text as raw TLA when no fences are present
+    (backwards compat with pre-fenced prompts).
+    """
+    tla_match = _TLA_FENCE.search(raw)
+    cfg_match = _CFG_FENCE.search(raw)
+    tla = tla_match.group(1) if tla_match else raw
+    cfg = cfg_match.group(1) if cfg_match else None
+    return tla, cfg
 
 from ...core.verification.validators import TLAValidator, ValidationResult
 from ...models.base import GenerationResult
@@ -111,8 +129,14 @@ class CompilationCheckEvaluator(BaseEvaluator):
                 )
                 self._set_validation_result(eval_result, validation_result)
                 return eval_result
-            tla_content = generation_result.generated_text
-        
+            tla_content, cfg_content = split_tla_and_cfg(generation_result.generated_text)
+
+        # For the spec_file_path branch, there is no separate cfg extraction —
+        # callers that pass a pre-written .tla are expected to also have its
+        # .cfg sibling in place. Only the generated-text branch produces cfg.
+        if 'cfg_content' not in locals():
+            cfg_content = None
+
         # Set the actual content being evaluated (may be from file or generation)
         eval_result.generated_specification = tla_content
         
@@ -162,7 +186,55 @@ class CompilationCheckEvaluator(BaseEvaluator):
             with open(spec_file_path, 'w', encoding='utf-8') as f:
                 f.write(tla_content)
             logger.info(f"Saved specification to: {spec_file_path}")
+
+            # Persist .cfg alongside .tla so Phase 2 (TLC) and Phase 3b
+            # (invariant) can run. If the model didn't emit a ```cfg fenced
+            # block, do NOT synthesize fake content — a missing cfg is a
+            # real signal that the model didn't follow the output contract.
+            # Downstream phases will fail on cfg=None and that's correct.
+            if cfg_content:
+                cfg_path = output_dir / f"{module_name}.cfg"
+                with open(cfg_path, 'w', encoding='utf-8') as f:
+                    f.write(cfg_content)
+                logger.info(f"Saved config to: {cfg_path}")
+            else:
+                logger.warning(
+                    f"Model did not emit a ```cfg fenced block — "
+                    f"no cfg written, downstream Phase 2/3b will fail"
+                )
         
+        # Persist adapter's usage/cost info for Phase 0 accounting.
+        # The adapter returns a GenerationResult whose metadata carries
+        # token counts under keys like model/litellm_model/usage/finish_reason.
+        # run_benchmark.py re-wraps that result, nesting the adapter metadata
+        # under a "generation_metadata" key (see direct_call/method.py). So we
+        # look there first and fall back to the top level for direct evaluator
+        # calls that bypass the benchmark wrapper.
+        gen_meta = getattr(generation_result, 'metadata', {}) or {}
+        nested = gen_meta.get("generation_metadata") or {}
+        def _pick(key):
+            return nested.get(key) if nested.get(key) is not None else gen_meta.get(key)
+        generation_usage = {
+            "model": _pick("model"),
+            "litellm_model": _pick("litellm_model"),
+            "provider": _pick("provider"),
+            "finish_reason": _pick("finish_reason"),
+            "latency_seconds": _pick("latency_seconds"),
+            "usage": _pick("usage"),
+            "response_id": _pick("response_id"),
+            # SANY-feedback retry loop (direct_call). These live at the top
+            # of gen_meta, not in the nested adapter metadata.
+            "attempts_used": gen_meta.get("attempts_used"),
+            "final_sany_success": gen_meta.get("final_sany_success"),
+            "correction_attempts": gen_meta.get("correction_attempts"),
+        }
+        try:
+            import json as _json
+            with open(output_dir / "generation_usage.json", 'w', encoding='utf-8') as f:
+                _json.dump(generation_usage, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"Failed to save generation_usage.json: {e}")
+
         # Save results and metadata
         result_data = {
             "overall_success": eval_result.overall_success,
