@@ -57,7 +57,23 @@ Per-task completion of the 9-task harness bootstrap, per
   - `RecvRequestVote` only scored on granted votes — no reject path traced.
   - Many harness events (AdvanceCommitIndex, snapshot, response pairs) are emitted but out-of-scope under current `target_actions`.
 
-## dqueue / locksvc / raftkvs (shared PGo clone)
+## dqueue (PGo)
+- Category: A (distributed message-passing, MPCal archetypes)
+- `data/repositories/pgo/` — shared clone (also for locksvc/raftkvs)
+- Go 1.23.5 installed at `/usr/local/go/` (Go 1.24.0 has a swissmap linkname bug)
+- Harness orchestration:
+  - `scripts/harness/dqueue/dqueue_trace_test.go` — duplicates `TestProducerConsumer`, wires `distsys.SetTraceRecorder(MakeLocalFileRecorder(f))` so every MPCal block emits JSON; `run.sh` copies it into the clone, removes on exit
+  - `scripts/harness/dqueue/parse_traces.py` — converts PGo's native `csElements`+`.pc` format to `{"tag":"trace","event":{...,"action":...,"label":...}}`
+  - `scripts/harness/dqueue/run.sh` — orchestration
+  - `tla_eval/tasks/dqueue/INSTRUMENTATION.md`, `task.yaml` (wv section filled)
+- Label→action mapping: `AConsumer.c1`→`Request`, `AProducer.p2`→`Produce`; other labels emitted with `action=null` for the agent's awareness
+- Smoke: 1 scenario (1p/1c, 3 values), 19 events total, 3 `Request` + 3 `Produce` + 13 out-of-scope — `go test` passes
+- WV smoke: **PASS** (workspace `wv-workspaces/20260417_142657_dqueue/`). Agent ran harness in workspace copy, 19 events, Step 0 contract compliance OK, target actions 3+3 windows present. Sample spec at `data/spec/dqueue/dqueue.tla` has `RemoveAt` symbol collision with `SequencesExt` (spec-side bug), blocking TLC — harness is verified end-to-end.
+
+## locksvc (PGo)
+- Not started
+
+## raftkvs (PGo)
 - Not started
 
 ## curp
