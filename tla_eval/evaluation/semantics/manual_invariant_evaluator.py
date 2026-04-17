@@ -401,9 +401,10 @@ class AgentInvariantTranslator:
             return False, {}, str(e)
 
     def _select_agent_cli(self, model_name: str) -> str:
-        """Select agent CLI from model name. Claude models use claude; others use codex."""
+        """Select agent CLI from model name. Claude Code aliases route to claude; others use codex."""
         normalized = (model_name or "").strip().lower()
-        if not normalized or normalized == "default" or normalized.startswith("claude"):
+        claude_aliases = {"default", "sonnet", "haiku", "opus"}
+        if not normalized or normalized in claude_aliases or normalized.startswith("claude"):
             return "claude"
         return "codex"
 
