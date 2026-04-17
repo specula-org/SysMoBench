@@ -21,10 +21,25 @@ Per-task completion of the 9-task harness bootstrap, per
   - `cargo install --path osdk` needs `--locked` (run.sh handles it); upstream Makefile target omits the flag.
 
 ## ringbuffer
-- Not started
+- **Blocked** on Asterinas upstream supply-chain issue: `core2 0.4.0` is yanked, and `kernel/Cargo.toml` pins `core2 = "^0.4"` (no other 0.4.x exists on crates.io). `cargo osdk test` generates a fresh `target/osdk/aster-nix-test-base` project whose resolver ignores our `cargo update --precise 0.4.0` in the kernel workspace. User has a prior working solution and will package it — pause until then.
+- Instrumentation already present: `kernel/src/util/ring_buffer_trace.rs` (541 lines, 4 ktests, emits Create/Split/Push/Pop/PushSlice/PopSlice events with head/tail/capacity/success fields).
 
 ## rwmutex
-- Not started (instrumentation file `rwmutex_trace.rs` already drafted in `artifacts/spin/`, similar to mutex; follows same pattern)
+- Category: B (concurrent kernel primitive; uses ktest+serial, single-threaded kernel context)
+- `artifacts/spin/`: shared Asterinas clone
+- Instrumentation already present: `ostd/src/sync/rwmutex_trace.rs` (wired in `mod.rs`, same pattern as mutex)
+- Harness orchestration added this pass:
+  - `scripts/harness/rwmutex/run.sh`
+  - `scripts/harness/rwmutex/parse_traces.py` (same seq==0 split strategy as mutex)
+  - `tla_eval/tasks/rwmutex/INSTRUMENTATION.md`
+  - `tla_eval/tasks/rwmutex/task.yaml` wv section populated
+- Events: `ReadLock`, `TryReadLock`, `WriteLock`, `TryWriteLock`, `ReadUnlock`, `WriteUnlock` (+ UpreadLock/TryUpreadLock/UpreadUnlock/UpgradeLock/TryUpgradeLock available but not exercised by current ktest)
+- Action mapping: Read/TryRead → `AcquireReadLock`, Write/TryWrite → `AcquireWriteLock`, Upread/TryUpread → `AcquireUpReadLock` (unused), all `*Unlock` → `ReleaseLock`
+- Smoke: 100 trace files, 2230 events total, ktest `1 passed; 0 failed`
+- WV smoke: in progress (see latest `wv-workspaces/*_rwmutex/`)
+- Known coverage gaps:
+  - `test_rwmutex_trace` doesn't exercise upread/upgrade — `AcquireUpReadLock` will have 0 scoring windows
+  - Failed `try_*` attempts not traced; only successful paths scored
 
 ## redisraft
 - Not started

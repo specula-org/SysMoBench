@@ -40,10 +40,12 @@ phase3:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 wv:
-  # TODO: set local path to instrumented repo
-  repo_path: null
+  # Shared Asterinas kernel clone (also used by mutex, spin, ringbuffer).
+  repo_path: "artifacts/spin"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
+  # Raw trace emits ReadLock/WriteLock/UpreadLock/Try*/*Unlock/UpgradeLock;
+  # WV windowing translates to these spec actions.
   target_actions:
     - AcquireReadLock
     - AcquireWriteLock
@@ -52,4 +54,24 @@ wv:
 
   harness:
     type: "docker"
-    note: "Shares Asterinas kernel harness with spin"
+    docker_image: "asterinas/asterinas:0.16.0-20250822"
+    instrumentation_file: "ostd/src/sync/rwmutex_trace.rs"
+    test_file: "ostd/src/sync/rwmutex_trace.rs"
+    test_target: "test_rwmutex_trace"
+    run_command: "bash scripts/harness/rwmutex/run.sh"
+    traces_output_env: "TRACES_DIR"
+    traces_default_dir: "artifacts/rwmutex/traces"
+    instrumentation_doc: "tla_eval/tasks/rwmutex/INSTRUMENTATION.md"
+    trace_action_map:
+      ReadLock: "AcquireReadLock"
+      TryReadLock: "AcquireReadLock"
+      WriteLock: "AcquireWriteLock"
+      TryWriteLock: "AcquireWriteLock"
+      UpreadLock: "AcquireUpReadLock"
+      TryUpreadLock: "AcquireUpReadLock"
+      ReadUnlock: "ReleaseLock"
+      WriteUnlock: "ReleaseLock"
+      UpreadUnlock: "ReleaseLock"
+    coverage_gaps:
+      - "test_rwmutex_trace does not exercise upread/upgrade paths; AcquireUpReadLock windows will be 0"
+      - "Failed Try*Lock attempts are not traced; only successful paths scored"
