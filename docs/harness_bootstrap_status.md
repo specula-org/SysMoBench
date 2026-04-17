@@ -83,7 +83,17 @@ Per-task completion of the 9-task harness bootstrap, per
 - WV smoke: **PASS** (workspace `wv-workspaces/20260417_143727_locksvc/`). 25 events, 3 of each action. Sample spec has two defects (line 28 mixes record/function syntax; `ServerGrantLock` uses double-primed `network''`) — spec-side bugs, harness verified.
 
 ## raftkvs (PGo)
-- Not started
+- Category: A (monolithic Raft-based KV store, 5 server archetypes + 1 client archetype)
+- Same PGo clone at `data/repositories/pgo/`
+- Harness orchestration (heaviest PGo case — requires patching bootstrap):
+  - `scripts/harness/raftkvs/trace_hook.go` — new `bootstrap/` file with `var TraceRecorder trace.Recorder`
+  - `run.sh` Python-patches `bootstrap/server.go` (adds `SetTraceRecorder` append inside `genResources`) and `bootstrap/client.go` (adds option to `AClient`'s `NewMPCalContext`); trap-restores on exit
+  - `scripts/harness/raftkvs/raftkvs_trace_test.go` — sets `bootstrap.TraceRecorder` then spins up 3 servers + 1 client via `configs/test-3-1.yaml`
+  - `scripts/harness/raftkvs/parse_traces.py` — disambiguates `AServer.handleMsg` by parsing `mtype` from PGo's TLA-record reads (`("mtype") :> ("rvq")` etc.); drops 30K+ tight-polling events (`applyLoop`, `serverAdvanceCommitIndexLoop`) at parse time
+  - `tla_eval/tasks/raftkvs/INSTRUMENTATION.md`, `task.yaml` (wv section filled with 5-way trace_action_map)
+- Label+mtype→action mapping: `AClient.sndReq`→`ClientRequest`; `AServerRequestVote.serverRequestVoteLoop`→`ElectionTimeout`; `AServer.handleMsg` {rvq→`HandleRequestVoteRequest`, apq→`HandleAppendEntriesRequest`, app→`HandleAppendEntriesResponse`}
+- Smoke: 3-server/1-client/3-request-pair scenario, ~1039 events (post-filter): 2 ElectionTimeout, 2 HandleRequestVoteRequest, 144 HandleAppendEntriesRequest, 144 HandleAppendEntriesResponse, 7 ClientRequest
+- WV smoke: **PARTIAL** (workspace `wv-workspaces/20260417_145041_raftkvs/`). Agent short-circuited at Step 1 (spec compile) before running the harness — sample spec has parse error at line 198 (`HandleRequestVoteRequest`), plus double-primed vars and a broken `∀` assignment. Harness itself is verified via direct run (`bash scripts/harness/raftkvs/run.sh` — 1039 events, 5 target actions present).
 
 ## curp
 - Not started

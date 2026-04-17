@@ -39,8 +39,7 @@ phase3:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 wv:
-  # TODO: set local path to instrumented repo
-  repo_path: null
+  repo_path: "data/repositories/pgo"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
   target_actions:
@@ -50,5 +49,22 @@ wv:
     - HandleAppendEntriesResponse
     - ClientRequest
 
-  # TODO: add harness info (instrumentation_file, test_file, run_command)
-  harness: {}
+  harness:
+    type: "native"
+    instrumentation_file: "scripts/harness/raftkvs/trace_hook.go"
+    test_file: "scripts/harness/raftkvs/raftkvs_trace_test.go"
+    test_target: "TestSafety_ThreeServers_WithTrace"
+    run_command: "bash scripts/harness/raftkvs/run.sh"
+    traces_output_env: "TRACES_DIR"
+    traces_default_dir: "artifacts/raftkvs/traces"
+    instrumentation_doc: "tla_eval/tasks/raftkvs/INSTRUMENTATION.md"
+    trace_action_map:
+      "AClient.sndReq": "ClientRequest"
+      "AServerRequestVote.serverRequestVoteLoop": "ElectionTimeout"
+      "AServer.handleMsg (mtype=rvq)": "HandleRequestVoteRequest"
+      "AServer.handleMsg (mtype=apq)": "HandleAppendEntriesRequest"
+      "AServer.handleMsg (mtype=app)": "HandleAppendEntriesResponse"
+    coverage_gaps:
+      - "3-server / 1-client / 3-request-pair scenario — ~2 ElectionTimeout, 2 HandleRequestVoteRequest, 140+ HandleAppendEntries, 6 ClientRequest"
+      - "run.sh patches bootstrap/server.go + bootstrap/client.go in place to route SetTraceRecorder through a new bootstrap.TraceRecorder global; originals restored on exit via trap"
+      - "applyLoop and serverAdvanceCommitIndexLoop tight-polling events (30K+ per run) dropped at parse time — only touch local archetype variables"
