@@ -117,14 +117,19 @@ class LiteLLMAdapter(ModelAdapter):
         if "/" in model_name:
             return model_name
 
+        # When the user explicitly pins a provider (e.g. "anthropic"), honor it
+        # even with a custom api_base — Anthropic-compatible proxies (like
+        # api.minimax.io/anthropic) need the `anthropic/` prefix or LiteLLM
+        # builds an OpenAI-format request and gets 404.
+        if provider_key not in ("litellm", ""):
+            provider_prefix = cls.PROVIDER_ALIASES.get(provider_key, provider_key)
+            return f"{provider_prefix}/{model_name}"
+
+        # Default: assume api_base is OpenAI-compatible (gptsapi etc.)
         if api_base:
             return f"openai/{model_name}"
 
-        if provider_key == "litellm":
-            return model_name
-
-        provider_prefix = cls.PROVIDER_ALIASES.get(provider_key, provider_key)
-        return f"{provider_prefix}/{model_name}"
+        return model_name
 
     @staticmethod
     def build_thinking_config(
@@ -290,6 +295,12 @@ class LiteLLMAdapter(ModelAdapter):
             "messages": [{"role": "user", "content": prompt}],
             "timeout": self.config.get("timeout", 300),
             "drop_params": True,
+            # Disable automatic retries. Reasoning models (grok-4, deepseek-reasoner)
+            # can take 10+ minutes per call and cost $1+ each; silent retries on
+            # client-side timeouts produce multiple billable calls. A single failure
+            # should fail fast, not cascade.
+            "num_retries": 0,
+            "max_retries": 0,
         }
 
         if self.api_key:
@@ -354,8 +365,47 @@ class LiteLLMAdapter(ModelAdapter):
         api_params = self._build_completion_params(prompt, generation_config)
         start_time = time.time()
 
+        # Narrow retry ONLY for provider-side overload signals (HTTP 529 /
+        # anthropic "overloaded_error" / generic 503). These are not billable
+        # — server returns early without having done the work. Bounded to 2
+        # retries with 20/40 s backoff; anything else raises immediately.
+        # This is LOUD (warnings to log), unlike the previous silent 4×30s
+        # retry-all-errors wrapper that was removed for cost safety.
+        max_overload_retries = 2
+        attempt = 0
+        while True:
+            try:
+                response = completion(**api_params)
+                if attempt > 0:
+                    logger.warning(f"LiteLLM 529/overload cleared after {attempt} retry(ies)")
+                break
+            except Exception as e:
+                msg = str(e).lower()
+                err_name = type(e).__name__.lower()
+                # Recognise transient provider-side rejections. These don't
+                # bill (server rejected early without generating output).
+                # Match by exception class name and numeric error codes so
+                # the check works regardless of the error text's language.
+                is_transient = (
+                    "529" in msg or "overloaded" in msg or "overload_error" in msg
+                    or "ratelimit" in err_name or "rate limit" in msg
+                    or "too many requests" in msg or "429" in msg
+                    # DashScope cluster-busy returns error code 2064.
+                    or "(2064)" in msg
+                )
+                if is_transient and attempt < max_overload_retries:
+                    delay = 20 * (2 ** attempt)  # 20s, 40s
+                    logger.warning(
+                        f"LiteLLM got provider transient error "
+                        f"(attempt {attempt+1}/{max_overload_retries+1}); "
+                        f"sleeping {delay}s then retrying. Error: {str(e)[:200]}"
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                raise
+
         try:
-            response = completion(**api_params)
             generated_text = self._extract_generated_text(response)
             end_time = time.time()
 

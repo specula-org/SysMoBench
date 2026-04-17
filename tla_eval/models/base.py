@@ -62,61 +62,21 @@ class ModelAdapter(ABC):
     
     def _retry_on_service_unavailable(self, func: Callable, *args, **kwargs):
         """
-        Retry wrapper for handling server errors (500, 503, etc.).
-        
-        Args:
-            func: Function to retry
-            *args: Arguments to pass to the function
-            **kwargs: Keyword arguments to pass to the function
-            
-        Returns:
-            Result of the function call
-            
-        Raises:
-            Exception: The last exception if all retries fail
+        One-shot call. Any exception propagates immediately.
+
+        Previously this wrapped the adapter call in a 4-attempt retry loop
+        (30 s between attempts) that fired on 500 / 503 / 502 / 504 /
+        "rate limit" / "quota" error substrings. That hidden loop billed the
+        user 4× per apparent call and stacked with direct_call's own retry
+        loop (up to 12 billable requests per logical "attempt"). Observed
+        2026-04-17 on MiniMax etcd: 431s of Phase 0 with "Generation failed"
+        was 4 billable API errors with 30 s sleeps in between, invisible
+        because subprocess stdout was not persisted.
+
+        The user's rule: NO SILENT RETRY. If a call fails, fail fast, surface
+        the error to the caller, let the caller decide.
         """
-        max_retries = 3
-        retry_delay = 30  # 30 seconds as requested
-        
-        last_exception = None
-        
-        for attempt in range(max_retries + 1):  # 0, 1, 2, 3 (4 total attempts)
-            try:
-                result = func(*args, **kwargs)
-                if attempt > 0:
-                    logger.info(f"✓ Request succeeded after {attempt} retries")
-                return result
-                
-            except Exception as e:
-                last_exception = e
-                error_str = str(e).lower()
-                
-                # Check for retryable server errors
-                is_retryable = (
-                    "500" in error_str or           # Internal Server Error
-                    "503" in error_str or           # Service Unavailable  
-                    "502" in error_str or           # Bad Gateway
-                    "504" in error_str or           # Gateway Timeout
-                    "internal" in error_str or      # Generic internal error
-                    "server error" in error_str or  # Generic server error
-                    "rate limit" in error_str or    # Rate limiting (temporary)
-                    "quota" in error_str            # Quota exceeded (may be temporary)
-                )
-                
-                if is_retryable and attempt < max_retries:
-                    error_code = "500/503" if any(code in error_str for code in ["500", "503"]) else "SERVER"
-                    logger.warning(f"{error_code} Server Error (attempt {attempt + 1}/{max_retries + 1}). Retrying in {retry_delay}s...")
-                    logger.debug(f"Error details: {e}")
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    # Non-retryable error or max retries reached - stop immediately
-                    if attempt >= max_retries:
-                        logger.error(f"All {max_retries + 1} attempts failed. Last error: {e}")
-                    break
-        
-        # All retries failed, raise the last exception
-        raise last_exception
+        return func(*args, **kwargs)
     
     @abstractmethod
     def _setup_model(self):
