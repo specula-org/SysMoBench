@@ -51,10 +51,10 @@ phase3:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 wv:
-  # TODO: set local path to instrumented repo
-  repo_path: null
+  repo_path: "data/repositories/Xline"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
+  # Raw trace events already match spec action names exactly — no translation.
   target_actions:
     - Propose
     - ProcessProposeLeader
@@ -63,5 +63,24 @@ wv:
     - ProcessCommitMsg
     - LeaderChange
 
-  # TODO: add harness info (instrumentation_file, test_file, run_command)
-  harness: {}
+  harness:
+    type: "native"
+    instrumentation_file: "data/patches/xline-instrumented.patch"
+    test_file: "crates/simulation/src/bin/trace_generator.rs"
+    test_target: "trace_generator"
+    run_command: "bash scripts/harness/curp/run.sh"
+    traces_output_env: "TRACES_DIR"
+    traces_default_dir: "artifacts/curp/traces"
+    instrumentation_doc: "tla_eval/tasks/curp/INSTRUMENTATION.md"
+    # Event names are already canonical; no mapping.
+    trace_action_map:
+      Propose: "Propose"
+      ProcessProposeLeader: "ProcessProposeLeader"
+      ProcessProposeNonLeader: "ProcessProposeNonLeader"
+      Commit: "Commit"
+      ProcessCommitMsg: "ProcessCommitMsg"
+      LeaderChange: "LeaderChange"
+    coverage_gaps:
+      - "3 nodes / 30 operations / 10% packet loss by default (CURP_NODES, CURP_OP_COUNT env overrides)"
+      - "Only r2 becomes leader once in default seed; for more LeaderChange windows, rerun or lengthen the scenario"
+      - "trace events carry state deltas (json-patch-like format), not full snapshots; WV agent reconstructs state by replaying deltas"

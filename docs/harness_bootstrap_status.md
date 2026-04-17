@@ -96,7 +96,23 @@ Per-task completion of the 9-task harness bootstrap, per
 - WV smoke: **PARTIAL** (workspace `wv-workspaces/20260417_145041_raftkvs/`). Agent short-circuited at Step 1 (spec compile) before running the harness — sample spec has parse error at line 198 (`HandleRequestVoteRequest`), plus double-primed vars and a broken `∀` assignment. Harness itself is verified via direct run (`bash scripts/harness/raftkvs/run.sh` — 1039 events, 5 target actions present).
 
 ## curp
-- Not started
+- Category: A (distributed consensus, Madsim-simulated 3-node CURP cluster)
+- `data/repositories/Xline/` — commit `71479a4fabdd12fe67eec0bee95e652976937541` + 2 submodules (curp-proto, xline-proto) + `data/patches/xline-instrumented.patch` auto-applied by run.sh
+- The patch ships a complete tracing stack:
+  - new `crates/trace/` crate with a global `ClusterState` tracker and `trace_event(name, args)` function
+  - new `crates/simulation/src/bin/trace_generator.rs` — CLI that spins up a 3-node Madsim cluster and drives N ops
+  - instrumentation calls into `raw_curp/mod.rs`, `curp_node.rs`, `client/unary/propose_impl.rs`, `cmd_worker/mod.rs`, `conflict/uncommitted_pool.rs`
+  - `.cargo/config.toml` + Cargo.toml additions to enable `--cfg madsim`
+- Harness orchestration (thin wrapper only):
+  - `scripts/harness/curp/run.sh` — auto-applies patch if `crates/trace/` missing; runs `cargo run --release --bin trace_generator --nodes $N --op-count $M --trace-file …`
+  - `tla_eval/tasks/curp/INSTRUMENTATION.md`, `task.yaml` (wv section filled; trace_action_map is identity since event names already match spec)
+- Events emit with canonical names: `Propose`, `ProcessProposeLeader`, `ProcessProposeNonLeader`, `Commit`, `ProcessCommitMsg`, `LeaderChange`. No converter needed.
+- Smoke: 3-node / 30-op / 10% packet-loss default — ~180 events, all 6 actions present
+- WV smoke: **PASS** (workspace `data/repositories/Xline/wv-workspaces/20260417_145848_curp/`). Agent ran harness fresh from workspace copy, 179 events, all 6 actions have windows (26 Propose + 23 ProcessProposeLeader + 37 ProcessProposeNonLeader + 23 Commit + 69 ProcessCommitMsg + 1 LeaderChange). Sample spec has `Keys(cmd)` where it should be `Keys[cmd]` — spec-side bug, harness verified. Agent also flagged a genuine instrumentation gap: `uncommitted_pool` is not cleared during `ProcessCommitMsg` in the trace, causing stale pre-state for ProcessProposeLeader windows 2–23. Real finding — future improvement.
+- Open issues:
+  - `uncommitted_pool` staleness during `ProcessCommitMsg` (see above). Trace patch needs a fix: emit removal when leader commits.
+  - Leader churn is minimal (1 `LeaderChange` in default seed). Longer scenarios / seed variation would improve coverage.
+  - First-time build is ~8–15 min (xline + rocksdb + madsim cold compile); incremental ≈ 30 s.
 
 ## zookeeper
 - Not started
