@@ -169,22 +169,33 @@ class RunResult:
 
     def calculate_total_score(self):
         """
-        Calculate total score. Default formula = equal-weighted mean over
-        phases that ACTUALLY ran. Skipped/pending/not_evaluated phases are
-        NOT averaged in (would penalise unfairly a spec whose Phase 1 failed
-        and thus never got a chance at Phase 3). Use scripts/compute_scores.py
-        for alternative formulas.
+        Calculate total score. Formula:
+          total = mean over {ran at score} ∪ {skipped as 0}
+        Rationale: a "skipped" phase (cascade-skip because upstream failed)
+        means the spec could not demonstrate anything in that phase — giving
+        0 credit. Before 2026-04-18 we excluded skipped phases from the
+        denominator, which let a spec that only passed Phase 1 end up at
+        0.50 just because its cascade-skipped phases didn't drag down
+        the average. That was generous nonsense — fixed here.
+
+        "not_evaluated" / "pending" phases remain excluded: those mean
+        "we never attempted this phase" (e.g., WV not enabled, generation
+        failed entirely) rather than "we attempted but cascade-skipped".
         """
         phases = [self.phase1_compilation, self.phase2_runtime,
                   self.phase3_wv, self.phase3_invariant]
-        scored = [
-            p.score for p in phases
-            if p is not None and p.status == "ran" and p.score is not None
-        ]
+        scored = []
+        for p in phases:
+            if p is None:
+                continue
+            if p.status == "ran" and p.score is not None:
+                scored.append(p.score)
+            elif p.status == "skipped":
+                scored.append(0.0)
+            # "not_evaluated" / "pending" / None → excluded
 
         self.total_score = sum(scored) / len(scored) if scored else 0.0
 
-        # "Perfect" only makes sense if every phase ran AND every phase is 1.0.
         ran_all = all(p is not None and p.status == "ran" for p in phases)
         self.is_perfect = (
             ran_all and all((p.score or 0) >= 1.0 for p in phases)

@@ -241,11 +241,28 @@ def build_rows():
             r.phase3_audit_bugs = wv_info["audit_bugs"]
             r.phase3_final_score = wv_info["phase3_final_score"]
             r.__dict__.update(parse_wv_cost(ws))
-        # overall = mean over ran phases including phase3_final_score (if available)
-        scored = [x for x in [r.phase1_score, r.phase2_score,
-                              r.phase3_final_score if r.phase3_final_score is not None
-                              else r.phase3_wv_rate,
-                              r.phase3b_score] if x is not None]
+        # overall = same formula as batch runner: mean over
+        #   {phase status=="ran" at its score} ∪ {phase status=="skipped" at 0}
+        # not_evaluated / pending / None → excluded.
+        # For Phase 3 WV we prefer the audited final score when available.
+        scored = []
+        for key, val in [
+            ("phase1_compilation", r.phase1_score),
+            ("phase2_runtime", r.phase2_score),
+            ("phase3_invariant", r.phase3b_score),
+        ]:
+            p = d.get(key) or {}
+            st = p.get("status")
+            if st == "ran" and val is not None:
+                scored.append(val)
+            elif st == "skipped":
+                scored.append(0.0)
+        # Phase 3 WV: pulled from wv-workspace, handled separately
+        p3_val = r.phase3_final_score if r.phase3_final_score is not None else r.phase3_wv_rate
+        if p3_val is not None:
+            scored.append(p3_val)
+        elif (d.get("phase3_wv") or {}).get("status") == "skipped":
+            scored.append(0.0)
         r.overall_score = sum(scored) / len(scored) if scored else None
         rows.append(r)
     return rows

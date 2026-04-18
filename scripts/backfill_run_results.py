@@ -178,12 +178,22 @@ def apply_phase2_cascade(run: dict) -> None:
 
 
 def recompute_total(run: dict) -> float:
-    """Equal-weighted mean over status=ran, score!=None phases."""
+    """Mean over {ran at score} ∪ {skipped as 0}.
+
+    Skipped phases count as 0 — a cascade-skip means the spec could not
+    demonstrate anything in that phase. not_evaluated / pending / None
+    remain excluded (those mean the phase was never attempted).
+    """
     scored = []
     for key in ("phase1_compilation", "phase2_runtime", "phase3_wv", "phase3_invariant"):
         p = run.get(key)
-        if p and p.get("status") == "ran" and p.get("score") is not None:
+        if not p:
+            continue
+        st = p.get("status")
+        if st == "ran" and p.get("score") is not None:
             scored.append(p["score"])
+        elif st == "skipped":
+            scored.append(0.0)
     return sum(scored) / len(scored) if scored else 0.0
 
 
