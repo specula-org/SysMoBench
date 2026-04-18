@@ -21,8 +21,24 @@ Per-task completion of the 9-task harness bootstrap, per
   - `cargo install --path osdk` needs `--locked` (run.sh handles it); upstream Makefile target omits the flag.
 
 ## ringbuffer
-- **Blocked** on Asterinas upstream supply-chain issue: `core2 0.4.0` is yanked, and `kernel/Cargo.toml` pins `core2 = "^0.4"` (no other 0.4.x exists on crates.io). `cargo osdk test` generates a fresh `target/osdk/aster-nix-test-base` project whose resolver ignores our `cargo update --precise 0.4.0` in the kernel workspace. User has a prior working solution and will package it — pause until then.
-- Instrumentation already present: `kernel/src/util/ring_buffer_trace.rs` (541 lines, 4 ktests, emits Create/Split/Push/Pop/PushSlice/PopSlice events with head/tail/capacity/success fields).
+- Category: B in spirit (lock-free SPSC), executed via Asterinas ktest (single-threaded simulation) rather than true timebox rdtsc.
+- Uses shared `artifacts/spin/` clone with **ringbuffer-specific overlays**:
+  - `ostd/src/trace_support.rs` + `ostd/src/lib.rs` pub-mod export: lets kernel-level code emit serial bytes via public OSTD helpers (avoids `pub(crate)` access to `IN_BOOTSTRAP_CONTEXT` / `arch::serial`).
+  - `kernel/src/util/ring_buffer_trace.rs` (641 lines, replaces the 541-line stub) with `test_rb_trace_randomized` ktest.
+  - `vendored/core2-0.4.0` + `vendored/libflate-2.2.1` + `vendored/libflate_lz77-2.2.0` + patched `osdk/src/base_crate/Cargo.toml.template` injecting `[patch.crates-io]` into every generated test-base (redirecting the three supply-chain-rotten crates plus `ostd`/`osdk-test-kernel`/`osdk-frame-allocator`/`osdk-heap-allocator` to in-workspace paths to avoid duplicate `#[global_allocator]` errors).
+  - Patched `tools/qemu_args.sh` honoring `OVMF_PATH` so host OVMF files work.
+  - Materialized `test/build/initramfs.cpio.gz` (not the original dangling nix-store symlink).
+- Harness is **host-side** (not docker):
+  - `scripts/harness/ringbuffer/run.sh` — invokes the patched cargo-osdk with `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback` + `OVMF=off`; rustup's `nightly-2025-02-01` toolchain drives the build.
+  - `scripts/harness/ringbuffer/parse_traces.py` — splits on `=== TRACE_RANDOM_<n> ===` banners.
+  - `tla_eval/tasks/ringbuffer/INSTRUMENTATION.md` documents the one-time setup (install qemu/ovmf/grub tools, rebuild cargo-osdk inside docker with matched `-v $(pwd):$(pwd)` mount, materialize initramfs).
+- Why host-side: `cargo osdk test` generates a fresh test-base workspace that re-resolves from crates.io. Docker's rustc 1.86-nightly can't build libflate 2.3.0 / time 0.3.47 / fixed 1.31.0; core2 0.4.0 is yanked. Our host has the same rustc via rustup but with modern tooling + the patched osdk template pinning the supply-chain-affected crates.
+- Smoke: 5 scenarios, ~80-95 events (Push/PushSlice/Pop/PopSlice/Create/Split), `test result: ok`
+- WV smoke: **PASS** (workspace `wv-workspaces/20260418_080338_ringbuffer/`). Agent ran the harness from the workspace copy, got 93 events, Step 0 contract compliance confirmed (correctly excluded `success=false` and `Create`/`Split` as Type B out-of-scope). Sample spec at `data/spec/ringbuffer/ringbuffer.tla` has an undefined `vars` identifier in its `Fairness` definition (4 SANY errors) — spec-side bug, harness verified.
+- Open issues:
+  - Host-side only, which diverges from the docker-based mutex/rwmutex flow. Future cleanup: unify when Asterinas upstream either unyaks core2 or pins to a non-yanked version.
+  - Single-threaded simulation (no genuine producer/consumer race); success=false paths exercised but may need spec extension to score.
+  - One-time setup: rebuild cargo-osdk in docker (~10s) + materialize initramfs (~5 min cold nix build, cached afterwards).
 
 ## rwmutex
 - Category: B (concurrent kernel primitive; uses ktest+serial, single-threaded kernel context)
