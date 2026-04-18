@@ -115,4 +115,10 @@ Per-task completion of the 9-task harness bootstrap, per
   - First-time build is ~8–15 min (xline + rocksdb + madsim cold compile); incremental ≈ 30 s.
 
 ## zookeeper
-- Not started
+- **Blocked on patch-drift.** Remix clone at `data/repositories/Remix/` HEAD `81869f1` has diverged ~1400 lines from the version `data/patches/remix_ndjson_output_complete.patch` was authored against. `patch -p1` and `git apply --recount --reject` both succeed on 3 of 8 hunks (field decls + NDJSON file init + final cleanup fix-up) but reject the 5 hunks that do the actual `writeNdjsonEvent(...)` calls (`ElectionMessage`, `FollowerToLeaderMessage`, `LeaderToFollowerMessage`, plus the `writeNdjsonEvent` helper method and the `ndjsonWriter.close()` in shutdown). Result: replay completes but writes a 0-byte NDJSON file.
+- Java + Maven deps satisfied (OpenJDK 21, Maven 3.8.7). Remix builds cleanly (`scripts/build.sh` → ~30s success).
+- Placeholder artifacts committed:
+  - `scripts/harness/zookeeper/run.sh` — exits 2 with explicit "not functional yet" message (per the "no fake content" policy)
+  - `tla_eval/tasks/zookeeper/INSTRUMENTATION.md` — documents the 5 rejected hunks, current line numbers for the target methods in `ReplayService.java` (`offerElectionMessage` @2230, `offerFollowerToLeaderMessage` @2342, `offerLeaderToFollowerMessage` @2479, `offerLocalEvent` @2697), and the target→spec action mapping
+  - `tla_eval/tasks/zookeeper/task.yaml` — `wv.harness.status: "blocked:patch-drift"` with a `blocker` field spelling out the gap
+- Estimated repair: 1-2 hours to manually port the 5 rejected hunks and add a second emit point for `HandleNotification` (patch only covers send-side, not receive-side).

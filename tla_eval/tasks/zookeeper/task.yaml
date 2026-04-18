@@ -49,8 +49,7 @@ phase3:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 wv:
-  # TODO: set local path to instrumented repo
-  repo_path: null
+  repo_path: "data/repositories/Remix"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
   target_actions:
@@ -58,5 +57,21 @@ wv:
     - HandleNotification
     - BecomeLeader
 
-  # TODO: add harness info (instrumentation_file, test_file, run_command)
-  harness: {}
+  # NOT FUNCTIONAL. data/patches/remix_ndjson_output_complete.patch was
+  # authored against an older Remix commit; 5 of 8 hunks don't apply
+  # against the current clone (HEAD 81869f1). See INSTRUMENTATION.md
+  # for the full repair plan.
+  harness:
+    type: "native"
+    status: "blocked:patch-drift"
+    instrumentation_file: "data/patches/remix_ndjson_output_complete.patch"
+    test_file: "checker/server/src/main/java/org/disalg/remix/server/ReplayService.java"
+    run_command: "bash scripts/harness/zookeeper/run.sh"
+    traces_output_env: "NDJSON_OUTPUT"
+    traces_default_dir: "artifacts/zookeeper/traces"
+    instrumentation_doc: "tla_eval/tasks/zookeeper/INSTRUMENTATION.md"
+    blocker: |
+      Remix upstream drifted ~1400 lines; patch's 4 event-emit hunks
+      land in locations that no longer exist. Without those emit
+      calls, replay produces a 0-byte NDJSON file. Needs manual
+      re-port of the 5 rejected hunks (see INSTRUMENTATION.md).
