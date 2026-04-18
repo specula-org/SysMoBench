@@ -31,6 +31,37 @@ OUT_ROOT = PROJECT_ROOT / "docs" / "leaderboard"
 SYSTEMS = ["spin", "etcd", "curp", "dqueue", "locksvc", "mutex",
            "raftkvs", "redisraft", "ringbuffer", "rwmutex", "zookeeper"]
 
+# Model canonicalization: collapse config-level model names that are really the
+# same underlying model accessed via different routes (proxy vs direct API) or
+# with different timeout variants. Best-of-N picks the highest run across all
+# aliased configs.
+MODEL_ALIASES = {
+    # claude-sonnet-4-6 via gptsapi proxy OR direct Anthropic API
+    "claude_sonnet_proxy": "claude_sonnet",
+    "claude_sonnet_direct": "claude_sonnet",
+    # qwen3.6-plus with 1h timeout variant (for etcd's 45K input)
+    "qwen36_plus_ds_1h": "qwen36_plus_ds",
+}
+
+# Abandoned / exploratory runs from earlier provider trials that never reached
+# full-batch completion. Excluded from the primary leaderboard (the website
+# shows only PRIMARY_MODELS by default; all rows stay in data.json under
+# "all_rows" for completeness).
+ABANDONED_MODELS = {
+    "deepseek_r1_proxy",  # only 1 system ever ran
+    "gpt54_proxy",        # replaced by gpt54_azure (free Azure tier)
+    "gemini31_proxy",     # proxy 504 on mutex-size prompts; to be re-run direct
+    "glm51",              # DashScope glm-5.1 routing broken
+    "glm51_ds",           # same as above
+    "grok4_proxy",        # proxy retry storm, cost control issue
+    "minimax_m27",        # API cluster overload, abandoned
+}
+
+
+def canonical(model: str) -> str:
+    """Map config-level model name to canonical leaderboard name."""
+    return MODEL_ALIASES.get(model, model)
+
 
 @dataclass
 class SystemResult:
@@ -75,8 +106,7 @@ def scan_phase_a_batches():
         if not m:
             continue
         model = m.group(1)
-        # Normalise qwen etcd 1h variant back to base model for leaderboard display
-        model_display = model.replace("_1h", "")
+        model_display = canonical(model)
         for sys_dir in batch_dir.iterdir():
             if not sys_dir.is_dir() or sys_dir.name not in SYSTEMS:
                 continue
@@ -95,21 +125,24 @@ def scan_phase_a_batches():
 
 
 def find_wv_workspace_for(model: str, system: str) -> Path | None:
-    """Find the latest WV workspace whose spec symlink points to this model's output."""
+    """Find the latest WV workspace whose spec symlink points to this canonical
+    model's output (following alias collapse)."""
     if not WV_ROOT.exists():
         return None
+    aliases = {k for k, v in MODEL_ALIASES.items() if v == model}
+    aliases.add(model)  # also accept the canonical name itself
     candidates = []
     for ws in sorted(WV_ROOT.glob(f"*_{system}")):
         spec_link = ws / "spec" / f"{system}.tla"
         if not spec_link.exists():
             continue
-        target = spec_link.resolve()
-        target_str = str(target)
+        target_str = str(spec_link.resolve())
         # Spec path pattern:
-        # output/compilation_check/tla/<sys>/direct_call_<model>/<ts>/<sys>.tla
-        if f"direct_call_{model}/" in target_str:
-            candidates.append(ws)
-    # Return newest (lexicographic on timestamped ws name works here)
+        # output/compilation_check/tla/<sys>/direct_call_<cfg_model>/<ts>/<sys>.tla
+        for a in aliases:
+            if f"direct_call_{a}/" in target_str:
+                candidates.append(ws)
+                break
     return candidates[-1] if candidates else None
 
 
@@ -218,6 +251,12 @@ def build_rows():
     return rows
 
 
+def write_detail_csv_all(rows, path: Path):
+    # detail.csv contains PRIMARY models only (abandoned excluded to keep the
+    # main leaderboard focused). Full data lives in data.json.
+    write_detail_csv([r for r in rows if r.model not in ABANDONED_MODELS], path)
+
+
 def write_detail_csv(rows, path: Path):
     fields = [
         "model", "system",
@@ -239,6 +278,8 @@ def write_detail_csv(rows, path: Path):
 def write_aggregate_csv(rows, path: Path):
     by_model: dict[str, list[SystemResult]] = {}
     for r in rows:
+        if r.model in ABANDONED_MODELS:
+            continue
         by_model.setdefault(r.model, []).append(r)
     fields = [
         "model", "systems_evaluated", "overall_score_mean",
@@ -272,11 +313,15 @@ def write_aggregate_csv(rows, path: Path):
 
 
 def write_json(rows, path: Path):
+    primary = [r for r in rows if r.model not in ABANDONED_MODELS]
+    abandoned = [r for r in rows if r.model in ABANDONED_MODELS]
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "project": "SysMoBench",
-        "schema_version": 1,
-        "rows": [asdict(r) for r in rows],
+        "schema_version": 2,
+        "primary_rows": [asdict(r) for r in primary],
+        "abandoned_rows": [asdict(r) for r in abandoned],
+        "abandoned_models": sorted(ABANDONED_MODELS),
     }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -284,15 +329,18 @@ def write_json(rows, path: Path):
 def main():
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     rows = build_rows()
-    write_detail_csv(rows, OUT_ROOT / "detail.csv")
+    write_detail_csv_all(rows, OUT_ROOT / "detail.csv")
     write_aggregate_csv(rows, OUT_ROOT / "aggregate.csv")
     write_json(rows, OUT_ROOT / "data.json")
-    print(f"Wrote {len(rows)} detail rows to {OUT_ROOT}")
-    models = sorted({r.model for r in rows})
-    print(f"Models: {models}")
-    print(f"  detail.csv     — per (model, system) row")
-    print(f"  aggregate.csv  — per model averages")
-    print(f"  data.json      — full structured data (website agent reads this)")
+    primary = {r.model for r in rows if r.model not in ABANDONED_MODELS}
+    abandoned = {r.model for r in rows if r.model in ABANDONED_MODELS}
+    print(f"Wrote {len(rows)} total detail rows ({len(primary)} primary models, "
+          f"{len(abandoned)} abandoned)")
+    print(f"Primary models:    {sorted(primary)}")
+    print(f"Abandoned models:  {sorted(abandoned)}")
+    print(f"  detail.csv     — primary rows, per (model, system)")
+    print(f"  aggregate.csv  — primary rows, per model averages")
+    print(f"  data.json      — full data (primary_rows + abandoned_rows)")
 
 
 if __name__ == "__main__":

@@ -109,14 +109,32 @@ truth; don't hand-edit the CSV/JSON.
 - **WV workspaces under `wv-workspaces/`** are per-evaluation. Historical ones
   stay even when new ones are added; the script picks the latest matching one.
 
-## Known data quirks (2026-04-18)
+## Model canonicalization and abandoned models
 
-- `claude_sonnet_proxy` etcd: 5/5 gen failures (Cloudflare 520). Use
-  `claude_sonnet_direct` rows for etcd.
-- `gemini31_proxy`: mutex/rwmutex 5/5 failures (504). Only spin usable.
-- `qwen36_plus_ds` etcd: uses 1h timeout variant (`qwen36_plus_ds_1h`) under
-  the hood. Leaderboard merges back to `qwen36_plus_ds` for display.
-- `glm51_ds`: 0/55 successful runs (DashScope backend broken).
-- Older batches from 2026-04-17 include exploratory runs (minimax_m27,
-  glm51, grok4_proxy, deepseek_r1_proxy, gpt54_proxy) that were abandoned
-  mid-way. Treat those model rows as partial / experimental.
+The script collapses config-level model names to canonical leaderboard names:
+- `claude_sonnet_proxy` + `claude_sonnet_direct` → **`claude_sonnet`**
+  (same underlying `claude-sonnet-4-6`, just two routes: gptsapi proxy and
+  direct Anthropic API. Best-of-N picks the highest across both.)
+- `qwen36_plus_ds_1h` → **`qwen36_plus_ds`** (1h timeout variant just for etcd's
+  45K input, merged back with the regular qwen entry)
+
+Some early exploratory runs never completed a full benchmark. They're excluded
+from `aggregate.csv` / `detail.csv` but preserved in `data.json` under
+`abandoned_rows`:
+- `gpt54_proxy` → replaced by `gpt54_azure` (free Azure tier, no proxy retry storms)
+- `gemini31_proxy` → Cloudflare 504 on mutex-size prompts; needs direct API run
+- `glm51` / `glm51_ds` → upstream broken (glm-5.1 endpoint unstable)
+- `grok4_proxy` → retry storm cost issue; abandoned
+- `minimax_m27` → API cluster overload; abandoned
+- `deepseek_r1_proxy` → partial (only 1 system)
+
+## Primary models (as of 2026-04-18)
+
+- `claude_sonnet`
+- `deepseek_v32_ds`
+- `gpt54_azure`
+- `kimi_k25_ds`
+- `qwen36_plus_ds`
+
+To promote an abandoned model back to primary: remove it from `ABANDONED_MODELS`
+in `scripts/build_leaderboard.py`, re-run the script.
