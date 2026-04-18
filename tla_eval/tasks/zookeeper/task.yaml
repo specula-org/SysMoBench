@@ -57,21 +57,20 @@ wv:
     - HandleNotification
     - BecomeLeader
 
-  # NOT FUNCTIONAL. data/patches/remix_ndjson_output_complete.patch was
-  # authored against an older Remix commit; 5 of 8 hunks don't apply
-  # against the current clone (HEAD 81869f1). See INSTRUMENTATION.md
-  # for the full repair plan.
   harness:
     type: "native"
-    status: "blocked:patch-drift"
-    instrumentation_file: "data/patches/remix_ndjson_output_complete.patch"
+    instrumentation_file: "data/patches/remix_ndjson_output_v2.patch"
     test_file: "checker/server/src/main/java/org/disalg/remix/server/ReplayService.java"
     run_command: "bash scripts/harness/zookeeper/run.sh"
     traces_output_env: "NDJSON_OUTPUT"
     traces_default_dir: "artifacts/zookeeper/traces"
     instrumentation_doc: "tla_eval/tasks/zookeeper/INSTRUMENTATION.md"
-    blocker: |
-      Remix upstream drifted ~1400 lines; patch's 4 event-emit hunks
-      land in locations that no longer exist. Without those emit
-      calls, replay produces a 0-byte NDJSON file. Needs manual
-      re-port of the 5 rejected hunks (see INSTRUMENTATION.md).
+    # Raw trace event names already match spec action names.
+    trace_action_map:
+      Notification: "Notification"
+      HandleNotification: "HandleNotification"
+      BecomeLeader: "BecomeLeader"
+    coverage_gaps:
+      - "Only 3 demo scenarios — ~32 Notification, ~20 HandleNotification, 2 BecomeLeader windows"
+      - "No vote-reject path in demo traces; HandleNotification only scored on vote-grant transitions"
+      - "LocalEvent (~24 per run) emitted by upstream instrumentation is out of scope; wv-eval filters it"

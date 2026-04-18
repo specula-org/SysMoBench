@@ -115,10 +115,19 @@ Per-task completion of the 9-task harness bootstrap, per
   - First-time build is ~8–15 min (xline + rocksdb + madsim cold compile); incremental ≈ 30 s.
 
 ## zookeeper
-- **Blocked on patch-drift.** Remix clone at `data/repositories/Remix/` HEAD `81869f1` has diverged ~1400 lines from the version `data/patches/remix_ndjson_output_complete.patch` was authored against. `patch -p1` and `git apply --recount --reject` both succeed on 3 of 8 hunks (field decls + NDJSON file init + final cleanup fix-up) but reject the 5 hunks that do the actual `writeNdjsonEvent(...)` calls (`ElectionMessage`, `FollowerToLeaderMessage`, `LeaderToFollowerMessage`, plus the `writeNdjsonEvent` helper method and the `ndjsonWriter.close()` in shutdown). Result: replay completes but writes a 0-byte NDJSON file.
-- Java + Maven deps satisfied (OpenJDK 21, Maven 3.8.7). Remix builds cleanly (`scripts/build.sh` → ~30s success).
-- Placeholder artifacts committed:
-  - `scripts/harness/zookeeper/run.sh` — exits 2 with explicit "not functional yet" message (per the "no fake content" policy)
-  - `tla_eval/tasks/zookeeper/INSTRUMENTATION.md` — documents the 5 rejected hunks, current line numbers for the target methods in `ReplayService.java` (`offerElectionMessage` @2230, `offerFollowerToLeaderMessage` @2342, `offerLeaderToFollowerMessage` @2479, `offerLocalEvent` @2697), and the target→spec action mapping
-  - `tla_eval/tasks/zookeeper/task.yaml` — `wv.harness.status: "blocked:patch-drift"` with a `blocker` field spelling out the gap
-- Estimated repair: 1-2 hours to manually port the 5 rejected hunks and add a second emit point for `HandleNotification` (patch only covers send-side, not receive-side).
+- Category: A (distributed, ZooKeeper FastLeaderElection scope)
+- `data/repositories/Remix/` (upstream `github.com/Lingzhi-Ouyang/Remix`, HEAD `81869f1`)
+- Original upstream patches (`remix_ndjson_output.patch`, `remix_ndjson_output_complete.patch`) targeted a pre-rewrite version of Remix and no longer apply — they left NDJSON writer fields but no emit points.
+- **New SysMoBench patch**: `data/patches/remix_ndjson_output_v2.patch`. 3 emit points mapped directly to the 3 target spec actions:
+  - `Notification` — `ReplayService.offerElectionMessage` (after `sendingSubnode.setState(SENDING)`)
+  - `HandleNotification` — `ElectionMessageExecutor.releaseMessage` (after receiving subnode enters PROCESSING — new receive-side hook that upstream's patch didn't have)
+  - `BecomeLeader` — `ReplayService.updateLeaderElectionState` when `state == LEADING`
+  - Plus `LocalEvent` inherited from upstream hunk 8 (out of scope; filtered by wv-eval)
+- Harness orchestration:
+  - `scripts/harness/zookeeper/run.sh` — auto-applies v2 patch if `writeNdjsonEvent` helper absent; incrementally builds via `scripts/build.sh`; runs `replay.sh demo` with `NDJSON_OUTPUT` env; waits for nohup java via `pgrep -f '^java .*zookeeper-ensemble-jar'` (anchored so it doesn't self-match)
+  - `tla_eval/tasks/zookeeper/INSTRUMENTATION.md`, `task.yaml` (wv section filled)
+- Smoke: 3 demo scenarios, 77-78 events — 32 Notification + 19-20 HandleNotification + 2 BecomeLeader + ~24 out-of-scope LocalEvent
+- WV smoke: **PASS** (workspace `wv-workspaces/20260418_061627_zookeeper/`). Agent ran harness in workspace copy (78 events, all 3 target actions). Sample spec at `data/spec/zookeeper/zookeeper.tla` has a symbol collision — `Notification` is defined both as a 0-arg record type (line 24) and a 2-arg action (line 70). SANY rejects with 3 semantic errors; TLC cannot load. Harness itself verified end-to-end.
+- Open issues:
+  - Demo replay has no vote-reject scenarios; `HandleNotification` only scored on grant path.
+  - Only 2 `BecomeLeader` windows per run (one per successful election); richer scenarios would need upgrades to `generator/generate_traces.sh`.

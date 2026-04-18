@@ -1,0 +1,151 @@
+diff --git a/checker/server/src/main/java/org/disalg/remix/server/ReplayService.java b/checker/server/src/main/java/org/disalg/remix/server/ReplayService.java
+index 30003ad..c5449c3 100644
+--- a/checker/server/src/main/java/org/disalg/remix/server/ReplayService.java
++++ b/checker/server/src/main/java/org/disalg/remix/server/ReplayService.java
+@@ -76,6 +76,9 @@ public class ReplayService implements RemoteService {
+     // writer
+     private FileWriter statisticsWriter;
+     private FileWriter executionWriter;
++    private FileWriter ndjsonWriter;  // NDJSON trace output
++    private int ndjsonStepCounter = 0;  // Step counter for NDJSON events
++    private String ndjsonOutputPath = null;  // Path from environment variable
+     private FileWriter bugReportWriter;
+     private FileWriter matchReportWriter;
+ 
+@@ -387,6 +390,19 @@ public class ReplayService implements RemoteService {
+             // create trace execution file
+             executionWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                     + traceName + File.separator + schedulerConfiguration.getExecutionFile());
++
++            // Initialize NDJSON writer if NDJSON_OUTPUT environment variable is set
++            ndjsonOutputPath = System.getenv("NDJSON_OUTPUT");
++            if (ndjsonOutputPath != null && !ndjsonOutputPath.isEmpty()) {
++                try {
++                    ndjsonWriter = new FileWriter(ndjsonOutputPath);
++                    ndjsonStepCounter = 0;
++                    LOG.info("NDJSON output enabled: {}", ndjsonOutputPath);
++                } catch (IOException e) {
++                    LOG.warn("Failed to create NDJSON writer: {}", e.getMessage());
++                }
++            }
++
+             // create trace statistics file
+             statisticsWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                     + traceName + File.separator + schedulerConfiguration.getStatisticsFile());
+@@ -711,6 +727,11 @@ public class ReplayService implements RemoteService {
+ 
+                 executionWriter.close();
+                 statisticsWriter.close();
++                if (ndjsonWriter != null) {
++                    try { ndjsonWriter.close(); } catch (IOException e) { /* ignore */ }
++                    ndjsonWriter = null;
++                    LOG.info("NDJSON writer closed: {}", ndjsonOutputPath);
++                }
+ //                bugReportWriter.flush();
+                 matchReportWriter.flush();
+             }
+@@ -2274,6 +2295,17 @@ public class ReplayService implements RemoteService {
+                 firstMessage.set(sendingNodeId, true);
+             }
+             sendingSubnode.setState(SubnodeState.SENDING);
++
++            // SysMoBench: emit NDJSON "Notification" (send side of FLE message)
++            JSONObject _ndjsonMeta = new JSONObject();
++            _ndjsonMeta.put("msgId", id);
++            _ndjsonMeta.put("from", sendingNodeId);
++            _ndjsonMeta.put("to", receivingNodeId);
++            _ndjsonMeta.put("electionEpoch", electionEpoch);
++            _ndjsonMeta.put("leader", leader);
++            _ndjsonMeta.put("payload", payload);
++            writeNdjsonEvent("Notification", sendingNodeId, sendingSubnodeId, _ndjsonMeta);
++
+             controlMonitor.notifyAll();
+ 
+             waitMessageReleased(id, sendingNodeId, sendingSubnodeId, electionMessageEvent);
+@@ -2719,6 +2751,16 @@ public class ReplayService implements RemoteService {
+         synchronized (controlMonitor) {
+             LOG.debug("{} {} of Node {} is about to process the request ({}): msgId = {}, " +
+                     "set subnode {} to SENDING state", subnodeType, subnodeId, nodeId, payload, id, subnodeId);
++
++            // Write to NDJSON
++            JSONObject metadata = new JSONObject();
++            metadata.put("type", "local_event");
++            metadata.put("subnodeType", subnodeType.toString());
++            metadata.put("zxidOrEpoch", zxidOrEpoch);
++            metadata.put("eventType", type);
++            metadata.put("payload", payload);
++            writeNdjsonEvent("LocalEvent", nodeId, subnodeId, metadata);
++
+             addEvent(localEvent);
+             subnode.setState(SubnodeState.SENDING);
+             if (SubnodeType.COMMIT_PROCESSOR.equals(subnodeType)) {
+@@ -3301,6 +3343,12 @@ public class ReplayService implements RemoteService {
+         LOG.debug("before setting Node {} state: {}", nodeId, state);
+         synchronized (controlMonitor) {
+             leaderElectionStates.set(nodeId, state);
++            // SysMoBench: emit NDJSON "BecomeLeader" when a node transitions to LEADING.
++            if (LeaderElectionState.LEADING.equals(state)) {
++                JSONObject _ndjsonMeta = new JSONObject();
++                _ndjsonMeta.put("role", state.toString());
++                writeNdjsonEvent("BecomeLeader", nodeId, -1, _ndjsonMeta);
++            }
+             if (LeaderElectionState.LOOKING.equals(state)) {
+                 nodePhases.set(nodeId, Phase.ELECTION);
+                 LOG.debug("set {}'s firstMessage null", nodeId);
+@@ -3835,4 +3883,29 @@ public class ReplayService implements RemoteService {
+         }
+         return -1;
+     }
++
++    /**
++     * Write one event line to the NDJSON file if enabled.
++     * Package-private so that per-executor code (e.g. ElectionMessageExecutor)
++     * can emit on the RECEIVE side, which ReplayService itself doesn't see.
++     */
++    public synchronized void writeNdjsonEvent(String eventName, int nodeId, int subnodeId, JSONObject metadata) {
++        if (ndjsonWriter == null) {
++            return;
++        }
++        try {
++            JSONObject event = new JSONObject();
++            event.put("event", eventName);
++            event.put("step", ndjsonStepCounter++);
++            event.put("node", "s" + nodeId);
++            event.put("subnode", subnodeId);
++            if (metadata != null) {
++                event.put("data", metadata);
++            }
++            ndjsonWriter.write(event.toJSONString() + "\n");
++            ndjsonWriter.flush();
++        } catch (IOException e) {
++            LOG.warn("Failed to write NDJSON event: {}", e.getMessage());
++        }
++    }
+ }
+\ No newline at end of file
+diff --git a/checker/server/src/main/java/org/disalg/remix/server/executor/ElectionMessageExecutor.java b/checker/server/src/main/java/org/disalg/remix/server/executor/ElectionMessageExecutor.java
+index a272da1..8f51ca5 100644
+--- a/checker/server/src/main/java/org/disalg/remix/server/executor/ElectionMessageExecutor.java
++++ b/checker/server/src/main/java/org/disalg/remix/server/executor/ElectionMessageExecutor.java
+@@ -1,5 +1,6 @@
+ package org.disalg.remix.server.executor;
+ 
++import com.alibaba.fastjson.JSONObject;
+ import org.disalg.remix.api.MetaDef;
+ import org.disalg.remix.api.SubnodeState;
+ import org.disalg.remix.api.SubnodeType;
+@@ -69,6 +70,14 @@ public class ElectionMessageExecutor extends BaseEventExecutor {
+                     && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                 // set the receiving subnode to be PROCESSING
+                 subnode.setState(SubnodeState.PROCESSING);
++
++                // SysMoBench: emit NDJSON "HandleNotification" at receive-side delivery.
++                JSONObject _meta = new JSONObject();
++                _meta.put("msgId", event.getId());
++                _meta.put("from", sendingNodeId);
++                _meta.put("to", receivingNodeId);
++                replayService.writeNdjsonEvent("HandleNotification", receivingNodeId,
++                        subnode.getId(), _meta);
+                 break;
+             }
+         }

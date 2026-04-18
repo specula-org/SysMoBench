@@ -1,38 +1,20 @@
 #!/usr/bin/env bash
-# scripts/harness/zookeeper/run.sh — PLACEHOLDER.
+# scripts/harness/zookeeper/run.sh — build the Remix checker with NDJSON
+# instrumentation applied, replay the demo traces, and copy the resulting
+# NDJSON into TRACES_DIR.
 #
-# NOT YET FUNCTIONAL. The NDJSON emission path for the Remix replayer
-# (checker/server/src/main/java/org/disalg/remix/server/ReplayService.java)
-# depends on data/patches/remix_ndjson_output_complete.patch, which was
-# authored against an older commit of github.com/Lingzhi-Ouyang/Remix
-# than what `data/repositories/Remix/` now tracks (HEAD `81869f1 Update
-# README.md`). Of the 8 hunks in the patch, only the first 2 apply cleanly
-# — the 5 hunks that actually emit `ElectionMessage` /
-# `FollowerToLeaderMessage` / `LeaderToFollowerMessage` / `LocalEvent`
-# events fail (line numbers have shifted ~1400 lines, surrounding
-# context has changed).
+# Instrumentation is in data/patches/remix_ndjson_output_v2.patch (a
+# SysMoBench-authored patch; the upstream-provided patches targeted an
+# older Remix commit and no longer apply). The patch adds three emit
+# points:
+#   - Notification         — offerElectionMessage (send side of FLE msg)
+#   - HandleNotification   — ElectionMessageExecutor.releaseMessage
+#                            (receive side, after WORKER_RECEIVER enters PROCESSING)
+#   - BecomeLeader         — updateLeaderElectionState when state==LEADING
+# Plus a LocalEvent emit inherited from upstream hunk 8 (out of scope).
 #
-# Consequences:
-# - Replay runs to completion but writes an empty NDJSON file
-# - All 3 target actions (Notification, HandleNotification, BecomeLeader)
-#   would score 0 windows
-# - WV smoke must not proceed until this is repaired
-#
-# To repair (est. 1-2h):
-#   1. Manually port the 5 rejected hunks to the current line numbers
-#      (offerElectionMessage @2230, offerFollowerToLeaderMessage @2342,
-#       offerLeaderToFollowerMessage @2479, offerLocalEvent @2697, plus
-#       writeNdjsonEvent helper + ndjsonWriter.close in the cleanup path)
-#   2. Re-run scripts/build.sh in the Remix clone
-#   3. Add a translation step: ElectionMessage → Notification
-#      (send side), HandleNotification (receive side — probably need
-#      another emit point at offerElectionMessage receiver side);
-#      LocalEvent + role="Leader" → BecomeLeader
-#   4. Remove the early-exit below
-#
-# Alternatively: switch the harness to an implementation that already
-# emits Notification / HandleNotification / BecomeLeader directly —
-# e.g. a ZooKeeper fork with FastLeaderElection instrumentation.
+# Usage (from project root):
+#   bash scripts/harness/zookeeper/run.sh
 
 set -euo pipefail
 
@@ -41,12 +23,55 @@ PROJECT_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 
 REPO_PATH="${REPO_PATH:-$PROJECT_ROOT/data/repositories/Remix}"
 TRACES_DIR="${TRACES_DIR:-$PROJECT_ROOT/artifacts/zookeeper/traces}"
+PATCH_FILE="${PATCH_FILE:-$PROJECT_ROOT/data/patches/remix_ndjson_output_v2.patch}"
+TRACE_SET="${TRACE_SET:-demo}"
 
-cat >&2 <<'EOF'
-[run.sh] zookeeper harness is NOT functional — see comment block at the
-top of this file and tla_eval/tasks/zookeeper/INSTRUMENTATION.md. Exiting
-without generating traces to make the failure explicit (per the "no fake
-content" policy in the SysMoBench contract).
-EOF
+if [[ ! -d "$REPO_PATH/checker/server/src/main/java/org/disalg/remix/server" ]]; then
+  echo "ERROR: Remix clone not found at $REPO_PATH" >&2
+  exit 1
+fi
 
-exit 2
+# Apply instrumentation if writeNdjsonEvent helper is missing (sentinel)
+if ! grep -q 'writeNdjsonEvent' \
+      "$REPO_PATH/checker/server/src/main/java/org/disalg/remix/server/ReplayService.java"; then
+  echo "[run.sh] applying $PATCH_FILE to $REPO_PATH..." >&2
+  ( cd "$REPO_PATH" && git apply "$PATCH_FILE" ) || {
+    echo "ERROR: patch failed to apply" >&2
+    exit 1
+  }
+fi
+
+# Build if the compiled jar is missing or older than our source
+JAR="$REPO_PATH/checker/zookeeper-ensemble/target/zookeeper-ensemble-jar-with-dependencies.jar"
+SRC="$REPO_PATH/checker/server/src/main/java/org/disalg/remix/server/ReplayService.java"
+if [[ ! -f "$JAR" ]] || [[ "$SRC" -nt "$JAR" ]]; then
+  echo "[run.sh] building Remix checker..." >&2
+  ( cd "$REPO_PATH/scripts" && bash build.sh ) >&2
+fi
+
+mkdir -p "$TRACES_DIR"
+OUT="$TRACES_DIR/trace_01.ndjson"
+rm -f "$OUT"
+
+echo "[run.sh] REPO_PATH:  $REPO_PATH" >&2
+echo "[run.sh] TRACES_DIR: $TRACES_DIR" >&2
+echo "[run.sh] replay:     $TRACE_SET" >&2
+
+(
+  cd "$REPO_PATH/scripts"
+  NDJSON_OUTPUT="$OUT" bash replay.sh "$TRACE_SET"
+) >&2
+
+# replay.sh launches `nohup java ... &` then returns — wait for java to finish.
+# `^java` anchor matches only processes whose argv[0] starts with "java",
+# not our own bash eval strings that contain the jar name as a literal.
+sleep 2
+while pgrep -f '^java .*zookeeper-ensemble-jar' > /dev/null; do
+  sleep 3
+done
+
+if [[ ! -s "$OUT" ]]; then
+  echo "ERROR: no NDJSON output at $OUT" >&2
+  exit 1
+fi
+echo "[run.sh] done — $(wc -l < "$OUT") events in $OUT"

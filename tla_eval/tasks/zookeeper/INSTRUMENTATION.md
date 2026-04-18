@@ -1,83 +1,95 @@
 # zookeeper Harness — Instrumentation & Run Notes
 
-**Status: BLOCKED — NDJSON output patch does not apply cleanly to the
-current Remix clone.**
+Collects ZooKeeper FastLeaderElection traces via the Remix model-trace
+replayer (a deterministic scheduler running a 3-node ZooKeeper ensemble
+against model-level traces from `traces/demo/`).
 
 ## Where the code lives
 
-- **Remix clone**: `data/repositories/Remix/` — upstream
-  `github.com/Lingzhi-Ouyang/Remix`, HEAD `81869f1 Update README.md`
-- **Instrumentation patches**:
-  - `data/patches/remix_ndjson_output.patch` (partial — 3 hunks)
-  - `data/patches/remix_ndjson_output_complete.patch` (full — 8 hunks)
-- **Harness wrapper**: `scripts/harness/zookeeper/run.sh` (placeholder;
-  currently exits 2 — see comment block inside)
+- **Remix clone**: `data/repositories/Remix/` (upstream
+  `github.com/Lingzhi-Ouyang/Remix`, HEAD `81869f1`)
+- **Instrumentation patch**: `data/patches/remix_ndjson_output_v2.patch`
+  — authored by SysMoBench. The upstream patches
+  (`remix_ndjson_output.patch`, `remix_ndjson_output_complete.patch`)
+  target an older Remix version and no longer apply cleanly; `v2` is the
+  port of the NDJSON idea to the current file layout, with three emit
+  points that map directly to the three target spec actions.
+- **Harness wrapper**: `scripts/harness/zookeeper/run.sh`
 
-## The blocker
+## Emit points (all in `checker/server/`)
 
-Both patches target `checker/server/src/main/java/org/disalg/remix/server/ReplayService.java`.
-The current upstream version of that file has drifted substantially (+1400 lines)
-from the version the patches were authored against. Result (tested with
-both `git apply --recount --reject` and `patch -p1`):
+| Spec action           | File + location                                                                                              | Trigger                                                                               |
+|-----------------------|--------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| `Notification`        | `ReplayService.java::offerElectionMessage`, after `sendingSubnode.setState(SubnodeState.SENDING)`            | Any FLE message a node is offering for delivery (send side)                          |
+| `HandleNotification`  | `executor/ElectionMessageExecutor.java::releaseMessage`, after `subnode.setState(SubnodeState.PROCESSING)`    | Recipient's `WORKER_RECEIVER` subnode transitions to PROCESSING — delivery moment     |
+| `BecomeLeader`        | `ReplayService.java::updateLeaderElectionState`, inside `if (LeaderElectionState.LEADING.equals(state))`      | Any node updates its role to LEADING                                                  |
 
-| Hunk | Anchor                                          | Status    |
-|------|--------------------------------------------------|-----------|
-| 1    | Field declarations near `private FileWriter statisticsWriter` | ✅ applies |
-| 2    | NDJSON init near `executionWriter = new FileWriter(...)`    | ✅ applies |
-| 3    | `ndjsonWriter.close()` near `committedLogVerifier closed`   | ❌ rejected |
-| 4    | `writeNdjsonEvent` helper method, after `return id;`        | ❌ rejected |
-| 5    | Emit `ElectionMessage` in `offerElectionMessage`             | ❌ rejected |
-| 6    | Emit `FollowerToLeaderMessage` in `offerFollowerToLeaderMessage` | ❌ rejected |
-| 7    | Emit `LeaderToFollowerMessage` in `offerLeaderToFollowerMessage` | ❌ rejected |
-| 8    | Final cleanup hunk                                            | ✅ applies (offset +1436) |
+A `LocalEvent` emit is also inherited from upstream hunk 8 of the
+complete patch (in `offerLocalEvent`); it stays out of
+`wv.target_actions` — the wv-eval agent filters it as internal.
 
-So the NDJSON file path resolves and the file is created, but no events are
-ever written because the 4 emit sites didn't land. Demo replay completes
-silently and the output file stays 0 bytes.
+## Event schema
 
-## What needs to happen
+```json
+{"event":"Notification","step":42,"node":"s1","subnode":3,
+ "data":{"msgId":17,"from":1,"to":2,"electionEpoch":1,"leader":1,"payload":"..."}}
+```
 
-In the current `ReplayService.java`, the relevant methods are at:
-- `offerElectionMessage` — line 2230
-- `offerFollowerToLeaderMessage` — line 2342
-- `offerLeaderToFollowerMessage` — line 2479
-- `offerLocalEvent` — line 2697
+Every event has: `event`, monotonically-increasing `step`, `node` (`s<id>`),
+`subnode` (integer; -1 when not applicable, e.g. BecomeLeader), and
+`data` (event-specific fields).
 
-Each needs a `writeNdjsonEvent(...)` call inserted at the right point in
-the synchronized(controlMonitor) block (just before `addEvent(...)` and
-state transition). The `writeNdjsonEvent` helper method + the
-`ndjsonWriter.close()` on shutdown also need to be added manually.
+## How to run
 
-## Raw event → spec action mapping (target)
+```bash
+# from project root
+bash scripts/harness/zookeeper/run.sh
+```
 
-Once instrumentation is repaired, the expected mapping is:
+Writes `artifacts/zookeeper/traces/trace_01.ndjson`. A default demo run
+(traces/demo has 3 scenarios) yields ~75–78 events:
 
-| Emitted event                | Spec action (`target_actions`)         |
-|------------------------------|----------------------------------------|
-| `ElectionMessage` (send)     | `Notification`                         |
-| `ElectionMessage` (receive)  | `HandleNotification` *(need second emit point)* |
-| `LocalEvent` with role change to Leader | `BecomeLeader` *(need to detect in metadata)* |
-| `FollowerToLeaderMessage`, `LeaderToFollowerMessage` | — (out of scope; post-election Zab) |
+| Action              | Typical count |
+|---------------------|---------------|
+| `Notification`      | ~32           |
+| `HandleNotification`| ~19–20        |
+| `BecomeLeader`      | 2             |
+| `LocalEvent`        | ~24 (out of scope) |
 
-Note that the current patch only emits on the SEND side. To cover
-`HandleNotification` (receive), a second emit point in the dispatch
-path is needed.
+Runtime: ~55 s per demo trace × 3 traces ≈ 3 min (after a one-time
+30-s Maven build).
 
-## Environment deps (already satisfied)
+### Environment overrides
 
-- Java 11+ ✓ (OpenJDK 21 present)
-- Maven 3.5+ ✓ (Maven 3.8.7 present)
-- Python 3+ ✓
-- Submodules: n/a (Remix is self-contained)
-- `bash scripts/build.sh` (from the Remix dir) builds cleanly in ~30s
+| Var           | Default                              | Purpose                                          |
+|---------------|--------------------------------------|--------------------------------------------------|
+| `TRACES_DIR`  | `artifacts/zookeeper/traces`         | Where the NDJSON lands                           |
+| `REPO_PATH`   | `data/repositories/Remix`            | Remix clone root                                 |
+| `PATCH_FILE`  | `data/patches/remix_ndjson_output_v2.patch` | Auto-applied if `writeNdjsonEvent` is missing |
+| `TRACE_SET`   | `demo`                               | Which sub-dir of `$REPO_PATH/traces/` to replay  |
 
-## Out-of-scope fallback options for a future pass
+## Re-deriving the v2 patch
 
-1. **Manually port the 5 rejected hunks** to current line numbers (~1-2h).
-2. **Use a different ZooKeeper instrumentation** — e.g. instrument
-   `FastLeaderElection.java` directly with a JSON logger, bypass Remix
-   entirely. Cleaner but more code to write and maintain.
-3. **Add a second emit point for HandleNotification**: the current
-   patch only covers the send side of election messages; the receive
-   path (`FastLeaderElectionWrapper` or the QueuePeer state update) needs
-   its own `writeNdjsonEvent("HandleNotification", …)` call.
+If a future Remix upgrade breaks `v2`, regenerate:
+
+```bash
+cd data/repositories/Remix
+# edit the 3 files manually at the anchors described above, then:
+git diff checker/server/src/main/java/org/disalg/remix/server/ReplayService.java \
+         checker/server/src/main/java/org/disalg/remix/server/executor/ElectionMessageExecutor.java \
+  > ../../patches/remix_ndjson_output_v2.patch
+```
+
+## Known coverage gaps
+
+- **Demo scenarios only** (3 traces, one BecomeLeader each modulo failed
+  election rounds). Richer FLE scenarios — split vote, term bump races,
+  follower timeouts — would tighten scoring but are a generator-side
+  concern (see `generator/generate_traces.sh`).
+- **No reject-vote asymmetry**. The demo traces lead directly to quorum
+  formation; the spec's "vote denied" paths are never exercised.
+- **Notification→HandleNotification pairing**. Because
+  `ElectionMessageExecutor.releaseMessage` fires per-event (not per-thread),
+  one Notification may be followed by multiple HandleNotifications if
+  the scheduler broadcasts. WV windows should pair by `msgId` in the
+  `data` field if strict pairing is needed.
