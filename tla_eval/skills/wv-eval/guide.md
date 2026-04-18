@@ -192,6 +192,61 @@ Rules:
 
 If any score lacks a clear explanation, iterate: dump TLC traces, look for patterns, adjust WV or re-check contract.
 
+### Step 9 — Audit (downgrade-only, per-action bug finding)
+
+Why this step exists: WV windows only test what the trace covers. A spec that passes 100% WV may still have bugs WV cannot catch — trivially-true guards, wrong post-state assignments, missing preconditions, etc. This step is your chance to **read spec against source code** and find such bugs.
+
+**Audit rules**:
+- **Downgrade-only**: audit can only lower an action's score, never raise it.
+- **Only audit actions with WV pass rate = 1.0** (or "clean" 1.0 if defects were excluded). If pass rate < 1.0, WV already penalized the action; no audit needed → save tokens.
+- **Zero-tolerance**: a single TLC-verified bug in an action → that action's final score = 0.
+- **Evidence required**: every bug claim must be proven by a TLC run that either:
+  - (a) Constructs an "impossibility window" — a pre→post transition the REAL system cannot do — and shows spec ACCEPTS it (TLC reports `Invariant NeverPost is violated`), OR
+  - (b) States an invariant that the real system maintains, and shows spec VIOLATES it (TLC reports the same violation).
+- **No hallucination**: if you suspect a bug but cannot produce a TLC-passing proof, the action stays correct. The filter is mechanical.
+
+**What to look for** (patterns seen in past audits):
+- **Vacuous implications**: `(x # NULL => P)` when x = NULL is reachable → the implication is trivially true in those states and can enable actions that should be blocked.
+- **Wrong post-state assignment**: primed-variable values that don't match what the real code writes.
+- **Missing quorum / ack conditions**: consensus/distributed-system specs that commit/apply without requiring replication.
+- **Single-site state updates for multi-node protocols**: e.g., a leader-change action that only updates the new leader's term but not followers' terms.
+- **Over-simplified voter/participant sets**: `voters == {s \in Servers : TRUE}` (all servers) when the real protocol requires a specific quorum.
+- **Missing preconditions on role/state**: e.g., a command processing action that doesn't check the server's current role.
+
+**For each action to audit**:
+1. Read the spec's definition of the action (`<workspace>/spec/<sys>.tla`).
+2. Read the corresponding code in `<workspace>/repo/` — find the function/method that implements this behavior.
+3. Ask yourself: does the spec's action enable the SAME set of pre→post transitions the real code does? Is there any transition spec enables that real code cannot?
+4. For each suspected bug:
+   - Design an impossibility window or invariant.
+   - Write a `<workspace>/audit/Audit_<Action>_<BugName>.tla` + `.cfg`, following the WV module pattern (INSTANCE the spec, Init from synthesized pre, Next fires the spec's action, Invariant `NeverPost`).
+   - Run TLC. If `Invariant NeverPost is violated` → bug confirmed.
+   - If TLC says spec is correct → your hypothesis was wrong, move on.
+5. Record each action's verdict to `<workspace>/reports/audit.md`:
+   - `correct` + one-line justification (even when no bug found, say what you checked)
+   - `wrong(bug_name, evidence_path, tlc_exit_code)` if a bug was TLC-verified
+
+**Final scoring**:
+- `final(A_i) = 0` if audit verdict for A_i is wrong
+- `final(A_i) = WV pass rate of A_i` otherwise (which is 1.0 for audited actions, since only 100%-WV actions are audited)
+- `Phase3_score = mean(final(A_i))`
+
+**Report format** (append to `<workspace>/reports/final_report.md`):
+
+```
+## Phase 3 Final Score (after audit)
+
+| Action | WV rate | Audited | Verdict | Final |
+|---|---|---|---|---|
+| ActionA | 1.0 | yes | correct | 1.0 |
+| ActionB | 1.0 | yes | wrong (NullLeader bug, see audit/Audit_ActionB_NullLeader.tla) | 0 |
+| ActionC | 0.85 | no (WV already <1.0) | — | 0.85 |
+
+Phase3_score = (1.0 + 0 + 0.85) / 3 = 0.62
+```
+
+The audit section of `audit.md` should contain the full reasoning and TLC transcripts for each `wrong` verdict. `correct` verdicts need only one line each.
+
 ---
 
 ## What you do NOT do
