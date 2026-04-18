@@ -1,0 +1,14 @@
+model,systems_evaluated,overall_score_mean,phase1_mean,phase2_mean,phase3b_mean,phase3_final_mean,audit_bugs_total,total_gen_tokens_in,total_gen_tokens_out,total_wv_cost_usd
+claude_sonnet_direct,4,0.8651,1.0,0.95,0.5603,,0,45329,15877,
+claude_sonnet_proxy,11,0.7265,0.8837,0.5714,0.8591,,0,64256,32569,3.18
+deepseek_r1_proxy,1,,,,,,0,,,
+deepseek_v32_ds,11,0.5904,0.7019,0.8,0.6071,0.6667,1,217694,30519,12.46
+gemini31_proxy,11,1.0,,,,,0,,,2.97
+glm51,10,,,,,,0,,,
+glm51_ds,2,,,,,,0,,,
+gpt54_azure,11,0.6918,1.0,0.6222,0.3917,,0,209827,32369,
+gpt54_proxy,11,0.9643,1.0,0.9285,1.0,,0,37857,3754,3.07
+grok4_proxy,1,,,,,,0,,,
+kimi_k25_ds,11,0.7102,1.0,0.6234,0.5114,,2,198317,29587,17.03
+minimax_m27,11,0.5289,0.6717,0.5,0.3571,,0,193409,48289,3.21
+qwen36_plus_ds,8,0.7194,1.0,0.4524,0.9286,,0,117167,66792,
