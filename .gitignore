@@ -93,3 +93,6 @@ experiments
 # Cloned system artifacts
 artifacts/*/
 !artifacts/README.md
+
+# WV evaluation workspaces (one dir per sub-agent run)
+wv-workspaces/
