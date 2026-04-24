@@ -96,3 +96,17 @@ artifacts/*/
 
 # WV evaluation workspaces (one dir per sub-agent run)
 wv-workspaces/
+
+# Internal spec archive (re-buildable from scripts/collect_specs.py)
+specs_collection/
+
+# Leaderboard spec trees (re-buildable from scripts/build_spec_showcase.py
+# and scripts/batch_repair_and_wv.py; too large for git). Summary CSVs under
+# docs/leaderboard/ stay tracked.
+docs/leaderboard/specs/
+docs/leaderboard/specs_repaired/
+
+# TLC model-checker state dumps — shouldn't leak into git under any path
+# inside docs/leaderboard/. The top-level `states/` rule above handles the
+# common case; this one covers nested writes during repair/rescore runs.
+docs/leaderboard/**/states/
