@@ -39,8 +39,21 @@ MODEL_ALIASES = {
     # claude-sonnet-4-6 via gptsapi proxy OR direct Anthropic API
     "claude_sonnet_proxy": "claude_sonnet",
     "claude_sonnet_direct": "claude_sonnet",
-    # qwen3.6-plus with 1h timeout variant (for etcd's 45K input)
+    # qwen3.6-plus variants — all merge into one leaderboard row. OpenRouter
+    # entry added 2026-04-19 to backfill the 1 missing Phase A system
+    # (redisraft) after DashScope kept timing out.
     "qwen36_plus_ds_1h": "qwen36_plus_ds",
+    "qwen36_plus_openrouter": "qwen36_plus_ds",
+    # gpt-5.2 via gptsapi proxy OR OpenAI direct API. Proxy failed with
+    # Cloudflare 504 on raftkvs/redisraft/etcd (~45K input); those three
+    # systems were refilled via the official OpenAI entry.
+    "gpt52_proxy": "gpt52",
+    "gpt52_openai": "gpt52",
+    # MiniMax-M2.7: earlier direct-API attempts (config "minimax_m27") had
+    # completion issues; DashScope route (config "minimax_m27_ds") finished
+    # the full 11-system run. Specs from the original direct attempts are
+    # still usable (same underlying model), so merge into one leaderboard row.
+    "minimax_m27": "minimax_m27_ds",
 }
 
 # Abandoned / exploratory runs from earlier provider trials that never reached
@@ -54,7 +67,17 @@ ABANDONED_MODELS = {
     "glm51",              # DashScope glm-5.1 routing broken
     "glm51_ds",           # same as above
     "grok4_proxy",        # proxy retry storm, cost control issue
-    "minimax_m27",        # API cluster overload, abandoned
+}
+
+# (model, system) pairs where WV was launched despite the cascade gate saying
+# it shouldn't have been. These scores are degenerate (WV on a spec that
+# failed Phase 2 is meaningless — TLC can't run it meaningfully) and would
+# give the model unfair credit for partial traces. Treat as if WV never ran.
+# Observed 2026-04-18 from a WV batch that bypassed P2 eligibility gating.
+CASCADE_VIOLATIONS = {
+    ("gpt52", "raftkvs"),     # P1 PARTIAL 0.47, shouldn't have reached P2
+    ("gpt52", "ringbuffer"),  # P2 runtime_check FAILED (cov=0.30)
+    ("gpt52", "zookeeper"),   # P2 runtime_check FAILED (cov=0.00)
 }
 
 
@@ -126,28 +149,114 @@ def scan_phase_a_batches():
 
 def find_wv_workspace_for(model: str, system: str) -> Path | None:
     """Find the latest WV workspace whose spec symlink points to this canonical
-    model's output (following alias collapse)."""
+    model's output.
+
+    Workspace directory names use the TLA+ MODULE name, which can differ
+    from the task/system name (e.g. task "etcd" → module "etcdraft").
+    So we search for both "*_<system>/" and "*_<module>/" if task.yaml
+    declares a specModule.
+    """
     if not WV_ROOT.exists():
         return None
     aliases = {k for k, v in MODEL_ALIASES.items() if v == model}
-    aliases.add(model)  # also accept the canonical name itself
+    aliases.add(model)
+    # Module name from task.yaml (may differ from system name)
+    module_name = system
+    task_yaml = PROJECT_ROOT / "tla_eval" / "tasks" / system / "task.yaml"
+    if task_yaml.exists():
+        try:
+            import yaml
+            td = yaml.safe_load(task_yaml.read_text()) or {}
+            module_name = td.get("specModule") or td.get("spec_module") or system
+        except Exception:
+            pass
     candidates = []
-    for ws in sorted(WV_ROOT.glob(f"*_{system}")):
-        spec_link = ws / "spec" / f"{system}.tla"
-        if not spec_link.exists():
-            continue
-        target_str = str(spec_link.resolve())
-        # Spec path pattern:
-        # output/compilation_check/tla/<sys>/direct_call_<cfg_model>/<ts>/<sys>.tla
-        for a in aliases:
-            if f"direct_call_{a}/" in target_str:
+    search_names = {system, module_name}  # set handles the spin==spin case
+    for name in search_names:
+        for ws in sorted(WV_ROOT.glob(f"*_{name}")):
+            spec_link = ws / "spec" / f"{name}.tla"
+            if not spec_link.exists():
+                continue
+            target_str = str(spec_link.resolve())
+            # Direct attribution: spec points at output/.../direct_call_<model>/
+            matched = any(f"direct_call_{a}/" in target_str for a in aliases)
+            # Indirect attribution: spec was fed from a batch's best_specs/
+            # copy (regular file, not symlink). The batch's experiment.log
+            # "Model:" header is NOT authoritative — concurrent batches can
+            # collide into a shared dir, so best_specs/<sys>.tla may have
+            # come from a different model's run. Check the per-run JSONs
+            # for that system in that batch: the highest-total-score run's
+            # phase0_usage.model is the authoritative attribution.
+            if not matched and "/best_specs/" in target_str:
+                batch_dir = Path(target_str).parent.parent
+                sys_dir = batch_dir / system
+                best_model = None
+                best_score = -1.0
+                for rj in sys_dir.glob("run_*.json"):
+                    try:
+                        rd = json.loads(rj.read_text())
+                    except Exception:
+                        continue
+                    ts = rd.get("total_score")
+                    if ts is None:
+                        continue
+                    if ts > best_score:
+                        best_score = ts
+                        p0 = rd.get("phase0_usage") or {}
+                        best_model = p0.get("model")
+                if best_model:
+                    # phase0_usage.model is the LiteLLM routing string
+                    # (e.g. "openai/deepseek/deepseek-r1-0528"). Map it to
+                    # the canonical leaderboard model by probing each alias.
+                    for a in aliases:
+                        marker = a.split("_")[0]  # crude fallback
+                        if a.lower() in best_model.lower() or marker.lower() in best_model.lower():
+                            matched = True
+                            break
+                    # Handle common provider→config mappings where the alias
+                    # name doesn't appear verbatim in the LiteLLM string.
+                    if not matched:
+                        # e.g. minimax_m27_ds ↔ "openai/MiniMax/MiniMax-M2.7"
+                        #      deepseek_r1_openrouter ↔ "openai/deepseek/deepseek-r1-0528"
+                        #      qwen36_plus_ds ↔ "openai/qwen/qwen3.6-plus"
+                        provider_hints = {
+                            "minimax_m27_ds": ["minimax-m2.7", "minimax/m2.7"],
+                            "minimax_m27":    ["minimax-m2.7", "minimax/m2.7"],
+                            "deepseek_r1_openrouter": ["deepseek-r1"],
+                            "qwen36_plus_ds": ["qwen3.6-plus"],
+                            "qwen36_plus_openrouter": ["qwen3.6-plus"],
+                            "qwen36_plus_ds_1h": ["qwen3.6-plus"],
+                        }
+                        for a in aliases:
+                            for hint in provider_hints.get(a, []):
+                                if hint in best_model.lower():
+                                    matched = True
+                                    break
+                            if matched:
+                                break
+            if matched:
                 candidates.append(ws)
-                break
+    # dedupe while preserving order-by-mtime (glob is name-sorted; resort by
+    # mtime so the newest workspace wins even across module/system name mix).
+    candidates = sorted(set(candidates), key=lambda p: p.stat().st_mtime)
     return candidates[-1] if candidates else None
 
 
 def parse_wv_final_report(ws: Path) -> dict:
-    """Extract Phase 3 final score + per-action verdicts from the report."""
+    """Extract Phase 3 final score + per-action verdicts from the report.
+
+    Phase 3 uses ZERO-TOLERANCE scoring at the action level:
+      final(A) = 1.0  iff WV rate == 1.0 AND audit verdict is not 'wrong'
+      final(A) = 0    otherwise (any WV failure OR audit-verified bug)
+      phase3_final_score = mean(final(A_i))
+
+    The per-action rate (x/y) is still parsed and reported for diagnostic
+    transparency, but the score is binary per action — a spec that mismodels
+    even one real transition is wrong, and the average should reflect that.
+    Historical reports (some written with the old fractional rule) are
+    rescored here from their per-action table rows so all models are
+    comparable without regenerating workspaces.
+    """
     rep = ws / "reports" / "final_report.md"
     out = {
         "phase3_final_score": None,
@@ -158,37 +267,111 @@ def parse_wv_final_report(ws: Path) -> dict:
     if not rep.exists():
         return out
     text = rep.read_text()
-    # final score: "Phase3_score = (...) = 0.833" or "Phase 3 score = 0.833"
-    m = re.search(r"Phase\s*3[_ ]?score\s*=[^=]*=\s*([0-9.]+)", text)
-    if m:
-        out["phase3_final_score"] = float(m.group(1))
+
     # audit run flag: look for "## Phase 3" + "Audited" column header
     if re.search(r"(audited|Audit Results|Step 9)", text, re.IGNORECASE):
         out["audit_run"] = True
-    # per-action wrong verdicts
-    # match a markdown table row with "wrong" in the Verdict column
+
+    # Locate the "Final Score" table. Row shapes we accept:
+    #   | Action | 10/11 = 0.909 | yes/no | correct/wrong(...) | 0.909 |
+    #   | Action | 1.0          | yes    | correct             | 1.0   |
+    #   | Action | 123 / 123 = 1.000 | yes | correct            | 1.0   |
+    # We ignore the original `Final` column (old rule was fractional) and
+    # recompute under zero-tolerance: 1.0 iff rate==1.0 AND not 'wrong'.
+    per_action = []  # (action, rate, is_wrong)
+
+    def _extract_rate(cell: str) -> float | None:
+        # Rate cells must be unambiguously rates. Bare integers like "0" /
+        # "1" / "22" are rejected — in most tables those are window counts,
+        # not rates, and accepting them causes PASS/FAIL columns to be
+        # mis-parsed as per-action pass rates.
+        # fraction form: "10/11", "123 / 123"
+        m = re.search(r"(\d+)\s*/\s*(\d+)", cell)
+        if m:
+            num, den = int(m.group(1)), int(m.group(2))
+            if den > 0 and num <= den:
+                return num / den
+        # percentage form: "100%", "**95.5%**"
+        m = re.search(r"(\d+(?:\.\d+)?)\s*%", cell)
+        if m:
+            try:
+                v = float(m.group(1)) / 100.0
+                if 0.0 <= v <= 1.0:
+                    return v
+            except ValueError:
+                pass
+        # float form: must have a decimal point — "0.909", "1.0", "0.00"
+        m = re.search(r"\b(0|1)\.\d+\b", cell)
+        if m:
+            try:
+                v = float(m.group(0))
+                if 0.0 <= v <= 1.0:
+                    return v
+            except ValueError:
+                pass
+        return None
+
     for line in text.splitlines():
         if "|" not in line:
             continue
-        if re.search(r"\bwrong\b", line, re.IGNORECASE):
-            cells = [c.strip() for c in line.split("|")]
-            # cells[0] is usually empty, cells[1] likely action name
-            if len(cells) >= 3:
-                action = cells[1]
-                # trim markdown emphasis
-                action = re.sub(r"[*`]", "", action).strip()
-                if action and action.lower() not in ("action", "---"):
-                    # reason = the line itself minus leading pipes
-                    reason = line.strip("| ").strip()
-                    out["audit_bugs"].append({"action": action, "line": reason[:200]})
-    # Mean WV pass rate (from WV-only section)
-    rates = []
-    for m in re.finditer(r"\|\s*(\d+)\s*/\s*(\d+)\s*\|", text):
-        num, den = int(m.group(1)), int(m.group(2))
-        if den > 0 and num <= den:
-            rates.append(num / den)
-    if rates:
-        out["phase3_wv_rate"] = sum(rates) / len(rates)
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        # Per-action rows need ≥3 columns — modern reports use 5-column
+        # final tables (Action | WV | Audited | Verdict | Final) but older
+        # ones use 3-col Pass-Rate tables (Action | Pass/Total | Rate).
+        # 2-column rows are typically step-status tables (e.g. "| 0 Contract
+        # | PASS ... 420/420 compliant |") — rejecting those plus the
+        # "starts with a letter" filter below is enough to keep step-status
+        # rows out while accepting both table shapes.
+        if len(cells) < 3:
+            continue
+        action = re.sub(r"[*`]", "", cells[0]).strip()
+        if not action or action.lower() in (
+            "action", "---", "", "total", "spec action", "window", "symptom",
+        ):
+            continue
+        if re.fullmatch(r"[-\s|:]+", action):
+            continue
+        # Action names are TLA+ identifiers — start with a letter. Rejects
+        # status-table rows like "0 Contract", "9 Audit", "Step 1", etc.
+        if not re.match(r"[A-Za-z_]", action):
+            continue
+        # Rate can live in any column (different report formats put it at
+        # different positions: col 1 in the Final table, col 4 in some older
+        # Pass-Rate tables). Scan from left and take the first valid rate we
+        # find — but skip pure counts ("82", "3") which _extract_rate
+        # naturally ignores because they have no "/" / "%" / decimal point.
+        rate = None
+        for c in cells[1:]:
+            rate = _extract_rate(c)
+            if rate is not None:
+                break
+        if rate is None:
+            continue
+        is_wrong = bool(re.search(r"\bwrong\b", line, re.IGNORECASE))
+        per_action.append((action, rate, is_wrong))
+        if is_wrong:
+            out["audit_bugs"].append({
+                "action": action,
+                "line": line.strip("| ").strip()[:200],
+            })
+
+    if per_action:
+        # Deduplicate (action names can appear in multiple tables within the
+        # report — WV-only table + Final-Score table). Keep the entry whose
+        # rate matches the action's most-recent mention, which is the Final
+        # table since it's written last. A dict overwrite by action name
+        # achieves this given Python's insertion-order semantics.
+        dedup = {}
+        for action, rate, is_wrong in per_action:
+            dedup[action] = (rate, is_wrong)
+        rates = [r for (r, _) in dedup.values()]
+        out["phase3_wv_rate"] = sum(rates) / len(rates) if rates else None
+        # Zero-tolerance final score.
+        finals = [
+            1.0 if (r == 1.0 and not wrong) else 0.0
+            for (r, wrong) in dedup.values()
+        ]
+        out["phase3_final_score"] = sum(finals) / len(finals)
     return out
 
 
@@ -231,39 +414,29 @@ def build_rows():
         usage = ((d.get("phase0_usage") or {}).get("usage") or {})
         r.gen_tokens_in = usage.get("prompt_tokens")
         r.gen_tokens_out = usage.get("completion_tokens")
-        # WV workspace lookup
-        ws = find_wv_workspace_for(model, system)
-        if ws:
-            r.wv_workspace_path = str(ws.relative_to(PROJECT_ROOT))
-            wv_info = parse_wv_final_report(ws)
-            r.phase3_wv_rate = wv_info["phase3_wv_rate"]
-            r.phase3_audit_run = wv_info["audit_run"]
-            r.phase3_audit_bugs = wv_info["audit_bugs"]
-            r.phase3_final_score = wv_info["phase3_final_score"]
-            r.__dict__.update(parse_wv_cost(ws))
-        # overall = same formula as batch runner: mean over
-        #   {phase status=="ran" at its score} ∪ {phase status=="skipped" at 0}
-        # not_evaluated / pending / None → excluded.
-        # For Phase 3 WV we prefer the audited final score when available.
-        scored = []
-        for key, val in [
-            ("phase1_compilation", r.phase1_score),
-            ("phase2_runtime", r.phase2_score),
-            ("phase3_invariant", r.phase3b_score),
-        ]:
-            p = d.get(key) or {}
-            st = p.get("status")
-            if st == "ran" and val is not None:
-                scored.append(val)
-            elif st == "skipped":
-                scored.append(0.0)
-        # Phase 3 WV: pulled from wv-workspace, handled separately
-        p3_val = r.phase3_final_score if r.phase3_final_score is not None else r.phase3_wv_rate
-        if p3_val is not None:
-            scored.append(p3_val)
-        elif (d.get("phase3_wv") or {}).get("status") == "skipped":
-            scored.append(0.0)
-        r.overall_score = sum(scored) / len(scored) if scored else None
+        # WV workspace lookup (skip if this pair is on the cascade-violation
+        # blocklist — the WV ran but shouldn't have, score is invalid).
+        if (model, system) in CASCADE_VIOLATIONS:
+            r.notes.append("cascade_violation_wv_excluded")
+        else:
+            ws = find_wv_workspace_for(model, system)
+            if ws:
+                r.wv_workspace_path = str(ws.relative_to(PROJECT_ROOT))
+                wv_info = parse_wv_final_report(ws)
+                r.phase3_wv_rate = wv_info["phase3_wv_rate"]
+                r.phase3_audit_run = wv_info["audit_run"]
+                r.phase3_audit_bugs = wv_info["audit_bugs"]
+                r.phase3_final_score = wv_info["phase3_final_score"]
+                r.__dict__.update(parse_wv_cost(ws))
+        # overall_score per (model, system) = fixed mean of 4 phases.
+        # Missing / skipped / not_evaluated phases ALL count as 0.
+        # No selective denominator — the formula is literally (P1+P2+P3+P4)/4.
+        p1v = r.phase1_score or 0.0
+        p2v = r.phase2_score or 0.0
+        p3v = (r.phase3_final_score if r.phase3_final_score is not None
+               else r.phase3_wv_rate) or 0.0
+        p4v = r.phase3b_score or 0.0
+        r.overall_score = (p1v + p2v + p3v + p4v) / 4.0
         rows.append(r)
     return rows
 
@@ -308,20 +481,30 @@ def write_aggregate_csv(rows, path: Path):
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for model, items in sorted(by_model.items()):
-            def mean(key):
-                vals = [getattr(r, key) for r in items if getattr(r, key) is not None]
-                return round(sum(vals) / len(vals), 4) if vals else None
             def total(key):
                 vals = [getattr(r, key) for r in items if getattr(r, key) is not None]
                 return sum(vals) if vals else None
+            # ALL phase means use a FIXED denominator = number of systems for
+            # this model. Missing / not-run phases count as 0, not excluded.
+            # User rule: "选择性分母毫无意义，分母就是 11".
+            # Rationale: a model that fails P1 on 7 systems shouldn't score
+            # P2_mean=0.8 just because its 4 P1-passing systems happened to
+            # have good P2 — P2 never ran on the failed 7 and that's a model
+            # deficiency, counted as 0.
+            def fixed_mean(key):
+                n = len(items)
+                if n == 0:
+                    return None
+                vals = [(getattr(r, key) or 0.0) for r in items]
+                return round(sum(vals) / n, 4)
             w.writerow({
                 "model": model,
                 "systems_evaluated": len(items),
-                "overall_score_mean": mean("overall_score"),
-                "phase1_mean": mean("phase1_score"),
-                "phase2_mean": mean("phase2_score"),
-                "phase3b_mean": mean("phase3b_score"),
-                "phase3_final_mean": mean("phase3_final_score"),
+                "overall_score_mean": fixed_mean("overall_score"),
+                "phase1_mean": fixed_mean("phase1_score"),
+                "phase2_mean": fixed_mean("phase2_score"),
+                "phase3b_mean": fixed_mean("phase3b_score"),
+                "phase3_final_mean": fixed_mean("phase3_final_score"),
                 "audit_bugs_total": sum(len(r.phase3_audit_bugs) for r in items),
                 "total_gen_tokens_in": total("gen_tokens_in"),
                 "total_gen_tokens_out": total("gen_tokens_out"),
@@ -343,11 +526,128 @@ def write_json(rows, path: Path):
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+BENCHMARK_SYSTEMS = [
+    "spin", "mutex", "rwmutex", "dqueue", "ringbuffer", "locksvc",
+    "curp", "raftkvs", "redisraft", "zookeeper", "etcd",
+]
+
+
+def write_paper_summary_csv(rows, path: Path):
+    """Paper-ready summary table.
+
+    Includes ONLY models that have FINISHED the full pipeline:
+
+    1. Phase A ran on every one of the 11 benchmark systems
+       (phase1_score is not None for every system).
+
+    2. For every system whose P2 runtime_check passed (rc=True),
+       Phase 3 WV has completed — i.e. a final_report.md exists and
+       produced a parseable phase3_final_score, OR the agent wrote
+       an explicit "Cannot evaluate" marker (captured upstream as
+       status=pending with a reason).
+
+    If a system is WV-eligible but the WV agent is still running (no
+    report yet), the ENTIRE model is treated as in-progress and
+    excluded from this file. Paper readers should not see half-done
+    data masquerading as a score.
+
+    Paper-standard phase names:
+        Phase 1 = compilation
+        Phase 2 = runtime
+        Phase 3 = conformance (WV, zero-tolerance)
+        Phase 4 = invariant correctness (agent-translated invariants)
+    Means use fixed denominator = 11 (rule: "没跑的算零分").
+    Cost excluded — inconsistent across workspaces.
+    """
+    by_model = {}
+    for r in rows:
+        if r.model in ABANDONED_MODELS:
+            continue
+        by_model.setdefault(r.model, []).append(r)
+
+    def is_complete(items):
+        # Phase A on all 11 systems?
+        have = {r.system for r in items if r.phase1_score is not None}
+        if not set(BENCHMARK_SYSTEMS).issubset(have):
+            return False
+        # WV-eligibility rule (user 2026-04-19):
+        #   - P2 rc=False          → skip WV (runtime error)
+        #   - P2 score=0 / cov=0   → skip WV (TLC explored 0 states; WV would
+        #                            be degenerate — no traces to score)
+        #   - P2 rc=True, score>0  → WV must have produced a final_report
+        # An in-progress WV (workspace exists, report missing) keeps the model
+        # marked in-progress.
+        by_sys = {r.system: r for r in items}
+        for s in BENCHMARK_SYSTEMS:
+            r = by_sys.get(s)
+            if r is None:
+                return False
+            if r.phase2_runtime_check_passed is not True:
+                continue
+            # P2 ran with no runtime error, but coverage may still be 0.
+            if (r.phase2_score or 0) == 0 or (r.phase2_coverage or 0) == 0:
+                continue  # legitimate "no WV" — TLC explored nothing
+            # Otherwise WV is required.
+            if r.phase3_final_score is None:
+                ws = (PROJECT_ROOT / r.wv_workspace_path) if r.wv_workspace_path else None
+                report = ws / "reports" / "final_report.md" if ws else None
+                if not (report and report.exists()):
+                    return False
+        return True
+
+    fields = [
+        "model", "n_systems", "overall_score",
+        "phase1_compilation", "phase2_runtime",
+        "phase3_conformance", "phase4_invariant",
+    ] + [f"sys_{s}" for s in BENCHMARK_SYSTEMS]
+    out_rows = []
+    for model, items in sorted(by_model.items()):
+        if not is_complete(items):
+            continue
+        n = len(BENCHMARK_SYSTEMS)
+
+        def mean(key):
+            vals = [(getattr(r, key) or 0.0) for r in items]
+            return round(sum(vals) / n, 3)
+
+        # Per-system overall score (same formula as detail.csv's
+        # overall_score column: mean over phases that ran at their score,
+        # plus phases that cascaded-skipped as 0). Missing system (shouldn't
+        # happen for completed models, but defensive) → 0.
+        by_sys = {r.system: r for r in items}
+        per_sys = {
+            f"sys_{s}": round(
+                (getattr(by_sys.get(s), "overall_score", None) or 0.0), 3
+            )
+            for s in BENCHMARK_SYSTEMS
+        }
+
+        out_rows.append({
+            "model": model,
+            "n_systems": n,
+            "overall_score": mean("overall_score"),
+            "phase1_compilation": mean("phase1_score"),
+            "phase2_runtime": mean("phase2_score"),
+            "phase3_conformance": mean("phase3_final_score"),
+            "phase4_invariant": mean("phase3b_score"),
+            **per_sys,
+        })
+
+    # Sort by overall_score descending.
+    out_rows.sort(key=lambda x: -x["overall_score"])
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(out_rows)
+    return out_rows
+
+
 def main():
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     rows = build_rows()
     write_detail_csv_all(rows, OUT_ROOT / "detail.csv")
     write_aggregate_csv(rows, OUT_ROOT / "aggregate.csv")
+    summary = write_paper_summary_csv(rows, OUT_ROOT / "paper_summary.csv")
     write_json(rows, OUT_ROOT / "data.json")
     primary = {r.model for r in rows if r.model not in ABANDONED_MODELS}
     abandoned = {r.model for r in rows if r.model in ABANDONED_MODELS}
@@ -355,9 +655,11 @@ def main():
           f"{len(abandoned)} abandoned)")
     print(f"Primary models:    {sorted(primary)}")
     print(f"Abandoned models:  {sorted(abandoned)}")
-    print(f"  detail.csv     — primary rows, per (model, system)")
-    print(f"  aggregate.csv  — primary rows, per model averages")
-    print(f"  data.json      — full data (primary_rows + abandoned_rows)")
+    print(f"  detail.csv         — primary rows, per (model, system)")
+    print(f"  aggregate.csv      — primary rows, per model averages (all models)")
+    print(f"  paper_summary.csv  — paper-ready summary, FULLY-COMPLETED models only")
+    print(f"  data.json          — full data (primary_rows + abandoned_rows)")
+    print(f"Completed models for paper: {[x['model'] for x in summary]}")
 
 
 if __name__ == "__main__":
