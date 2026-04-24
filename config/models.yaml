@@ -35,7 +35,11 @@ models:
     model_name: "deepseek-r1-0528"
     api_key_env: "DEEPSEEK_TENCENT_API_KEY"
     temperature: 0.5
-    max_tokens: 200000
+    # Tencent's LKE endpoint rejects max_tokens > 32768 (200k AND 64k both
+    # fail with error 20024 "parameter max_tokens is invalids"). Probed
+    # 2026-04-19: 32000/16384/8192/4096 accepted; 64000 rejected.
+    max_tokens: 32000
+    timeout: 2700
 
   deepseek:
     provider: "deepseek"
@@ -80,6 +84,21 @@ models:
     max_tokens: 200000
     top_p: 0.9
 
+  # Direct Anthropic API for sonnet. Added 2026-04-18 after gptsapi proxy
+  # returned Cloudflare 520/504 HTML pages for etcd-size prompts (45K input),
+  # causing 5/5 gen failures on sonnet etcd. Direct API bypasses the proxy.
+  claude_sonnet_direct:
+    # Sonnet 4.6 via direct Anthropic API rejects both temperature AND top_p
+    # simultaneously ("cannot both be specified for this model"), so only
+    # temperature is set. The proxy (claude_sonnet_proxy) accepts both because
+    # it routes through OpenAI-compatible translation.
+    provider: "anthropic"
+    model_name: "claude-sonnet-4-6"
+    api_key_env: "ANTHROPIC_API_KEY_DIRECT"
+    temperature: 0.1
+    max_tokens: 64000
+    timeout: 1800
+
   deepseek_r1_proxy:
     provider: "openai"                    # DeepSeek uses OpenAI-compatible API
     model_name: "deepseek-reasoner"
@@ -97,6 +116,46 @@ models:
     temperature: 0.1
     max_tokens: 200000
     top_p: 0.9
+
+  # GPT-5.2 via gptsapi. Added 2026-04-18 as a sibling comparison point to
+  # gpt-5.4 — same vendor, previous generation.
+  gpt52_proxy:
+    provider: "openai"
+    model_name: "gpt-5.2"
+    base_url: "https://api.gptsapi.net/v1"
+    api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  # Claude Opus 4.7 via gptsapi proxy. Added 2026-04-18. Opus is expensive;
+  # keep max_tokens conservative (64k) to cap per-call worst case. If proxy
+  # returns Cloudflare 504 HTML on large prompts (happened with sonnet on
+  # etcd), switch to a direct Anthropic API entry.
+  claude_opus_proxy:
+    provider: "openai"
+    model_name: "claude-opus-4-7"
+    base_url: "https://api.gptsapi.net/v1"
+    api_key_env: "GPTSAPI_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  # GPT-5.2 via OpenAI official API. Added 2026-04-18 after gpt52_proxy
+  # (gptsapi) returned Cloudflare 504 HTML on all 3 large systems
+  # (raftkvs/redisraft/etcd). Azure endpoint doesn't have gpt-5.2
+  # deployed, so direct OpenAI is the only path. gpt-5 family only
+  # accepts max_completion_tokens, but LiteLLM translates automatically.
+  gpt52_openai:
+    provider: "openai"
+    model_name: "gpt-5.2"
+    api_key_env: "OPENAI_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
 
   # Azure-hosted GPT-5.4 — user's free-tier deployment. Prefer this over
   # gpt54_proxy when running expensive experiments (etcd etc.) because the
@@ -158,6 +217,42 @@ models:
     top_p: 0.9
     timeout: 1800
 
+  # qwen3.6-plus with 1h per-call timeout. Added 2026-04-18 specifically for
+  # etcd, which hit 5/5 timeouts at 1800s on the regular entry — etcd's prompt
+  # is ~45K tokens and qwen3.6-plus inference hasn't been able to finish that
+  # under 30 min. This gives it twice the budget for the hard case only;
+  # regular systems should keep using qwen36_plus_ds to avoid wasted wait.
+  qwen36_plus_ds_1h:
+    provider: "openai"
+    model_name: "qwen3.6-plus"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 3600
+
+  # DeepSeek-R1-0528 via DashScope, served through the SiliconFlow
+  # backend marketplace. Added 2026-04-18. User specifically asked for
+  # "siliconflow/deepseek-r1-0528" — this is DashScope's name for the
+  # SiliconFlow-served variant (different backend than plain
+  # "deepseek-r1-0528" which is DashScope's own hosting). Prepend
+  # "openai/" so LiteLLM doesn't parse "siliconflow" as a provider
+  # prefix (same pattern as minimax_m27_ds).
+  # R1 is a reasoning model — output includes reasoning_content.
+  deepseek_r1_ds:
+    provider: "openai"
+    model_name: "openai/siliconflow/deepseek-r1-0528"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    # R1 reasoning is heavy and the siliconflow backend adds extra
+    # latency. A small-prompt smoke call measured 4m49s; large prompts
+    # (etcd ~45K input) may take 20-30min+. 2700s (45min) per call.
+    timeout: 2700
+
   kimi_k25_ds:
     provider: "openai"
     model_name: "kimi-k2.5"
@@ -188,14 +283,97 @@ models:
     top_p: 0.9
     timeout: 1800
 
+  # OpenRouter entries — provider pinning via litellm_params.extra_body.provider.
+  # OpenRouter accepts a "provider" block in the request body to lock routing
+  # to a specific backend (quantization variant). Without this, OpenRouter may
+  # pick slower providers. Added 2026-04-19 after DashScope GLM/DeepSeek paths
+  # got slow / unreliable.
+
+  # Qwen 3.6 Plus via OpenRouter (Alibaba is the serving provider). Added
+  # 2026-04-19 after DashScope qwen timed out on every call during the
+  # backfill attempt. OpenRouter may route through the same upstream, so
+  # this is best-effort.
+  qwen36_plus_openrouter:
+    provider: "openai"
+    model_name: "openai/qwen/qwen3.6-plus"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  # DeepSeek R1 (0528) via OpenRouter. Added 2026-04-19 after Tencent LKE
+  # R1 endpoint timed out on every call and DashScope's siliconflow-backed
+  # R1 path also failed. OpenRouter auto-routes to whichever provider is
+  # healthy (probed 2026-04-19: AtlasCloud).
+  deepseek_r1_openrouter:
+    provider: "openai"
+    model_name: "openai/deepseek/deepseek-r1-0528"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+
+  glm51_openrouter:
+    provider: "openai"
+    # LiteLLM treats "z-ai/..." as an unknown provider prefix; prefixing with
+    # "openai/" forces routing through the OpenAI-compat path so the slug is
+    # passed as-is to OpenRouter.
+    model_name: "openai/z-ai/glm-5.1"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+    # 2026-04-19: previously pinned to io-net/fp8, but that provider kept
+    # returning non-JSON on large-prompt systems (etcd all 5 runs failed,
+    # curp started failing). Unlocked so OpenRouter auto-picks the best
+    # available backend for each request.
+
+  deepseek_v32_openrouter:
+    provider: "openai"
+    model_name: "deepseek/deepseek-v3.2"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    timeout: 1800
+    litellm_params:
+      extra_body:
+        provider:
+          only: ["deepinfra/fp4"]
+
   minimax_m27_ds:
     provider: "openai"
-    model_name: "MiniMax/MiniMax-M2.7"
+    # DashScope's own name for MiniMax M2.7 is "MiniMax/MiniMax-M2.7". The "/"
+    # in the bare name makes LiteLLM treat "MiniMax" as a provider prefix (which
+    # doesn't exist) and fail with BadRequestError. Prepend "openai/" so LiteLLM
+    # routes through the OpenAI-compat path and passes the rest through as the
+    # model string to DashScope.
+    model_name: "openai/MiniMax/MiniMax-M2.7"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key_env: "DASHSCOPE_API_KEY"
     temperature: 0.1
     max_tokens: 64000
     top_p: 0.9
+    timeout: 1800
+
+  # Gemini 3.1 Pro Preview via Google's official Generative Language API.
+  # Added 2026-04-19. Replaces gemini31_proxy (abandoned — gptsapi returned
+  # 504 on mutex-size prompts). Direct Google bypasses proxy issues.
+  gemini31_google:
+    provider: "genai"
+    model_name: "gemini-3.1-pro-preview"
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.1
+    max_tokens: 64000
+    top_p: 0.9
+    thinking_budget: 32768
     timeout: 1800
 
   gemini31_proxy:
@@ -206,6 +384,23 @@ models:
     temperature: 0.1
     max_tokens: 200000
     top_p: 0.9
+
+  # xAI direct API, OpenAI-compatible at /v1/chat/completions.
+  # Added 2026-04-18 after user funded $10 of direct credit. Server
+  # resolves both "grok-4.20-reasoning" and "grok-4.20-0309-reasoning"
+  # to the same dated model, so we send the stable alias.
+  # Reasoning output is heavy — even "say OK" produced 110 reasoning
+  # tokens. Cap max_tokens at 32K so a single large-prompt call
+  # (etcd ~45K input) can't runaway past $1. User has small budget.
+  grok420_reasoning_xai:
+    provider: "openai"
+    model_name: "grok-4.20-reasoning"
+    base_url: "https://api.x.ai/v1"
+    api_key_env: "XAI_API_KEY"
+    temperature: 0.1
+    max_tokens: 32000
+    top_p: 0.9
+    timeout: 1800
 
   grok4_proxy:
     provider: "openai"
