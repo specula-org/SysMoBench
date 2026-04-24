@@ -39,6 +39,11 @@ MTYPE_MAP = {
     "rvq": "HandleRequestVoteRequest",
     "apq": "HandleAppendEntriesRequest",
     "app": "HandleAppendEntriesResponse",
+    # cpq/cgq are the spec's ClientRequest(i) action — server side handler.
+    # AClient.sndReq is NOT mapped here; it is client-side only and does not
+    # correspond to any spec action (the server-side processing is what matters).
+    "cpq": "ClientRequest",
+    "cgq": "ClientRequest",
 }
 
 # These labels are tight busy-waiting loops that only touch local archetype
@@ -91,8 +96,6 @@ def find_mtype(reads, writes):
 
 
 def map_action(label, reads, writes):
-    if label == "AClient.sndReq":
-        return "ClientRequest"
     if label == "AServerRequestVote.serverRequestVoteLoop":
         return "ElectionTimeout"
     if label == "AServer.handleMsg":
@@ -123,7 +126,12 @@ def extract_event(raw):
             continue
         key = _var_key(el)
         if el.get("tag") == "read":
-            reads[key] = _val(el.get("value"))
+            # Take the FIRST read of each variable (= pre-write value).
+            # PGo sometimes reads a variable again after writing it within the
+            # same atomic step (e.g., currentTerm is incremented then re-read
+            # for the console print), which would overwrite the pre-state value.
+            if key not in reads:
+                reads[key] = _val(el.get("value"))
         elif el.get("tag") == "write":
             writes[key] = _val(el.get("value"))
 

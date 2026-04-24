@@ -20,7 +20,8 @@
 #   --workspace-root=<dir>  Where to create the per-eval workspace
 #                           (default: ./wv-workspaces)
 #   --agent=<name>          Agent adapter (default: claude-code)
-#   --model=<id>            Model ID (default: claude-sonnet-4-5)
+#   --model=<id>            Model ID (default: agent-specific; claude-code=sonnet,
+#                           codex=CLI default)
 #   --max-budget=<usd>      Max API spend (default: unlimited)
 #   --dry-run               Set up workspace and print prompt, don't launch
 #   --keep-repo             Keep the repo copy in workspace (default: delete, save patch)
@@ -65,7 +66,7 @@ REPO_PATH=""
 TASK_NAME=""
 WORKSPACE_ROOT="$PWD/wv-workspaces"
 AGENT="claude-code"
-MODEL="sonnet"
+MODEL=""
 MAX_BUDGET=""
 ACTIONS=""
 DRY_RUN=false
@@ -90,6 +91,10 @@ for arg in "$@"; do
     *) echo "Unknown option: $arg"; exit 1 ;;
   esac
 done
+
+if [[ -z "$MODEL" && "$AGENT" == "claude-code" ]]; then
+  MODEL="sonnet"
+fi
 
 # ── Load defaults from task.yaml if --task given ─────────
 
@@ -301,6 +306,7 @@ BUDGET_ARG=""
 MODEL_ARG=""
 [[ -n "$MODEL" ]] && MODEL_ARG="--model=$MODEL"
 
+AGENT_EXIT=0
 "$ADAPTER" --prompt-file="$WORKSPACE/.prompt.md" --log="$LOG_FILE" $BUDGET_ARG $MODEL_ARG || AGENT_EXIT=$?
 
 echo ""
@@ -355,4 +361,9 @@ if [[ -f "$REPORT" ]]; then
   head -30 "$REPORT"
 else
   echo "No report generated. Check log: $LOG_FILE"
+  if [[ "$AGENT_EXIT" -eq 0 ]]; then
+    AGENT_EXIT=1
+  fi
 fi
+
+exit "$AGENT_EXIT"

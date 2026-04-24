@@ -226,10 +226,13 @@ Why this step exists: WV windows only test what the trace covers. A spec that pa
    - `correct` + one-line justification (even when no bug found, say what you checked)
    - `wrong(bug_name, evidence_path, tlc_exit_code)` if a bug was TLC-verified
 
-**Final scoring**:
-- `final(A_i) = 0` if audit verdict for A_i is wrong
-- `final(A_i) = WV pass rate of A_i` otherwise (which is 1.0 for audited actions, since only 100%-WV actions are audited)
-- `Phase3_score = mean(final(A_i))`
+**Final scoring** (zero-tolerance at the *action* level — a single buggy window is still a bug):
+- `final(A_i) = 1.0` iff WV pass rate == 1.0 **and** audit verdict is correct (or audit wasn't applicable).
+- `final(A_i) = 0` if one window failed WV, all windows failed WV, or audit found a TLC-verified bug.
+- `final(A_i)` is **undefined** (exclude from the denominator) if the action has 0 windows — i.e. the harness produced no events that exercise it. That's a trace-coverage gap, not a spec defect, so it shouldn't penalise the model. Record it honestly as "Cannot evaluate" in the report.
+- `Phase3_score = mean(final(A_i))` taken only over actions with defined scores. If every action is 0-window, the spec has `Phase3_score = None` (not 0).
+
+**Always record the raw pass rate (x/y) in the report** even though it doesn't multiply into the score — it's diagnostic. The score is a per-action binary (correct / not correct) because a spec that mismodels even one real transition is already wrong; fractional WV rates would hide that behind a deceptively-high average.
 
 **Report format** (append to `<workspace>/reports/final_report.md`):
 
@@ -238,11 +241,12 @@ Why this step exists: WV windows only test what the trace covers. A spec that pa
 
 | Action | WV rate | Audited | Verdict | Final |
 |---|---|---|---|---|
-| ActionA | 1.0 | yes | correct | 1.0 |
-| ActionB | 1.0 | yes | wrong (NullLeader bug, see audit/Audit_ActionB_NullLeader.tla) | 0 |
-| ActionC | 0.85 | no (WV already <1.0) | — | 0.85 |
+| ActionA | 1.0 (37/37) | yes | correct | 1.0 |
+| ActionB | 1.0 (12/12) | yes | wrong (NullLeader bug, see audit/Audit_ActionB_NullLeader.tla) | 0 |
+| ActionC | 0.85 (17/20) | no (WV already <1.0) | — | 0 |
+| ActionD | — (0/0) | no (cannot evaluate — harness gap) | — | excluded |
 
-Phase3_score = (1.0 + 0 + 0.85) / 3 = 0.62
+Phase3_score = (1.0 + 0 + 0) / 3 = 0.333   (ActionD excluded from denominator)
 ```
 
 The audit section of `audit.md` should contain the full reasoning and TLC transcripts for each `wrong` verdict. `correct` verdicts need only one line each.

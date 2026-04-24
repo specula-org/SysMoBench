@@ -495,6 +495,7 @@ Write a JSON file to `./output/invariants.json` with this exact format:
                 "exec",
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--skip-git-repo-check",
+                "-c", 'model_reasoning_effort="high"',
             ]
             if model:
                 cmd.extend(["-m", model])

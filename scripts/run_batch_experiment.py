@@ -236,7 +236,9 @@ class BatchExperimentRunner:
                  enable_wv: bool = False,
                  wv_budget: float = 5.0,
                  wv_timeout: int = 1800,
-                 inv_model: str = "sonnet"):
+                 inv_model: str = "sonnet",
+                 wv_agent: Optional[str] = None,
+                 wv_model: Optional[str] = None):
         """
         Initialize the batch experiment runner.
 
@@ -262,6 +264,8 @@ class BatchExperimentRunner:
         self.wv_budget = wv_budget
         self.wv_timeout = wv_timeout
         self.inv_model = inv_model
+        self.wv_agent = wv_agent
+        self.wv_model = wv_model
 
         # Create output directory with timestamp
         self.experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -856,7 +860,7 @@ class BatchExperimentRunner:
                       spec_path: str) -> PhaseResult:
         """
         Phase 3 WV: Action-window validation via agent-driven evaluation.
-        Launches a Claude Code agent that follows the wv-eval skill.
+        Launches the configured agent adapter that follows the wv-eval skill.
 
         Only runs when --enable-wv is set (costs ~$1-4 per spec).
         """
@@ -866,14 +870,20 @@ class BatchExperimentRunner:
         workspace_root = PROJECT_ROOT / "wv-workspaces"
 
         try:
+            cmd = [
+                "bash", str(launcher),
+                f"--task={system}",
+                f"--spec={spec_path}",
+                f"--workspace-root={workspace_root}",
+                f"--max-budget={self.wv_budget}",
+            ]
+            if self.wv_agent:
+                cmd.append(f"--agent={self.wv_agent}")
+            if self.wv_model:
+                cmd.append(f"--model={self.wv_model}")
+
             result = subprocess.run(
-                [
-                    "bash", str(launcher),
-                    f"--task={system}",
-                    f"--spec={spec_path}",
-                    f"--workspace-root={workspace_root}",
-                    f"--max-budget={self.wv_budget}",
-                ],
+                cmd,
                 capture_output=True, text=True,
                 timeout=self.wv_timeout,
                 cwd=str(PROJECT_ROOT),
@@ -1466,6 +1476,10 @@ Examples:
                        help="Max API budget (USD) per WV evaluation (default: 5)")
     parser.add_argument("--wv-timeout", type=int, default=1800,
                        help="Timeout (seconds) per WV evaluation (default: 1800)")
+    parser.add_argument("--wv-agent", default=None,
+                       help="Agent adapter for WV launcher (e.g. claude-code, codex)")
+    parser.add_argument("--wv-model", default=None,
+                       help="Model override passed to the WV agent adapter")
     parser.add_argument("--inv-model", default="sonnet",
                        help="Model for Phase 3b invariant-translator agent CLI (default: sonnet). "
                             "Uses Claude Code's own credentials, NOT user's paid API.")
@@ -1514,6 +1528,8 @@ Examples:
         enable_wv=args.enable_wv,
         wv_budget=args.wv_budget,
         wv_timeout=args.wv_timeout,
+        wv_agent=args.wv_agent,
+        wv_model=args.wv_model,
         inv_model=args.inv_model,
     )
 
