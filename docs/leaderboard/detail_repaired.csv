@@ -1,0 +1,122 @@
+model,system,overall,p1,p2,p3,p4,p3_source,p4_source,repair_status,edits,wv_workspace
+claude_opus_proxy,curp,0.625,1.0,0.0,0.5,0.8571428571428571,repaired,repaired (6/7),minor,2,wv-workspaces/20260422_144952_curp
+claude_opus_proxy,dqueue,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260419_011620_dqueue
+claude_opus_proxy,etcd,0.8761538461538461,1.0,1.0,0.8,0.8461538461538461,original,original,none,0,wv-workspaces/20260419_011621_etcdraft
+claude_opus_proxy,locksvc,0.7083333333333333,1.0,1.0,1.0,0.16666666666666666,original,original,none,0,wv-workspaces/20260419_011620_locksvc
+claude_opus_proxy,mutex,0.5833333333333333,1.0,0.0,0.6666666666666666,0.5714285714285714,repaired,repaired (4/7),minor,2,wv-workspaces/20260422_144951_mutex
+claude_opus_proxy,raftkvs,0.8366666666666667,1.0,1.0,0.8,0.7333333333333333,original,original,none,0,wv-workspaces/20260419_011621_raftkvs
+claude_opus_proxy,redisraft,0.828125,1.0,0.0,1.0,0.9375,repaired,repaired (15/16),minor,3,wv-workspaces/20260422_144952_redisraft
+claude_opus_proxy,ringbuffer,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260419_011620_ringbuffer
+claude_opus_proxy,rwmutex,0.9649999999999999,1.0,1.0,1.0,0.9,original,original,none,0,wv-workspaces/20260419_011620_rwmutex
+claude_opus_proxy,spin,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260419_011620_spin
+claude_opus_proxy,zookeeper,0.6878737878787878,1.0,0.3333,0.6666666666666666,0.7272727272727273,repaired,repaired (8/11),minor,2,wv-workspaces/20260422_151108_zookeeper
+claude_sonnet,curp,0.85,1.0,0.0,1.0,1.0,repaired,repaired (7/7),moderate,4,wv-workspaces/20260422_151246_curp
+claude_sonnet,dqueue,0.6499999999999999,1.0,1.0,0.0,1.0,original,original,none,0,wv-workspaces/20260418_132845_sonnet_dqueue
+claude_sonnet,etcd,0.7923076923076924,1.0,0.8,0.8,0.6923076923076923,repaired,repaired (9/13),minor,1,wv-workspaces/20260422_151537_etcd
+claude_sonnet,locksvc,0.7083333333333333,1.0,1.0,1.0,0.16666666666666666,original,original,none,0,wv-workspaces/20260418_132845_sonnet_locksvc
+claude_sonnet,mutex,0.8999999999999999,1.0,1.0,1.0,0.7142857142857143,original,original,none,0,wv-workspaces/20260418_132845_sonnet_mutex
+claude_sonnet,raftkvs,0.600005,1.0,0.6667000000000001,0.2,0.8,original,original,none,0,wv-workspaces/20260418_132845_sonnet_raftkvs
+claude_sonnet,redisraft,0.7479166666666666,1.0,0.0,0.8333333333333334,0.875,repaired,repaired (14/16),minor,1,wv-workspaces/20260422_153915_redisraft
+claude_sonnet,ringbuffer,0.6499999999999999,1.0,1.0,0.0,1.0,original,original,none,0,wv-workspaces/20260418_132845_sonnet_ringbuffer
+claude_sonnet,rwmutex,0.9299999999999999,1.0,1.0,1.0,0.8,original,original,none,0,wv-workspaces/20260418_132845_sonnet_rwmutex
+claude_sonnet,spin,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260416_071351_spin
+claude_sonnet,zookeeper,0.7560606060606061,1.0,1.0,0.6666666666666666,0.6363636363636364,original,original,none,0,wv-workspaces/20260418_132845_sonnet_zookeeper
+deepseek_r1_openrouter,curp,0.7333333333333333,1.0,0.0,0.6666666666666666,1.0,repaired,repaired (7/7),minor,2,wv-workspaces/20260422_154433_curp
+deepseek_r1_openrouter,dqueue,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260422_012947_dqueue
+deepseek_r1_openrouter,etcd,0.2784782608695652,0.45652173913043476,,0.6,0.0,repaired,repaired (0/13),heavy,15,wv-workspaces/20260422_154519_etcd
+deepseek_r1_openrouter,locksvc,0.6791666666666667,1.0,1.0,0.75,0.3333333333333333,original,original,none,0,wv-workspaces/20260422_050510_locksvc
+deepseek_r1_openrouter,mutex,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260422_012956_mutex
+deepseek_r1_openrouter,raftkvs,0.27058823529411763,0.47058823529411764,,0.5714285714285714,0.0,repaired,repaired (0/15),moderate,6,wv-workspaces/20260422_160913_raftkvs
+deepseek_r1_openrouter,redisraft,0.574702380952381,0.42857142857142855,,0.8333333333333334,0.625,repaired,repaired (10/16),heavy,12,wv-workspaces/20260422_230512_redisraft
+deepseek_r1_openrouter,ringbuffer,0.6499999999999999,1.0,1.0,0.0,1.0,original,original,none,0,wv-workspaces/20260422_012959_ringbuffer
+deepseek_r1_openrouter,rwmutex,0.9299999999999999,1.0,1.0,1.0,0.8,original,original,none,0,wv-workspaces/20260422_050520_rwmutex
+deepseek_r1_openrouter,spin,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260422_013005_spin
+deepseek_r1_openrouter,zookeeper,0.3409090909090909,1.0,0.0,0.0,0.5454545454545454,repaired,repaired (6/11),minor,2,wv-workspaces/20260422_190404_zookeeper
+deepseek_v32_ds,curp,0.41428571428571426,0.42857142857142855,,1.0,0.0,repaired,repaired (0/7),heavy,11,wv-workspaces/20260422_190209_curp
+deepseek_v32_ds,dqueue,0.3,1.0,1.0,0.0,0.0,original,original,none,0,wv-workspaces/20260418_082918_dqueue
+deepseek_v32_ds,etcd,0.2075,0.45,,0.4,0.0,repaired,repaired (0/13),heavy,12,wv-workspaces/20260422_190210_etcd
+deepseek_v32_ds,locksvc,0.4499999999999999,0.4722222222222222,,0.75,0.3333333333333333,repaired,repaired (2/6),moderate,9,wv-workspaces/20260422_190333_locksvc
+deepseek_v32_ds,mutex,0.7833333333333333,1.0,1.0,0.6666666666666666,0.7142857142857143,original,original,none,0,wv-workspaces/20260418_082916_mutex
+deepseek_v32_ds,raftkvs,0.5833333333333333,0.4666666666666667,,0.6,0.8666666666666667,repaired,repaired (13/15),moderate,7,wv-workspaces/20260422_193647_raftkvs
+deepseek_v32_ds,redisraft,0.38249999999999995,0.45,,0.4,0.5,repaired,repaired (8/16),moderate,9,wv-workspaces/20260422_194103_redisraft
+deepseek_v32_ds,ringbuffer,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260418_082920_ringbuffer
+deepseek_v32_ds,rwmutex,0.5113020833333333,0.453125,,0.6666666666666666,0.6,repaired,repaired (6/10),moderate,5,wv-workspaces/20260422_200232_rwmutex
+deepseek_v32_ds,spin,0.8999999999999999,1.0,1.0,1.0,0.7142857142857143,original,original,none,0,wv-workspaces/20260418_082914_spin
+deepseek_v32_ds,zookeeper,0.3833333333333333,1.0,0.0,0.6666666666666666,0.0,repaired,repaired (0/11),moderate,4,wv-workspaces/20260422_200631_zookeeper
+gemini31_google,curp,0.8416666666666667,1.0,1.0,0.8333333333333334,0.7142857142857143,original,original,none,0,wv-workspaces/20260419_084637_curp
+gemini31_google,dqueue,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260419_084639_dqueue
+gemini31_google,etcd,0.8530819230769231,1.0,0.6667000000000001,0.8,0.9230769230769231,original,original,none,0,wv-workspaces/20260419_084635_etcdraft
+gemini31_google,locksvc,0.7666666666666666,1.0,1.0,1.0,0.3333333333333333,original,original,none,0,wv-workspaces/20260419_084641_locksvc
+gemini31_google,mutex,0.7833333333333333,1.0,1.0,0.6666666666666666,0.7142857142857143,original,original,none,0,wv-workspaces/20260419_084643_mutex
+gemini31_google,raftkvs,0.7849999999999999,1.0,0.5,0.8,0.8,original,original,none,0,wv-workspaces/20260419_084645_raftkvs
+gemini31_google,redisraft,0.7374999999999999,1.0,1.0,0.5,0.75,original,original,none,0,wv-workspaces/20260419_084647_redisraft
+gemini31_google,ringbuffer,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260419_084649_ringbuffer
+gemini31_google,rwmutex,0.9649999999999999,1.0,1.0,1.0,0.9,original,original,none,0,wv-workspaces/20260419_084651_rwmutex
+gemini31_google,spin,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260419_084633_spin
+gemini31_google,zookeeper,0.7878787878787878,1.0,1.0,0.6666666666666666,0.7272727272727273,original,original,none,0,wv-workspaces/20260419_084653_zookeeper
+gpt52,curp,0.625,1.0,0.0,0.5,0.8571428571428571,repaired,repaired (6/7),minor,2,wv-workspaces/20260422_201435_curp
+gpt52,dqueue,0.4214285714285714,0.47619047619047616,,1.0,0.0,repaired,repaired (0/1),minor,2,wv-workspaces/20260422_202757_dqueue
+gpt52,etcd,0.5576470588235294,0.45098039215686275,,0.4,1.0,repaired,repaired (13/13),moderate,6,wv-workspaces/20260422_204714_etcd
+gpt52,locksvc,0.6291666666666667,0.5,,0.75,0.8333333333333334,repaired,repaired (5/6),minor,3,wv-workspaces/20260422_205710_locksvc
+gpt52,mutex,0.95,1.0,1.0,1.0,0.8571428571428571,original,original,none,0,wv-workspaces/20260418_174707_mutex
+gpt52,raftkvs,0.653415300546448,0.4672131147540984,,0.8,0.8666666666666667,repaired,repaired (13/15),moderate,4,wv-workspaces/20260422_210021_raftkvs
+gpt52,redisraft,0.5623093220338983,0.423728813559322,,0.8,0.625,repaired,repaired (10/16),moderate,7,wv-workspaces/20260422_213015_redisraft
+gpt52,ringbuffer,0.37,1.0,0.3,0.0,0.5,repaired,repaired (2/4),moderate,4,wv-workspaces/20260422_214038_ringbuffer
+gpt52,rwmutex,0.9649999999999999,1.0,1.0,1.0,0.9,original,original,none,0,wv-workspaces/20260418_174707_rwmutex
+gpt52,spin,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260418_174707_spin
+gpt52,zookeeper,0.5848484848484848,1.0,0.0,0.3333333333333333,0.9090909090909091,repaired,repaired (10/11),minor,3,wv-workspaces/20260422_215657_zookeeper
+gpt54_azure,curp,0.7375,1.0,0.25,0.7142857142857143,0.8571428571428571,repaired,repaired (6/7),minor,1,wv-workspaces/20260422_215835_curp
+gpt54_azure,dqueue,0.6499999999999999,1.0,1.0,1.0,0.0,original,original,none,0,wv-workspaces/20260418_114419_dqueue
+gpt54_azure,etcd,0.7961538461538462,1.0,0.0,1.0,0.8461538461538461,repaired,repaired (11/13),moderate,7,wv-workspaces/20260422_220109_etcd
+gpt54_azure,locksvc,0.7666666666666666,1.0,1.0,1.0,0.3333333333333333,original,original,none,0,wv-workspaces/20260418_114421_locksvc
+gpt54_azure,mutex,0.7333333333333333,1.0,1.0,0.6666666666666666,0.5714285714285714,original,original,none,0,wv-workspaces/20260418_114415_mutex
+gpt54_azure,raftkvs,0.6124999999999999,1.0,0.75,1.0,0.0,original,original,none,0,wv-workspaces/20260418_114423_raftkvs
+gpt54_azure,redisraft,0.7362883333333333,1.0,0.8946999999999999,0.6666666666666666,0.625,original,original,none,0,wv-workspaces/20260418_114425_redisraft
+gpt54_azure,ringbuffer,0.899995,1.0,0.3333,1.0,1.0,repaired,repaired (4/4),minor,2,wv-workspaces/20260422_220315_ringbuffer
+gpt54_azure,rwmutex,0.9649999999999999,1.0,1.0,1.0,0.9,original,original,none,0,wv-workspaces/20260418_114417_rwmutex
+gpt54_azure,spin,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260418_114413_spin
+gpt54_azure,zookeeper,0.8833333333333333,1.0,1.0,0.6666666666666666,1.0,original,original,none,0,wv-workspaces/20260418_114427_zookeeper
+grok420_reasoning_xai,curp,0.8333333333333333,1.0,1.0,0.6666666666666666,0.8571428571428571,original,original,none,0,wv-workspaces/20260419_084659_curp
+grok420_reasoning_xai,dqueue,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260419_084701_dqueue
+grok420_reasoning_xai,etcd,0.30499999999999994,1.0,0.1,0.4,0.0,original,original,none,0,wv-workspaces/20260419_084657_etcdraft
+grok420_reasoning_xai,locksvc,0.6166666666666667,1.0,0.0,1.0,0.3333333333333333,repaired,repaired (2/6),minor,1,wv-workspaces/20260422_221559_locksvc
+grok420_reasoning_xai,mutex,0.95,1.0,1.0,1.0,0.8571428571428571,original,original,none,0,wv-workspaces/20260419_084703_mutex
+grok420_reasoning_xai,raftkvs,0.42499999999999993,0.5,,0.3333333333333333,0.6666666666666666,repaired,repaired (10/15),minor,1,wv-workspaces/20260422_230510_raftkvs
+grok420_reasoning_xai,redisraft,0.5729166666666666,1.0,0.0,0.3333333333333333,0.875,repaired,repaired (14/16),minor,1,wv-workspaces/20260422_230513_redisraft
+grok420_reasoning_xai,ringbuffer,0.6499999999999999,1.0,1.0,0.0,1.0,original,original,none,0,wv-workspaces/20260419_084705_ringbuffer
+grok420_reasoning_xai,rwmutex,0.9649999999999999,1.0,1.0,1.0,0.9,original,original,none,0,wv-workspaces/20260419_084707_rwmutex
+grok420_reasoning_xai,spin,0.825,1.0,1.0,0.5,1.0,original,original,none,0,wv-workspaces/20260419_084655_spin
+grok420_reasoning_xai,zookeeper,0.6499999999999999,1.0,1.0,1.0,0.0,original,original,none,0,wv-workspaces/20260419_084709_zookeeper
+kimi_k25_ds,curp,0.5916666666666667,1.0,1.0,0.8333333333333334,0.0,original,original,none,0,wv-workspaces/20260418_062934_curp
+kimi_k25_ds,dqueue,0.5,1.0,0.0,1.0,0.0,repaired,repaired (0/1),minor,2,wv-workspaces/20260422_232721_dqueue
+kimi_k25_ds,etcd,0.543076923076923,1.0,0.0,0.2,0.9230769230769231,repaired,repaired (12/13),none,0,wv-workspaces/20260423_115109_etcd
+kimi_k25_ds,locksvc,0.7452316666666666,1.0,0.8571,1.0,0.3333333333333333,original,original,none,0,wv-workspaces/20260417_163123_locksvc
+kimi_k25_ds,mutex,0.95,1.0,1.0,1.0,0.8571428571428571,original,original,none,0,wv-workspaces/20260417_163117_mutex
+kimi_k25_ds,raftkvs,0.57,1.0,0.0,0.2,1.0,repaired,repaired (15/15),minor,3,wv-workspaces/20260422_234105_raftkvs
+kimi_k25_ds,redisraft,0.30757166666666663,1.0,0.2727,0.3333333333333333,0.0,original,original,none,0,wv-workspaces/20260418_132845_kimi_redisraft
+kimi_k25_ds,ringbuffer,0.6499999999999999,1.0,1.0,0.0,1.0,original,original,none,0,wv-workspaces/20260418_121903_kimi_ringbuffer
+kimi_k25_ds,rwmutex,0.6499999999999999,1.0,1.0,1.0,0.0,original,original,none,0,wv-workspaces/20260417_163119_rwmutex
+kimi_k25_ds,spin,0.5,1.0,1.0,0.0,0.5714285714285714,original,original,none,0,wv-workspaces/20260417_163115_spin
+kimi_k25_ds,zookeeper,0.8196969696969697,1.0,1.0,0.6666666666666666,0.8181818181818182,original,original,none,0,wv-workspaces/20260418_121903_kimi_zookeeper
+minimax_m27_ds,curp,0.44166666666666665,1.0,0.0,0.8333333333333334,0.0,repaired,repaired (0/7),minor,2,wv-workspaces/20260422_234944_curp
+minimax_m27_ds,dqueue,0.15,1.0,0.0,0.0,0.0,repaired,repaired (0/1),minor,1,wv-workspaces/20260423_003510_dqueue
+minimax_m27_ds,etcd,0.21499999999999997,0.5,,0.4,0.0,repaired,repaired (0/13),minor,3,wv-workspaces/20260423_003510_etcd
+minimax_m27_ds,locksvc,0.36666666666666664,0.5,,0.5,0.3333333333333333,repaired,repaired (2/6),moderate,6,wv-workspaces/20260423_043844_locksvc
+minimax_m27_ds,mutex,0.30416666666666664,1.0,0.25,0.3333333333333333,0.0,original,original,none,0,wv-workspaces/20260422_021049_mutex
+minimax_m27_ds,raftkvs,0.247,0.48,,0.5,0.0,repaired,repaired (0/15),moderate,7,wv-workspaces/20260423_003510_raftkvs
+minimax_m27_ds,redisraft,0.30448717948717946,0.47435897435897434,,0.6666666666666666,0.0,repaired,repaired (0/16),moderate,9,wv-workspaces/20260423_003511_redisraft
+minimax_m27_ds,ringbuffer,0.825,1.0,1.0,0.5,1.0,original,original,none,0,wv-workspaces/20260422_011015_ringbuffer
+minimax_m27_ds,rwmutex,0.49583333333333324,1.0,0.75,0.6666666666666666,0.0,original,original,none,0,wv-workspaces/20260422_021052_rwmutex
+minimax_m27_ds,spin,0.725,1.0,1.0,0.5,0.7142857142857143,original,original,none,0,wv-workspaces/20260422_011012_spin
+minimax_m27_ds,zookeeper,0.22499999999999998,1.0,0.5,0.0,0.0,repaired,repaired (0/11),minor,2,wv-workspaces/20260423_043844_zookeeper
+qwen36_plus_ds,curp,0.6916716666666668,1.0,0.6667000000000001,0.8333333333333334,0.42857142857142855,repaired,repaired (3/7),minor,1,wv-workspaces/20260423_044219_curp
+qwen36_plus_ds,dqueue,0.15,1.0,0.0,0.0,0.0,repaired,repaired (0/1),moderate,4,wv-workspaces/20260423_052328_dqueue
+qwen36_plus_ds,etcd,0.33249999999999996,1.0,0.75,0.2,0.0,original,original,none,0,wv-workspaces/20260422_021037_etcd
+qwen36_plus_ds,locksvc,0.5958333333333333,1.0,0.25,1.0,0.16666666666666666,repaired,repaired (1/6),minor,2,wv-workspaces/20260423_052907_locksvc
+qwen36_plus_ds,mutex,0.95,1.0,1.0,1.0,0.8571428571428571,original,original,none,0,wv-workspaces/20260422_021040_mutex
+qwen36_plus_ds,raftkvs,0.71,1.0,0.0,0.6,1.0,repaired,repaired (15/15),minor,2,wv-workspaces/20260423_093159_raftkvs
+qwen36_plus_ds,redisraft,0.6047054597701149,0.4827586206896552,,0.8333333333333334,0.6875,repaired,repaired (11/16),moderate,8,wv-workspaces/20260423_093159_redisraft
+qwen36_plus_ds,ringbuffer,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260422_021043_ringbuffer
+qwen36_plus_ds,rwmutex,0.8483333333333334,1.0,1.0,0.6666666666666666,0.9,original,original,none,0,wv-workspaces/20260422_011006_rwmutex
+qwen36_plus_ds,spin,0.9999999999999999,1.0,1.0,1.0,1.0,original,original,none,0,wv-workspaces/20260422_021046_spin
+qwen36_plus_ds,zookeeper,0.5333333333333333,1.0,1.0,0.6666666666666666,0.0,original,original,none,0,wv-workspaces/20260422_050500_zookeeper
