@@ -8,7 +8,6 @@ from source code, including direct LLM calls and agent-based methods.
 from .base import TLAGenerationMethod
 from .direct_call import DirectCallMethod
 from .agent_based import AgentBasedMethod
-from .trace_based import TraceBasedMethod
 from .code_agent import (
     CodeAgentMethod,
     ClaudeCodeAdapter,
@@ -23,7 +22,6 @@ from .code_agent import (
 _METHODS = {
     "direct_call": DirectCallMethod,
     "agent_based": AgentBasedMethod,
-    "trace_based": TraceBasedMethod,
 }
 
 # Code agent adapters registry
@@ -110,7 +108,6 @@ __all__ = [
     "TLAGenerationMethod",
     "DirectCallMethod",
     "AgentBasedMethod",
-    "TraceBasedMethod",
     "CodeAgentMethod",
     "ClaudeCodeAdapter",
     "ClaudeCodeConfig",

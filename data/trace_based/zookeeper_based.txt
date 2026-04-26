@@ -1,3 +1,0 @@
-The `execution` file is a trace of a single replay run; time-ordered actions/events performed during the replay across nodes (e.g., zxid or epoch updates), effectively a step-by-step action log.
-
-The `statistics` file is the set of statistics for the same trace; each ExternalModelStatistics block is a step/phase with the step name, executed event count, average/max enabled events, elapsed time, property under check (e.g., LEADER_COMMITTED_LOG), the result (SUCCESS/FAIL), and model match status.
