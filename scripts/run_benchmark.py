@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 
 def _display_evaluation_results(eval_result, evaluation_type: str):
     """Display evaluation results in a unified format."""
-    from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult, CompositeEvaluationResult
+    from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult
     
     if isinstance(eval_result, SyntaxEvaluationResult):
         print(f"\nSyntax Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
@@ -137,83 +137,6 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
         if eval_result.config_file_path:
             print(f"Config file: {eval_result.config_file_path}")
             
-    elif isinstance(eval_result, CompositeEvaluationResult):
-        print(f"\nComposite Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
-        print(f"Generation time: {eval_result.generation_time:.2f}s")
-        print(f"Total evaluation time: {eval_result._calculate_total_time():.2f}s")
-        
-        # Show generation results
-        if not eval_result.generation_successful:
-            print(f"❌ Generation failed: {eval_result.generation_error}")
-            return
-        
-        # Show action decomposition results
-        if eval_result.action_decomposition_result:
-            action_result = eval_result.action_decomposition_result
-            action_status = "✓ PASS" if action_result.overall_success else "✗ FAIL"
-            print(f"\nAction Decomposition: {action_status}")
-            if hasattr(action_result, 'total_actions') and action_result.total_actions:
-                success_rate = getattr(action_result, 'action_success_rate', 0.0)
-                successful = getattr(action_result, 'successful_actions', 0)
-                total = action_result.total_actions
-                print(f"   Actions: {successful}/{total} ({success_rate:.1%})")
-        
-        # Show compilation check results
-        if eval_result.compilation_check_result:
-            comp_result = eval_result.compilation_check_result
-            comp_status = "✓ PASS" if comp_result.overall_success else "✗ FAIL"
-            print(f"\nCompilation Check: {comp_status}")
-            if comp_result.syntax_errors or comp_result.semantic_errors:
-                error_count = len(comp_result.syntax_errors) + len(comp_result.semantic_errors)
-                print(f"   Errors: {error_count} total")
-        
-        # Show runtime check results
-        if hasattr(eval_result, 'runtime_check_result') and eval_result.runtime_check_result:
-            runtime_result = eval_result.runtime_check_result
-            runtime_status = "✓ PASS" if runtime_result.overall_success else "✗ FAIL"
-            print(f"\nRuntime Check: {runtime_status}")
-            if hasattr(runtime_result, 'states_explored'):
-                print(f"   States explored: {runtime_result.states_explored}")
-        else:
-            print(f"\nRuntime Check: SKIPPED")
-        
-        # Show manual invariant verification results
-        if hasattr(eval_result, 'manual_invariant_result') and eval_result.manual_invariant_result:
-            manual_result = eval_result.manual_invariant_result
-            manual_status = "✓ PASS" if manual_result.overall_success else "✗ FAIL"
-            
-            if manual_result.custom_data:
-                total_invariants = manual_result.custom_data.get('total_invariants', 0)
-                passed_invariants = manual_result.custom_data.get('passed_invariants', 0)
-                failed_invariants = manual_result.custom_data.get('failed_invariants', [])
-                
-                print(f"\nManual Invariant Verification: {manual_status}")
-                print(f"   Invariants: {passed_invariants}/{total_invariants} passed")
-                
-                if failed_invariants:
-                    # Ensure failed_invariants is iterable
-                    if isinstance(failed_invariants, (list, tuple)):
-                        print(f"   Failed: {', '.join(failed_invariants)}")
-                    else:
-                        print(f"   Failed: {failed_invariants}")
-            else:
-                print(f"\nManual Invariant Verification: {manual_status}")
-        else:
-            # Check if manual invariant verification was skipped due to prerequisites
-            action_passed = eval_result.action_decomposition_result and eval_result.action_decomposition_result.overall_success
-            compilation_passed = eval_result.compilation_check_result and eval_result.compilation_check_result.overall_success
-            runtime_passed = eval_result.runtime_check_results and any(r.overall_success for r in eval_result.runtime_check_results)
-            
-            if action_passed and compilation_passed and runtime_passed:
-                print(f"\nManual Invariant Verification: ERROR (should have run)")
-            else:
-                prereq_status = f"action={action_passed}, compilation={compilation_passed}, runtime={runtime_passed}"
-                print(f"\nManual Invariant Verification: SKIPPED ({prereq_status})")
-        
-        # Show file locations
-        if hasattr(eval_result, 'output_directory'):
-            print(f"\nResults saved to: {eval_result.output_directory}")
-        
 
 
 def filter_metric_params(metric: str, params: dict) -> dict:
@@ -259,17 +182,6 @@ def filter_metric_params(metric: str, params: dict) -> dict:
             "translator_type",
             "agent_timeout"
         },
-
-        # Composite metrics
-        "composite": {
-            "tlc_timeout",  # Will be mapped to validation_timeout
-            "invariant_iterations",
-            "keep_temp_files",
-            "max_correction_attempts",
-            "enable_coverage",
-            "inv_translator_type",
-            "inv_agent_timeout"
-        }
     }
 
     # Get allowed parameters for this metric
@@ -526,7 +438,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
 
         # Handle language-specific evaluators
         if language == "Alloy":
-            # Alloy currently supports compilation_check, runtime_check, coverage, invariant_verification, and composite
+            # Alloy currently supports compilation_check, runtime_check, coverage, invariant_verification
             if metric == "compilation_check":
                 from tla_eval.evaluation.syntax.alloy_compilation_check import AlloyCompilationCheckEvaluator
                 evaluator = AlloyCompilationCheckEvaluator(**filtered_params)
@@ -543,19 +455,10 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 from tla_eval.evaluation.semantics.alloy_invariant_check import AlloyInvariantCheckEvaluator
                 evaluator = AlloyInvariantCheckEvaluator(**filtered_params)
                 logger.info("Using Alloy invariant evaluator")
-            elif metric == "composite":
-                # Composite metric will be handled by the generic composite handling below
-                # Create a placeholder evaluator, will be recreated in composite section
-                from tla_eval.evaluation.composite.composite_evaluation import create_composite_evaluator
-                evaluator = create_composite_evaluator(
-                    **filtered_params,
-                    spec_language=task.spec_language
-                )
-                logger.info("Using Alloy composite evaluator")
             else:
                 raise ValueError(
                     f"Metric '{metric}' is not yet supported for Alloy language. "
-                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification, composite"
+                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification"
                 )
         elif language == "PAT":
             # PAT (Process Analysis Toolkit) CSP# specifications
@@ -571,17 +474,10 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 from tla_eval.evaluation.semantics.pat_invariant_check import PATInvariantCheckEvaluator
                 evaluator = PATInvariantCheckEvaluator(**filtered_params)
                 logger.info("Using PAT invariant evaluator")
-            elif metric == "composite":
-                from tla_eval.evaluation.composite.composite_evaluation import create_composite_evaluator
-                evaluator = create_composite_evaluator(
-                    **filtered_params,
-                    spec_language=task.spec_language
-                )
-                logger.info("Using PAT composite evaluator")
             else:
                 raise ValueError(
                     f"Metric '{metric}' is not yet supported for PAT language. "
-                    "Currently supported: compilation_check, runtime_check, invariant_verification, composite"
+                    "Currently supported: compilation_check, runtime_check, invariant_verification"
                 )
         else:
             # TLA+ (default)
@@ -630,23 +526,6 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         evaluation_result = _call_evaluator_with_files(
                             evaluator, generation_result, task_name, method_name, model_name, 
                             task.spec_module, spec_file, config_file
-                        )
-                    elif metric_info.dimension == "composite":
-                        # Composite metrics perform iterative evaluation and improvement
-                        # Always load method for composite evaluation to support correction iterations
-                        # even when using --spec-file
-                        method = get_method(method_name)
-
-                        # Recreate evaluator with spec_language for composite evaluation
-                        from tla_eval.evaluation.composite.composite_evaluation import create_composite_evaluator
-                        evaluator = create_composite_evaluator(
-                            **filtered_params,
-                            spec_language=task.spec_language
-                        )
-
-                        evaluation_result = evaluator.evaluate(
-                            generation_result, task_name, method_name, model_name, task.spec_module,
-                            task=task, method=method
                         )
                     else:
                         raise ValueError(f"Unknown dimension: {metric_info.dimension}")
@@ -956,8 +835,6 @@ Examples:
         metric_params['tlc_timeout'] = args.tlc_timeout
     if getattr(args, 'inv_translator_type', None):
         metric_params['translator_type'] = args.inv_translator_type
-        # For composite metric, use different parameter name
-        metric_params['inv_translator_type'] = args.inv_translator_type
 
     if single_mode:
         # Single benchmark

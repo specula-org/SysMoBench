@@ -101,11 +101,8 @@ Low-level trace-validation metrics (pre-WV):
 |---|---|---|
 | `invariant_verification` | TLC with agent-translated system invariants | `--tlc-timeout <seconds>`, `--inv-translator-type <type>` |
 
-**Composite**
-
-| Metric | Description |
-|---|---|
-| `composite` | Sequential evaluation across all dimensions |
+> **Note:** the old `composite` metric has been removed. A new 4-phase
+> composite is on the roadmap.
 
 ---
 

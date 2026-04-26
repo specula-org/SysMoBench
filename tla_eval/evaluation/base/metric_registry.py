@@ -71,7 +71,6 @@ class MetricRegistry:
         from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
         from ..semantics.coverage_evaluator import CoverageEvaluator
         from ..semantics.runtime_coverage_evaluator import RuntimeCoverageEvaluator
-        from ..composite.composite_evaluation import CompositeEvaluator
         
         # Syntax dimension metrics
         self.register_metric(MetricInfo(
@@ -108,7 +107,7 @@ class MetricRegistry:
         self.register_metric(MetricInfo(
             name="invariant_verification",
             dimension="semantics", 
-            description="Phase 3: Testing with expert-written invariants translated to the specification",
+            description="Phase 4: Testing with expert-written invariants translated to the specification",
             evaluator_class=ManualInvariantEvaluator
         ))
         
@@ -149,15 +148,6 @@ class MetricRegistry:
         #     evaluator_class=LLMQualityAssessmentEvaluator
         # ))
         
-        # Composite dimension metrics
-        self.register_metric(MetricInfo(
-            name="composite",
-            dimension="composite",
-            description="Integrated evaluation combining action decomposition, compilation check, runtime check, manual invariant verification, and coverage analysis",
-            evaluator_class=CompositeEvaluator,
-            default_params={"invariant_iterations": 3, "max_correction_attempts": 3, "enable_coverage": True}
-        ))
-        
 
 # Global registry instance
 _registry = MetricRegistry()
@@ -193,10 +183,6 @@ def create_evaluator(metric_name: str, **kwargs):
 
     if metric_name == "compilation_check" and "tlc_timeout" in kwargs:
         # CompilationCheckEvaluator expects validation_timeout, not tlc_timeout
-        kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
-
-    if metric_name == "composite" and "tlc_timeout" in kwargs:
-        # CompositeEvaluator expects validation_timeout, not tlc_timeout
         kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
 
     # Merge default params with provided kwargs

@@ -12,14 +12,12 @@ from .syntax.compilation_check import CompilationCheckEvaluator
 from .syntax.action_decomposition import ActionDecompositionEvaluator
 from .semantics.runtime_check import RuntimeCheckEvaluator
 from .semantics.manual_invariant_evaluator import ManualInvariantEvaluator
-from .composite.composite_evaluation import CompositeEvaluator
 
 from .base.evaluator import BaseEvaluator
 from .base.result_types import (
     EvaluationResult,
     SyntaxEvaluationResult,
     SemanticEvaluationResult,
-    CompositeEvaluationResult,
 )
 
 __all__ = [
@@ -27,10 +25,8 @@ __all__ = [
     "ActionDecompositionEvaluator",
     "RuntimeCheckEvaluator",
     "ManualInvariantEvaluator",
-    "CompositeEvaluator",
     "BaseEvaluator",
     "EvaluationResult",
     "SyntaxEvaluationResult",
     "SemanticEvaluationResult",
-    "CompositeEvaluationResult",
 ]
