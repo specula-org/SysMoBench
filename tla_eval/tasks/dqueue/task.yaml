@@ -30,7 +30,6 @@ metadata:
 
 # Phase 3 specific configuration
 phase3:
-  trace_generation: false # Use TraceLink traces 
   patch_required: false  
   description: "Use existing, generated TraceLink traces"
 

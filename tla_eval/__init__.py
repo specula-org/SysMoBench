@@ -13,17 +13,15 @@ from .models import ModelAdapter
 from .config import get_configured_model
 from .core.verification.validators import *
 from .evaluation import (
-    CompilationCheckEvaluator, 
+    CompilationCheckEvaluator,
     RuntimeCheckEvaluator,
-    ManualInvariantEvaluator, 
-    TraceValidationEvaluator
+    ManualInvariantEvaluator,
 )
 
 __all__ = [
-    "ModelAdapter", 
+    "ModelAdapter",
     "get_configured_model",
     "CompilationCheckEvaluator",
     "RuntimeCheckEvaluator",
-    "ManualInvariantEvaluator", 
-    "TraceValidationEvaluator"
+    "ManualInvariantEvaluator",
 ]

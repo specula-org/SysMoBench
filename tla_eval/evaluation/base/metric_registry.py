@@ -71,8 +71,6 @@ class MetricRegistry:
         from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
         from ..semantics.coverage_evaluator import CoverageEvaluator
         from ..semantics.runtime_coverage_evaluator import RuntimeCoverageEvaluator
-        from ..consistency.trace_validation import TraceValidationEvaluator
-        from ..pgo.trace_validation import PGoTraceValidationEvaluator
         from ..composite.composite_evaluation import CompositeEvaluator
         
         # Syntax dimension metrics
@@ -151,21 +149,6 @@ class MetricRegistry:
         #     evaluator_class=LLMQualityAssessmentEvaluator
         # ))
         
-        # Consistency dimension metrics
-        self.register_metric(MetricInfo(
-            name="trace_validation",
-            dimension="consistency", 
-            description="Full trace generation and validation pipeline",
-            evaluator_class=TraceValidationEvaluator
-        ))
-
-        self.register_metric(MetricInfo(
-            name="pgo_trace_validation",
-            dimension="consistency", 
-            description="Full trace generation and validation pipeline (PGo version)",
-            evaluator_class=PGoTraceValidationEvaluator
-        ))
-        
         # Composite dimension metrics
         self.register_metric(MetricInfo(
             name="composite",
@@ -175,22 +158,6 @@ class MetricRegistry:
             default_params={"invariant_iterations": 3, "max_correction_attempts": 3, "enable_coverage": True}
         ))
         
-        # Future consistency metrics (placeholders)
-        # self.register_metric(MetricInfo(
-        #     name="progressive_granularity",
-        #     dimension="consistency",
-        #     description="Multi-level trace validation with increasing granularity",
-        #     evaluator_class=ProgressiveGranularityEvaluator,
-        #     default_params={"level": 1}
-        # ))
-        
-        # self.register_metric(MetricInfo(
-        #     name="instrumentation_strategy", 
-        #     dimension="consistency",
-        #     description="Comprehensive instrumentation with selective reduction",
-        #     evaluator_class=InstrumentationStrategyEvaluator
-        # ))
-
 
 # Global registry instance
 _registry = MetricRegistry()

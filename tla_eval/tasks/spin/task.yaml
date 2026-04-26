@@ -30,7 +30,6 @@ metadata:
 
 # Phase 3 specific configuration
 phase3:
-  trace_generation: false
   patch_required: true
   patch_file: "data/patches/asterinas_tla_trace.patch"
   patch_description: "Inject TLA+ trace instrumentation for Asterinas sync primitives"
@@ -55,4 +54,3 @@ wv:
     reference_patch: "data/patches/asterinas_tla_trace.patch"
     patch_note: "Existing patch against older HEAD; may need adaptation for current main branch."
     test_target: "test_spin_trace"
-    existing_module: "tla_eval/core/trace_generation/spin/module.py"

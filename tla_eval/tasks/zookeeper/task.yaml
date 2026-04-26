@@ -40,7 +40,6 @@ metadata:
 
 # Phase 3 specific configuration
 phase3:
-  trace_generation: true
   patch_required: true
   patch_file: "data/patches/remix_ndjson_output_complete.patch"
 

@@ -32,7 +32,6 @@ metadata:
   
 # Phase 3 specific configuration
 phase3:
-  trace_generation: false
   patch_required: true
 
 # WV (action-window validation) configuration

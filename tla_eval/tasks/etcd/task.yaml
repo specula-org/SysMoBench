@@ -34,7 +34,6 @@ metadata:
 
 # Phase 3 specific configuration
 phase3:
-  trace_generation: true
   patch_required: false  # No patch needed - TraceLogger is built-in
   description: "etcd raft has built-in TraceLogger support, just needs with_tla build tag"
 

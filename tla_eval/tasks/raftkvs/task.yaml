@@ -30,7 +30,6 @@ metadata:
 
 # Phase 3 specific configuration
 phase3:
-  trace_generation: false 
   patch_required: false
   description: "PGo-generated Raft KV store will use TraceLink traces"
 

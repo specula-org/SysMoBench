@@ -6,9 +6,12 @@ This is the unified benchmark runner for evaluating LLM performance on
 TLA+ specification generation from real-world distributed systems.
 
 Supports different evaluation phases:
-- Phase 1: Compilation checking (syntax/semantic errors)
-- Phase 2: Runtime checking (model checking capabilities) [Future]  
-- Phase 3: Consistency checking (specification correctness) [Future]
+- Phase 1: Compilation checking (syntax via SANY)
+- Phase 2: Runtime checking (TLC bounded model checking)
+- Phase 4: Invariant checking (TLC with agent-translated invariants)
+
+Phase 3 (window verification) is launched separately via
+scripts/launch_wv_eval.sh — see docs/Usage.md.
 
 Usage Examples:
     # Phase 1: Compilation checking (default)
@@ -52,10 +55,9 @@ from tla_eval.utils.repository_manager import setup_task_repository
 
 # Import evaluators and metric registry
 from tla_eval.evaluation import (
-    CompilationCheckEvaluator, 
+    CompilationCheckEvaluator,
     RuntimeCheckEvaluator,
-    ManualInvariantEvaluator, 
-    TraceValidationEvaluator
+    ManualInvariantEvaluator,
 )
 from tla_eval.evaluation.base import (
     get_available_metrics,
@@ -135,45 +137,6 @@ def _display_evaluation_results(eval_result, evaluation_type: str):
         if eval_result.config_file_path:
             print(f"Config file: {eval_result.config_file_path}")
             
-    elif evaluation_type == "consistency":
-        print(f"\nConsistency Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
-        print(f"Trace generation time: {eval_result.trace_generation_time:.2f}s")
-        print(f"Trace conversion time: {eval_result.trace_conversion_time:.2f}s")
-        print(f"Trace validation time: {eval_result.trace_validation_time:.2f}s")
-        print(f"Generated trace count: {eval_result.generated_trace_count}")
-        print(f"Validated events: {eval_result.validated_events}")
-        
-        # Show success ratio for trace validation
-        if hasattr(eval_result, 'converted_trace_files') and eval_result.converted_trace_files:
-            total_traces = len(eval_result.converted_trace_files)
-            successful_traces = 0
-            
-            # Count successful validations based on overall success and lack of validation errors
-            if eval_result.trace_validation_successful:
-                successful_traces = total_traces
-            elif hasattr(eval_result, '_validation_results'):
-                # If we have detailed validation results, count successes
-                successful_traces = sum(1 for r in eval_result._validation_results if r.get('success', False))
-            
-            success_rate = (successful_traces / total_traces * 100) if total_traces > 0 else 0
-            print(f"Validation success rate: {successful_traces}/{total_traces} ({success_rate:.1f}%)")
-        
-        if not eval_result.overall_success:
-            if not eval_result.trace_generation_successful:
-                print(f"Trace generation error: {eval_result.trace_generation_error}")
-            if not eval_result.trace_conversion_successful:
-                print(f"Trace conversion error: {eval_result.trace_conversion_error}")
-            if not eval_result.trace_validation_successful:
-                print(f"Trace validation error: {eval_result.trace_validation_error}")
-                
-        # Show file locations
-        if hasattr(eval_result, 'raw_trace_files') and eval_result.raw_trace_files:
-            print(f"Raw traces: {', '.join(eval_result.raw_trace_files)}")
-        if hasattr(eval_result, 'converted_trace_files') and eval_result.converted_trace_files:
-            print(f"Converted traces: {', '.join(eval_result.converted_trace_files)}")
-        if hasattr(eval_result, 'specification_files') and eval_result.specification_files:
-            print(f"Specifications: {', '.join(eval_result.specification_files)}")
-    
     elif isinstance(eval_result, CompositeEvaluationResult):
         print(f"\nComposite Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
         print(f"Generation time: {eval_result.generation_time:.2f}s")
@@ -297,16 +260,6 @@ def filter_metric_params(metric: str, params: dict) -> dict:
             "agent_timeout"
         },
 
-        # Consistency metrics
-        "trace_validation": {
-            "with_exist_traces",
-            "with_exist_specTrace",
-            "create_mapping"
-        },
-        "pgo_trace_validation": {
-            "with_exist_traces"  # Only supports with_exist_traces
-        },
-
         # Composite metrics
         "composite": {
             "tlc_timeout",  # Will be mapped to validation_timeout
@@ -426,9 +379,9 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         method_name: Name of the generation method
         model_name: Name of the model
         language: Specification language ("TLA+", "Alloy", "PAT")
-        evaluation_type: Evaluation type ("syntax", "semantics", "consistency")
+        evaluation_type: Evaluation type ("syntax", "semantics")
         metric: Specific metric to run (if None, uses default for evaluation_type)
-        phase: Legacy evaluation phase (1=syntax, 2=semantics, 3=consistency)
+        phase: Legacy evaluation phase (1=syntax, 2=semantics)
         source_file: Optional specific source file
         traces_folder: Optional specific traces folder
         spec_file: Optional path to existing specification file
@@ -441,17 +394,16 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
     """
     # Handle legacy phase parameter
     if phase is not None:
-        phase_to_type = {1: "syntax", 2: "semantics", 3: "consistency"}
+        phase_to_type = {1: "syntax", 2: "semantics"}
         evaluation_type = phase_to_type.get(phase, evaluation_type)
         logger.warning(f"Using legacy --phase {phase} parameter, consider using --evaluation-type {evaluation_type}")
-    
+
     # Determine metric to use
     if metric is None:
         # Use default metric for each dimension
         default_metrics = {
             "syntax": "compilation_check",
-            "semantics": "runtime_check", 
-            "consistency": "trace_validation"
+            "semantics": "runtime_check",
         }
         metric = default_metrics.get(evaluation_type)
         if metric is None:
@@ -477,17 +429,6 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         spec_language = language.lower().replace("+", "").strip()
         task = task_loader.load_task(task_name, source_file, traces_folder, spec_language)
         logger.info(f"Loaded task: {task.task_name} ({task.system_type}), spec_language: {task.spec_language}")
-        
-        # Setup repository if needed for consistency evaluation
-        if evaluation_type == "consistency":
-            logger.info("Setting up repository for consistency evaluation...")
-            try:
-                # Get task configuration to check for patch requirements
-                task_config = task_loader.get_task_info(task_name)
-                repo_path = setup_task_repository(task_config)
-                logger.info(f"Repository setup completed: {repo_path}")
-            except Exception as e:
-                logger.warning(f"Repository setup failed (continuing anyway): {e}")
         
         # Get prompt for this method (language-specific)
         # Skip prompt loading for code_agent methods - they handle prompts internally
@@ -602,10 +543,6 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 from tla_eval.evaluation.semantics.alloy_invariant_check import AlloyInvariantCheckEvaluator
                 evaluator = AlloyInvariantCheckEvaluator(**filtered_params)
                 logger.info("Using Alloy invariant evaluator")
-            elif metric == "trace_validation":
-                from tla_eval.evaluation.consistency.alloy_trace_validation import AlloyTraceValidationEvaluator
-                evaluator = AlloyTraceValidationEvaluator(**filtered_params)
-                logger.info("Using Alloy trace validation evaluator")
             elif metric == "composite":
                 # Composite metric will be handled by the generic composite handling below
                 # Create a placeholder evaluator, will be recreated in composite section
@@ -618,7 +555,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             else:
                 raise ValueError(
                     f"Metric '{metric}' is not yet supported for Alloy language. "
-                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification, trace_validation, composite"
+                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification, composite"
                 )
         elif language == "PAT":
             # PAT (Process Analysis Toolkit) CSP# specifications
@@ -648,11 +585,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 )
         else:
             # TLA+ (default)
-            # For trace_validation metrics, pass model_name so the evaluator uses the requested model
-            if metric in {"trace_validation", "pgo_trace_validation"}:
-                evaluator = create_evaluator(metric, model_name=model_name, **filtered_params)
-            else:
-                evaluator = create_evaluator(metric, **filtered_params)
+            evaluator = create_evaluator(metric, **filtered_params)
         
         # Evaluate based on metric type
         evaluation_result = None
@@ -678,17 +611,6 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             )
             logger.info(f"Runtime check: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
             
-        elif metric == "trace_validation":
-            # Consistency evaluation: Trace generation and validation
-            # Use default configuration for consistency evaluation
-            consistency_config = evaluator.get_default_config(task_name)
-
-            evaluation_result = evaluator.evaluate(
-                task_name, consistency_config,
-                spec_file_path=spec_file,
-                config_file_path=config_file
-            )
-            logger.info(f"Trace validation: {'✓ PASS' if evaluation_result.overall_success else '✗ FAIL'}")
         else:
             # For future metrics, use generic interface with smart file parameter detection
             try:
@@ -709,9 +631,6 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                             evaluator, generation_result, task_name, method_name, model_name, 
                             task.spec_module, spec_file, config_file
                         )
-                    elif metric_info.dimension == "consistency":
-                        consistency_config = evaluator.get_default_config(task_name) if hasattr(evaluator, 'get_default_config') else {}
-                        evaluation_result = evaluator.evaluate(task_name, consistency_config, spec_file_path=spec_file, config_file_path=config_file)
                     elif metric_info.dimension == "composite":
                         # Composite metrics perform iterative evaluation and improvement
                         # Always load method for composite evaluation to support correction iterations
@@ -773,14 +692,14 @@ def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
         methods: List of method names
         models: List of model names
         language: Specification language to evaluate ("TLA+", "Alloy", "PAT")
-        evaluation_type: Evaluation type ("syntax", "semantics", "consistency")
+        evaluation_type: Evaluation type ("syntax", "semantics")
         phase: Legacy evaluation phase (deprecated)
         output_dir: Output directory for results
         generation_config: Optional generation configuration
     """
     # Handle legacy phase parameter
     if phase is not None:
-        phase_to_type = {1: "syntax", 2: "semantics", 3: "consistency"}
+        phase_to_type = {1: "syntax", 2: "semantics"}
         evaluation_type = phase_to_type.get(phase, evaluation_type)
         logger.warning(f"Using legacy --phase {phase} parameter, consider using --evaluation-type {evaluation_type}")
     
@@ -826,9 +745,6 @@ def run_batch_benchmark(tasks: List[str], methods: List[str], models: List[str],
         evaluator.save_results(results, str(results_file), include_specifications=True)
     elif evaluation_type == "semantics" and results:
         evaluator = RuntimeCheckEvaluator()
-        evaluator.save_results(results, str(results_file))
-    elif evaluation_type == "consistency" and results:
-        evaluator = TraceValidationEvaluator()
         evaluator.save_results(results, str(results_file))
     else:
         # Generic JSON save for other evaluation types
@@ -884,21 +800,15 @@ Examples:
     # Evaluation type and metric selection
     parser.add_argument("--evaluation-type", default="syntax",
                        choices=get_available_dimensions(),
-                       help="Evaluation type: syntax=compilation, semantics=model-checking, consistency=trace-validation (default: syntax)")
+                       help="Evaluation type: syntax=compilation, semantics=model-checking (default: syntax)")
     parser.add_argument("--metric",
                        help="Specific metric to run (if not specified, uses default for evaluation-type)")
-    parser.add_argument("--phase", type=int, choices=[1, 2, 3],
-                       help="Legacy evaluation phase: 1=syntax, 2=semantics, 3=consistency (deprecated, use --evaluation-type)")
-    
+    parser.add_argument("--phase", type=int, choices=[1, 2],
+                       help="Legacy evaluation phase: 1=syntax, 2=semantics (deprecated, use --evaluation-type)")
+
     # Metric-specific parameters
     parser.add_argument("--tlc-timeout", type=int,
                        help="Timeout for TLC model checking in seconds (for coverage and runtime metrics)")
-    parser.add_argument("--with-exist-traces", type=int, metavar="N",
-                       help="Use existing trace files (trace_01.jsonl to trace_N.jsonl) instead of generating new traces (max 100)")
-    parser.add_argument("--with-exist-specTrace", action="store_true",
-                       help="Use existing specTrace.tla and specTrace.cfg files from the same directory as --spec-file (requires --spec-file)")
-    parser.add_argument("--create-mapping", action="store_true",
-                       help="Generate mapping file using LLM for trace conversion (for trace_validation metric)")
     parser.add_argument("--inv-translator-type", choices=["direct", "agent"], default="direct",
                        help="Invariant translator type: 'direct' uses single LLM call, 'agent' uses Claude Code agent (default: direct)")
 
@@ -984,7 +894,7 @@ Examples:
     # Handle legacy phase parameter
     evaluation_type = args.evaluation_type
     if args.phase is not None:
-        phase_to_type = {1: "syntax", 2: "semantics", 3: "consistency"}
+        phase_to_type = {1: "syntax", 2: "semantics"}
         evaluation_type = phase_to_type.get(args.phase, evaluation_type)
         logger.warning(f"Using legacy --phase {args.phase} parameter, consider using --evaluation-type {evaluation_type}")
     
@@ -1013,7 +923,7 @@ Examples:
             args.config_file = str(Path(args.config_file).resolve())
     
     # Validate prerequisites
-    legacy_phase = {"syntax": 1, "semantics": 2, "consistency": 3}.get(evaluation_type, 1)
+    legacy_phase = {"syntax": 1, "semantics": 2}.get(evaluation_type, 1)
     if not validate_prerequisites(legacy_phase):
         sys.exit(1)
     
@@ -1044,18 +954,6 @@ Examples:
     metric_params = {}
     if args.tlc_timeout is not None:
         metric_params['tlc_timeout'] = args.tlc_timeout
-    if getattr(args, 'with_exist_traces', None) is not None:
-        if args.with_exist_traces < 1 or args.with_exist_traces > 100:
-            print("Error: --with-exist-traces must be between 1 and 100")
-            sys.exit(1)
-        metric_params['with_exist_traces'] = args.with_exist_traces
-    if getattr(args, 'with_exist_specTrace', None):
-        if not args.spec_file:
-            print("Error: --with-exist-specTrace can only be used with --spec-file")
-            sys.exit(1)
-        metric_params['with_exist_specTrace'] = args.with_exist_specTrace
-    if getattr(args, 'create_mapping', None):
-        metric_params['create_mapping'] = args.create_mapping
     if getattr(args, 'inv_translator_type', None):
         metric_params['translator_type'] = args.inv_translator_type
         # For composite metric, use different parameter name
