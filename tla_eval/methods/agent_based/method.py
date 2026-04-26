@@ -352,76 +352,38 @@ class AgentBasedMethod(TLAGenerationMethod):
     
     def _validate_specification(self, specification: str, module_name: Optional[str] = None,
                               spec_language: str = "tla") -> ValidationResult:
-        """
-        Validate specification for syntax and basic semantic errors (multi-language support).
-
-        Args:
-            specification: Specification content
-            module_name: Optional module name
-            spec_language: Specification language (tla, alloy, etc.)
-
-        Returns:
-            ValidationResult with validation outcome
-        """
+        """Validate TLA+ specification for syntax and basic semantic errors."""
         try:
             import tempfile
-            import os
             from pathlib import Path
-            from ...core.verification.validator_factory import get_validator
+            from ...core.verification.validators import TLAValidator
 
-            # Create temporary directory for validation
             temp_dir = Path(tempfile.mkdtemp())
 
             try:
-                # Get appropriate validator for language
-                validator = get_validator(spec_language, self.validation_timeout)
+                if not module_name:
+                    raise ValueError("Module name is required for TLA+ validation but was not provided")
 
-                if spec_language.lower() == "alloy":
-                    # Alloy validation
-                    if not module_name:
-                        module_name = "temp_spec"
+                validator = TLAValidator(timeout=self.validation_timeout)
+                temp_file_path = temp_dir / f"{module_name}.tla"
+                temp_file_path.write_text(specification, encoding='utf-8')
 
-                    temp_file_path = temp_dir / f"{module_name}.als"
-                    temp_file_path.write_text(specification, encoding='utf-8')
+                success, output = validator._run_sany_validation(str(temp_file_path))
+                syntax_errors, semantic_errors = validator._parse_errors(output) if not success else ([], [])
 
-                    # AlloyValidator.validate() expects spec_content and output_dir
-                    result = validator.validate(specification, temp_dir)
+                result = ValidationResult(
+                    success=success,
+                    output=output,
+                    syntax_errors=syntax_errors,
+                    semantic_errors=semantic_errors,
+                    compilation_time=0.0
+                )
 
-                    logger.debug(f"Alloy validation result: success={result.success}, "
-                                f"syntax_errors={len(result.syntax_errors)}, "
-                                f"semantic_errors={len(result.semantic_errors)}")
+                logger.debug(f"TLA+ validation result: success={result.success}, "
+                            f"syntax_errors={len(result.syntax_errors)}, "
+                            f"semantic_errors={len(result.semantic_errors)}")
 
-                    return result
-
-                else:
-                    # TLA+ validation
-                    if not module_name:
-                        raise ValueError("Module name is required for TLA+ validation but was not provided")
-
-                    temp_file_path = temp_dir / f"{module_name}.tla"
-                    temp_file_path.write_text(specification, encoding='utf-8')
-
-                    # TLAValidator - call internal validation directly
-                    from ...core.verification.validators import TLAValidator
-                    success, output = validator._run_sany_validation(str(temp_file_path))
-
-                    # Parse errors from output
-                    syntax_errors, semantic_errors = validator._parse_errors(output) if not success else ([], [])
-
-                    # Create ValidationResult object
-                    result = ValidationResult(
-                        success=success,
-                        output=output,
-                        syntax_errors=syntax_errors,
-                        semantic_errors=semantic_errors,
-                        compilation_time=0.0
-                    )
-
-                    logger.debug(f"TLA+ validation result: success={result.success}, "
-                                f"syntax_errors={len(result.syntax_errors)}, "
-                                f"semantic_errors={len(result.semantic_errors)}")
-
-                    return result
+                return result
 
             finally:
                 # Clean up temporary directory

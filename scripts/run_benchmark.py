@@ -436,52 +436,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         # Filter parameters before passing to evaluator
         filtered_params = filter_metric_params(metric, metric_params)
 
-        # Handle language-specific evaluators
-        if language == "Alloy":
-            # Alloy currently supports compilation_check, runtime_check, coverage, invariant_verification
-            if metric == "compilation_check":
-                from tla_eval.evaluation.syntax.alloy_compilation_check import AlloyCompilationCheckEvaluator
-                evaluator = AlloyCompilationCheckEvaluator(**filtered_params)
-                logger.info("Using Alloy compilation check evaluator")
-            elif metric == "runtime_check":
-                from tla_eval.evaluation.semantics.alloy_runtime_check import AlloyRuntimeCheckEvaluator
-                evaluator = AlloyRuntimeCheckEvaluator(**filtered_params)
-                logger.info("Using Alloy runtime check evaluator")
-            elif metric == "coverage":
-                from tla_eval.evaluation.semantics.alloy_coverage import AlloyCoverageEvaluator
-                evaluator = AlloyCoverageEvaluator(**filtered_params)
-                logger.info("Using Alloy coverage evaluator")
-            elif metric == "invariant_verification":
-                from tla_eval.evaluation.semantics.alloy_invariant_check import AlloyInvariantCheckEvaluator
-                evaluator = AlloyInvariantCheckEvaluator(**filtered_params)
-                logger.info("Using Alloy invariant evaluator")
-            else:
-                raise ValueError(
-                    f"Metric '{metric}' is not yet supported for Alloy language. "
-                    "Currently supported: compilation_check, runtime_check, coverage, invariant_verification"
-                )
-        elif language == "PAT":
-            # PAT (Process Analysis Toolkit) CSP# specifications
-            if metric == "compilation_check":
-                from tla_eval.evaluation.syntax.pat_compilation_check import PATCompilationCheckEvaluator
-                evaluator = PATCompilationCheckEvaluator(**filtered_params)
-                logger.info("Using PAT compilation evaluator")
-            elif metric == "runtime_check":
-                from tla_eval.evaluation.semantics.pat_runtime_check import PATRuntimeCheckEvaluator
-                evaluator = PATRuntimeCheckEvaluator(**filtered_params)
-                logger.info("Using PAT runtime evaluator")
-            elif metric == "invariant_verification":
-                from tla_eval.evaluation.semantics.pat_invariant_check import PATInvariantCheckEvaluator
-                evaluator = PATInvariantCheckEvaluator(**filtered_params)
-                logger.info("Using PAT invariant evaluator")
-            else:
-                raise ValueError(
-                    f"Metric '{metric}' is not yet supported for PAT language. "
-                    "Currently supported: compilation_check, runtime_check, invariant_verification"
-                )
-        else:
-            # TLA+ (default)
-            evaluator = create_evaluator(metric, **filtered_params)
+        evaluator = create_evaluator(metric, **filtered_params)
         
         # Evaluate based on metric type
         evaluation_result = None
@@ -672,10 +627,6 @@ Examples:
     )
     
     # Language selection
-    parser.add_argument("--language", default="TLA+",
-                       choices=["TLA+", "Alloy", "PAT"],
-                       help="Specification language (default: TLA+)")
-
     # Evaluation type and metric selection
     parser.add_argument("--evaluation-type", default="syntax",
                        choices=get_available_dimensions(),
@@ -842,7 +793,6 @@ Examples:
             args.task,
             args.method,
             args.model,
-            language=args.language,
             evaluation_type=evaluation_type,
             metric=args.metric,
             source_file=args.source_file,
@@ -867,7 +817,6 @@ Examples:
             args.tasks,
             args.methods,
             args.models,
-            language=args.language,
             evaluation_type=evaluation_type,
             metric=args.metric,
             phase=args.phase,
