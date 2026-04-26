@@ -343,21 +343,16 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         logger.info(f"Loaded task: {task.task_name} ({task.system_type}), spec_language: {task.spec_language}")
         
         # Get prompt for this method (language-specific)
-        # Skip prompt loading for code_agent methods - they handle prompts internally
-        if not method_name.startswith("code_agent_"):
-            prompt_template = task_loader.get_task_prompt(task_name, method_name, task.spec_language)
-            logger.info(f"Loaded prompt template for {task.spec_language} ({len(prompt_template)} chars)")
-        
-        # Load model (only if not using existing files and not code_agent)
-        # code_agent methods use their own model configuration internally
+        prompt_template = task_loader.get_task_prompt(task_name, method_name, task.spec_language)
+        logger.info(f"Loaded prompt template for {task.spec_language} ({len(prompt_template)} chars)")
+
+        # Load model (skip if using existing spec file)
         model = None
-        if not spec_file and not method_name.startswith("code_agent_"):
+        if not spec_file:
             model = get_configured_model(model_name)
             logger.info(f"Loaded model: {model.model_name}")
-        elif spec_file:
-            logger.info(f"Skipping model loading (using existing spec file)")
         else:
-            logger.info(f"Skipping model loading (code_agent uses internal model)")
+            logger.info(f"Skipping model loading (using existing spec file)")
         
         # Generate TLA+ specification or use existing files
         generation_result = None
@@ -764,22 +759,9 @@ Examples:
     )
     
     # Determine run mode
-    # For code_agent methods, --model is optional (uses adapter's default)
-    is_code_agent = args.method and args.method.startswith("code_agent_")
-    single_mode = args.task and args.method and (args.model or is_code_agent)
+    single_mode = args.task and args.method and args.model
     batch_mode = args.tasks and args.methods and args.models
 
-    # Set default model name for code_agent methods if not specified
-    if is_code_agent and not args.model:
-        args.model = "default"  # Will use adapter's default model
-
-    # code_agent methods should default to runtime_check (Phase 1 + 2)
-    # since the agent already does both phases via submit_spec
-    if is_code_agent and not args.metric and evaluation_type == "syntax":
-        args.metric = "runtime_check"
-        evaluation_type = "semantics"
-        logger.info("code_agent: using runtime_check metric (includes Phase 1 + 2)")
-    
     # Collect metric-specific parameters
     metric_params = {}
     if args.tlc_timeout is not None:
