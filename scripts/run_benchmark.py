@@ -18,13 +18,13 @@ Usage Examples:
     python scripts/run_benchmark.py --task etcd --method direct_call --model my_yunwu
     
     # Use existing TLA+ specification files (coverage evaluation)
-    python scripts/run_benchmark.py --task etcd --method agent_based --model claude --metric coverage --spec-file path/to/spec.tla --config-file path/to/config.cfg
-    
+    python scripts/run_benchmark.py --task etcd --method direct_call --model claude --metric coverage --spec-file path/to/spec.tla --config-file path/to/config.cfg
+
     # Use only existing TLA+ file, generate config automatically
-    python scripts/run_benchmark.py --task etcd --method agent_based --model claude --metric coverage --spec-file path/to/spec.tla
-    
+    python scripts/run_benchmark.py --task etcd --method direct_call --model claude --metric coverage --spec-file path/to/spec.tla
+
     # Batch evaluation with multiple combinations
-    python scripts/run_benchmark.py --tasks etcd raft --methods direct_call agent_based --models gpt-4 claude-3 --output results/
+    python scripts/run_benchmark.py --tasks etcd raft --methods direct_call --models gpt-4 claude-3 --output results/
     
     # Specify evaluation phase explicitly
     python scripts/run_benchmark.py --phase 1 --task etcd --method direct_call --model my_yunwu

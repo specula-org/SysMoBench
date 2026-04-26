@@ -1,17 +1,12 @@
 """
 TLA+ generation methods.
-
-This module contains different approaches for generating TLA+ specifications
-from source code.
 """
 
 from .base import TLAGenerationMethod
 from .direct_call import DirectCallMethod
-from .agent_based import AgentBasedMethod
 
 _METHODS = {
     "direct_call": DirectCallMethod,
-    "agent_based": AgentBasedMethod,
 }
 
 
@@ -30,7 +25,6 @@ def list_available_methods() -> list:
 __all__ = [
     "TLAGenerationMethod",
     "DirectCallMethod",
-    "AgentBasedMethod",
     "get_method",
     "list_available_methods",
 ]

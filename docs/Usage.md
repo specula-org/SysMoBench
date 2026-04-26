@@ -48,7 +48,7 @@ sysmobench --task <task> --method <method> --model <model> --metric <metric> [op
 ### Required
 
 - `--task` — one of the 11 task names above
-- `--method` — `direct_call`, `agent_based`
+- `--method` — `direct_call`
 - `--model` — entry in `config/models.yaml`
 - `--metric` — see [Metrics](#metrics)
 

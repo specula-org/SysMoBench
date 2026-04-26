@@ -235,13 +235,13 @@ class TaskLoader:
         # Normalize language name (remove "+")
         language_normalized = language.lower().replace("+", "")
 
-        # Try language-specific prompt first (e.g., prompts/alloy/agent_based.txt)
+        # Try language-specific prompt first (e.g., prompts/alloy/direct_call.txt)
         lang_specific_prompt = task_dir / "prompts" / language_normalized / f"{method_name}.txt"
         if lang_specific_prompt.exists():
             with open(lang_specific_prompt, 'r', encoding='utf-8') as f:
                 return f.read()
 
-        # Fallback to default prompt (e.g., prompts/agent_based.txt)
+        # Fallback to default prompt (e.g., prompts/direct_call.txt)
         default_prompt = task_dir / "prompts" / f"{method_name}.txt"
         if default_prompt.exists():
             with open(default_prompt, 'r', encoding='utf-8') as f:

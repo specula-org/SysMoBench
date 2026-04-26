@@ -41,7 +41,7 @@ class OutputManager:
         Args:
             metric: Metric name (e.g., "compilation_check", "runtime_check")
             task: Task name (e.g., "etcd", "raft")
-            method: Method name (e.g., "agent_based", "direct_call")
+            method: Method name (e.g., "direct_call")
             model: Model name (e.g., "claude", "my_yunwu")
             timestamp: Optional custom timestamp (defaults to current time)
             language: Language name (e.g., "tla", "alloy", "pat")

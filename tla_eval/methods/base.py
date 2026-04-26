@@ -41,7 +41,7 @@ class TLAGenerationMethod(ABC):
     """
     Abstract base class for TLA+ generation methods.
     
-    All generation methods (direct_call, agent_based, etc.) must inherit from this class.
+    All generation methods must inherit from this class.
     """
     
     def __init__(self, name: str):

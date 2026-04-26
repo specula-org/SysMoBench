@@ -15,7 +15,6 @@ Create a system configuration file containing:
 
 ### prompts directory
 Create prompt files based on etcd naming convention:
-- `agent_based.txt` - Agent-based generation prompt
 - `direct_call.txt` - Direct call prompt
 - `phase2_config.txt` - .cfg configuration file generation prompt
 - `phase3_invariant_implementation.txt` - invariant translation prompt
