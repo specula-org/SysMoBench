@@ -22,7 +22,6 @@ specModule: "raftkvs"
 
 # Traces folder location
 traces_folder: "data/sys_traces/raftkvs"
-trace_format: "tracelink_based"
 
 # Metadata
 metadata:

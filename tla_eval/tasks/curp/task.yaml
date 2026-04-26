@@ -26,8 +26,6 @@ default_source_file:
 specModule: "curp"
 
 traces_folder: "data/sys_traces/curp"
-trace_format: "curp_based"
-trace_sample: 5
 
 # Metadata
 metadata:

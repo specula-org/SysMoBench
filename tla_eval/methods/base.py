@@ -5,7 +5,7 @@ This module defines the interface that all TLA+ generation methods must implemen
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 from dataclasses import dataclass
 
 
@@ -17,9 +17,8 @@ class GenerationTask:
     system_type: str  # e.g., "distributed", "concurrent"
     language: str     # e.g., "go", "java", "c++" (source code language)
     description: str
-    traces: List[List[Tuple[str, str]] | Tuple[str, str]] = None
     spec_module: str = None  # TLA+ module name for the specification
-    spec_language: str = "tla"  # Target specification language (tla, alloy, pat)
+    spec_language: str = "tla"  # Target specification language
     extra_info: Dict[str, Any] = None  # Additional task-specific information
     
     def __post_init__(self):

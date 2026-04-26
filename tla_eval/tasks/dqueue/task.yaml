@@ -22,7 +22,6 @@ specModule: "dqueue"
 
 # Traces folder location
 traces_folder: "data/sys_traces/dqueue"
-trace_format: "tracelink_based"
 
 # Metadata
 metadata:

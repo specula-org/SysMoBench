@@ -29,8 +29,6 @@ specModule: "zookeeper"
 
 # Traces folder location
 traces_folder: "data/sys_traces/zookeeper"
-trace_format: "zookeeper_based"
-trace_sample: 2
 
 # Metadata
 metadata:

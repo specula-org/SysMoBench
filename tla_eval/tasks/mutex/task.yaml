@@ -22,7 +22,6 @@ specModule: "mutex"
 
 # Traces folder location
 traces_folder: "data/sys_traces/mutex"
-trace_format: "asterinas_based"
 
 # Metadata
 metadata:

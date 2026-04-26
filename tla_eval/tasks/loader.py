@@ -8,8 +8,7 @@ and preparing them as generation tasks with appropriate prompts.
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Dict, List, Tuple
-import re
+from typing import Dict, List
 import yaml
 from ..methods.base import GenerationTask
 
@@ -63,32 +62,22 @@ class TaskLoader:
         # Determine which source file(s) to use (support single path or list)
         selected_entries = self._select_source_entries(metadata, source_entries, source_file)
 
-        traces_folder = traces_folder or metadata.get('traces_folder')
-
         # Clone repository and get source code (concatenate if multiple)
         source_code = self._get_source_code(metadata['repository'], selected_entries)
 
-        # Load traces
-        if metadata.get('trace_format', None) is None:
-            raise ValueError("trace_format must be specified in task.yaml metadata")
-        traces = self._get_traces(traces_folder, metadata['trace_format']) if traces_folder else None
-
         return GenerationTask(
             source_code=source_code,
-            traces=traces,
             task_name=task_name,
             system_type=metadata['system_type'],
             language=metadata['language'],
             description=metadata['description'],
-            spec_module=metadata.get('specModule', task_name),  # Use specModule from config or task name as fallback
-            spec_language=spec_language,  # Target specification language
-            # Add additional metadata
+            spec_module=metadata.get('specModule', task_name),
+            spec_language=spec_language,
             extra_info={
                 'file_path': [e['path'] for e in selected_entries] if len(selected_entries) > 1 else selected_entries[0]['path'],
                 'focus': [e.get('description', '') for e in selected_entries] if len(selected_entries) > 1 else selected_entries[0].get('description', ''),
                 'repository_url': metadata['repository']['url'],
-                'trace_format': metadata.get('trace_format'),
-                'trace_sample': metadata.get('trace_sample')
+                'traces_folder': traces_folder or metadata.get('traces_folder'),
             }
         )
     
@@ -223,101 +212,6 @@ class TaskLoader:
 
         return "\n\n".join(contents)
         
-    def _get_traces(self, traces_folder: str, trace_format: str) -> List[List[Tuple[str, str]] | Tuple[str, str]]:
-        """
-        Load execution traces from the specified folder.
-        
-        Args:
-            traces_folder: Path to the folder containing trace files
-        
-        Returns:
-            List of list of traces, where each sublist is a set of distributed traces (TraceLink or Zookeeper-based) OR
-            List of traces, where each trace records a distributed execution (Etcd or Asterinas-based)
-        
-        Raises:
-            FileNotFoundError: If traces folder or files are not found
-        """
-        traces_path = Path(traces_folder)
-        if not traces_path.exists() or not traces_path.is_dir():
-            # Return empty list if traces folder doesn't exist - traces are optional
-            return []
-        
-        if trace_format == "tracelink_based":
-            all_traces = []
-            for subfolder in traces_path.iterdir():
-                if subfolder.is_dir():
-                    trace_files = sorted(subfolder.glob("*.txt"))
-                    if not trace_files:
-                        continue
-                    
-                    distributed_trace = []
-                    for trace_file in trace_files:
-                        with open(trace_file, 'r', encoding='utf-8') as f:
-                            trace_content = f.read().strip()
-                            if trace_content:
-                                distributed_trace.append((trace_file.name, trace_content))
-                    
-                    if distributed_trace:
-                        all_traces.append(distributed_trace)
-            return all_traces
-        if trace_format == "redisraft_based":
-            all_traces = []
-            for subfolder in sorted([p for p in traces_path.iterdir() if p.is_dir()]):
-                merged_trace = subfolder / "merged_trace.ndjson"
-                if not merged_trace.is_file():
-                    continue
-                trace_content = merged_trace.read_text(encoding="utf-8").strip()
-                if trace_content:
-                    trace_name = f"{subfolder.name}/{merged_trace.name}"
-                    all_traces.append((trace_name, trace_content))
-            if not all_traces:
-                # Return empty list instead of raising error - traces are optional
-                return []
-            return all_traces
-        if trace_format == "zookeeper_based":
-            all_traces: List[List[Tuple[str, str]]] = []
-            dir_pattern = re.compile(r"trace_(\d+)\.json$")
-
-            for subfolder in sorted([p for p in traces_path.iterdir() if p.is_dir()]):
-                match = dir_pattern.fullmatch(subfolder.name)
-                if not match:
-                    continue
-
-                run_idx = match.group(1)
-                distributed_trace: List[Tuple[str, str]] = []
-                for filename in ("execution", "statistics"):
-                    trace_file = subfolder / filename
-                    if not trace_file.is_file():
-                        continue
-                    trace_content = trace_file.read_text(encoding="utf-8").strip()
-                    trace_name = f"trace_{run_idx}_{filename}"
-                    distributed_trace.append((trace_name, trace_content))
-
-                if distributed_trace:
-                    all_traces.append(distributed_trace)
-
-            return all_traces
-        else:
-            all_traces = []
-            patterns = [
-                "etcd_trace_*.ndjson",
-                "trace_*.jsonl",
-                "trace-*.ndjson",
-                "*_combined.jsonl",
-                "traces_summary.json",
-            ]
-            trace_files = sorted({f for pat in patterns for f in Path(traces_folder).glob(pat)})
-            if not trace_files:
-                # Return empty list if no trace files found - traces are optional
-                return []
-            
-            for trace_file in trace_files:
-                with open(trace_file, 'r', encoding='utf-8') as f:
-                    trace_content = f.read().strip()
-                    if trace_content:
-                        all_traces.append((trace_file.name, trace_content))
-            return all_traces
-
     def get_task_prompt(self, task_name: str, method_name: str, language: str = "tla") -> str:
         """
         Get the appropriate prompt template for a task and method.

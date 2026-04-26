@@ -22,7 +22,6 @@ specModule: "spin"
 
 # Traces folder location
 traces_folder: "data/sys_traces/spin"
-trace_format: "asterinas_based"
 
 # Metadata
 metadata:

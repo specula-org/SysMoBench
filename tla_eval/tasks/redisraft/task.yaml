@@ -22,8 +22,6 @@ specModule: "redisraft"
 
 # Traces folder location
 traces_folder: "data/sys_traces/redisraft"
-trace_format: "redisraft_based"
-trace_sample: 5
 
 # Metadata
 metadata:
