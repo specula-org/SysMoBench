@@ -212,17 +212,18 @@ Each skill has its own `SKILL.md` + `guide.md`.
 
 `config/models.yaml`
 
-### Install modes
+### Install
 
-- Recommended: `pip install -e .`
-- With legacy native SDK adapters: `pip install -e ".[legacy-providers]"`
+```
+pip install -e .
+```
 
 ### Configuration format
 
 ```yaml
 models:
   <model_name>:
-    provider: "litellm" | "openai" | "anthropic" | "genai" | "deepseek" | "yunwu" | "legacy_openai" | "legacy_anthropic" | "legacy_genai"
+    provider: "litellm" | "openai" | "anthropic" | "genai" | "deepseek" | "yunwu"
     model_name: "<litellm-model-name>"
     api_key_env: "<ENV_VAR_NAME>"
     temperature: <float>
@@ -247,10 +248,7 @@ models:
     top_p: 0.9
 ```
 
-Compatibility notes:
-
-- Existing `provider: "openai" | "anthropic" | "genai" | "deepseek" | "yunwu"` entries still work and route through the LiteLLM adapter by default.
-- Use `legacy_openai`, `legacy_anthropic`, or `legacy_genai` to force the old native SDK adapters.
+All hosted providers (`openai`, `anthropic`, `genai`, `deepseek`, `yunwu`, etc.) route through the unified LiteLLM adapter.
 
 ### Using a model
 
