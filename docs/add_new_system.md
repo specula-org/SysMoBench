@@ -1,45 +1,60 @@
-# Adding a New System to the Framework
+# Adding a New System to SysMoBench
 
-This document explains how to add a new system to the framework. The process consists of three main steps:
+Adding a new system involves four steps: declaring the task, writing prompts, defining invariant templates, and bootstrapping a Phase-3 trace harness.
 
-## 1. Define Task Configuration
+## 1. Task configuration
 
-Create task definition in `tla_eval/tasks/<system_name>` directory:
+Create `tla_eval/tasks/<system_name>/task.yaml`:
 
-### task.yaml
-Create a system configuration file containing:
-- Basic system information (name, etc.)
-- Repository information (URL, branch, version)
-- Source file paths
-- TLA+ specification module name
+```yaml
+name: "<system_name>"
+description: "<one-line summary>"
+system_type: "concurrent" | "distributed" | ...
+language: "rust" | "go" | "java" | ...
 
-### prompts directory
-Create prompt files based on etcd naming convention:
-- `direct_call.txt` - Direct call prompt
-- `phase2_config.txt` - .cfg configuration file generation prompt
-- `phase3_invariant_implementation.txt` - invariant translation prompt
-- `trace_config_generation.txt` - Trace configuration generation prompt
+repository:
+  url: "https://github.com/.../<repo>.git"
+  branch: "main"
 
-## 2. Create Invariant Templates
+source_files:
+  - path: "path/in/repo/to/file.go"
 
-Create invariant definitions in `data/invariant_templates/<system_name>` directory:
+default_source_file: "path/in/repo/to/file.go"
+specModule: "<TLA+ module name>"
+traces_folder: "data/sys_traces/<system_name>"
 
-### invariants.yaml
-Define core system invariants, each containing:
-- `name` - Invariant name
-- `type` - Safety or liveness
-- `natural_language` - Natural language description
-- `formal_description` - Formal description
-- `tla_example` - TLA+ code example
+# Phase 3 (window verification) configuration
+wv:
+  repo_path: "artifacts/<system_name>"
+  target_actions: ["<ActionA>", "<ActionB>"]
+```
 
-These templates are used for invariant verification.
+The `wv:` block is consumed by `scripts/launch_wv_eval.sh`.
 
-## 3. Implement Trace Validation
+## 2. Prompts
 
-Implement `module.py` in `tla_eval/core/trace_generation/<system_name>` directory:
+Create `tla_eval/tasks/<system_name>/prompts/` with:
 
-### Required Interface Classes
-- `TraceGenerator` - Implements trace generation logic
-- `TraceConverter` - Implements trace format conversion
-- `SystemModule` - System module entry point
+- `direct_call.txt` — full TLA+ spec generation prompt
+- `phase2_config.txt` — TLC `.cfg` generation prompt (Phase 2)
+- `phase3_invariant_implementation.txt` — invariant translation prompt (Phase 4)
 
+Use `tla_eval/tasks/etcd/prompts/` as the reference layout.
+
+## 3. Invariant templates
+
+Create `data/invariant_templates/<system_name>/invariants.yaml` listing each core invariant:
+
+```yaml
+- name: "<InvariantName>"
+  type: "safety" | "liveness"
+  natural_language: "<plain-English statement>"
+  formal_description: "<math / pseudocode>"
+  tla_example: "<TLA+ snippet>"
+```
+
+Phase 4 (`invariant_verification`) translates each entry against the generated spec and runs TLC.
+
+## 4. Phase-3 trace harness
+
+Use the `harness-gen` skill to bootstrap `artifacts/<system_name>/` with an instrumented build that emits NDJSON traces at the granularity declared in `task.yaml`. The harness is one-time per system and is then reused by every spec evaluation through the `wv-eval` skill (driven by `scripts/launch_wv_eval.sh`).
