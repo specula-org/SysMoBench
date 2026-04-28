@@ -221,11 +221,7 @@ class DirectCallMethod(TLAGenerationMethod):
         # Get task-specific prompt template (lazy import to avoid circular dependency)
         from ...tasks.loader import get_task_loader
         task_loader = get_task_loader()
-        prompt_template = task_loader.get_task_prompt(
-            task.task_name,
-            self.name,
-            task.spec_language
-        )
+        prompt_template = task_loader.get_task_prompt(task.task_name, self.name)
 
         # Prepare format variables
         format_vars = {
@@ -242,13 +238,3 @@ class DirectCallMethod(TLAGenerationMethod):
         # Format template with task information without interfering with literal braces
         return format_prompt_template(prompt_template, format_vars)
 
-    def get_method_info(self) -> Dict[str, Any]:
-        """Get information about direct call method."""
-        return {
-            "name": self.name,
-            "description": "Direct LLM call with SANY-feedback correction loop (3 attempts)",
-            "type": "feedback_loop",
-            "requires_model": True,
-            "supports_iteration": True,
-            "max_correction_attempts": self.max_correction_attempts,
-        }

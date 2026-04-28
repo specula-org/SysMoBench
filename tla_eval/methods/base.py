@@ -15,12 +15,11 @@ class GenerationTask:
     source_code: str
     task_name: str
     system_type: str  # e.g., "distributed", "concurrent"
-    language: str     # e.g., "go", "java", "c++" (source code language)
+    language: str     # source code language, e.g., "go", "java", "c++"
     description: str
     spec_module: str = None  # TLA+ module name for the specification
-    spec_language: str = "tla"  # Target specification language
     extra_info: Dict[str, Any] = None  # Additional task-specific information
-    
+
     def __post_init__(self):
         if self.extra_info is None:
             self.extra_info = {}
@@ -55,27 +54,7 @@ class TLAGenerationMethod(ABC):
     
     @abstractmethod
     def generate(self, task: GenerationTask, model_name: str = None) -> GenerationOutput:
-        """
-        Generate TLA+ specification from source code.
-        
-        Args:
-            task: Generation task with source code and metadata
-            model_name: Name of model to use (from config), or None for default
-            
-        Returns:
-            GenerationOutput with TLA+ specification and metadata
-        """
-        pass
-    
-    @abstractmethod
-    def get_method_info(self) -> Dict[str, Any]:
-        """
-        Get information about this generation method.
-        
-        Returns:
-            Dictionary with method metadata
-        """
-        pass
+        """Generate a TLA+ specification from `task.source_code` using the configured model."""
 
 
 def format_prompt_template(prompt_template: str, format_vars: Dict[str, Any]) -> str:

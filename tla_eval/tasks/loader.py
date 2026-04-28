@@ -28,8 +28,8 @@ class TaskLoader:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def load_task(self, task_name: str, source_file: str | List[str] | None = None, traces_folder: str = None,
-                  spec_language: str = "tla") -> GenerationTask:
+    def load_task(self, task_name: str, source_file: str | List[str] | None = None,
+                  traces_folder: str = None) -> GenerationTask:
         """
         Load a specific task by name, automatically cloning repository if needed.
 
@@ -37,7 +37,6 @@ class TaskLoader:
             task_name: Name of the task (e.g., "etcd")
             source_file: Specific source file path, or None for default
             traces_folder: Path to the folder containing traces, or None if not available
-            spec_language: Target specification language (currently only "tla")
 
         Returns:
             GenerationTask instance with source code and appropriate prompt
@@ -72,7 +71,6 @@ class TaskLoader:
             language=metadata['language'],
             description=metadata['description'],
             spec_module=metadata.get('specModule', task_name),
-            spec_language=spec_language,
             extra_info={
                 'file_path': [e['path'] for e in selected_entries] if len(selected_entries) > 1 else selected_entries[0]['path'],
                 'focus': [e.get('description', '') for e in selected_entries] if len(selected_entries) > 1 else selected_entries[0].get('description', ''),
@@ -212,7 +210,7 @@ class TaskLoader:
 
         return "\n\n".join(contents)
         
-    def get_task_prompt(self, task_name: str, method_name: str, language: str = "tla") -> str:
+    def get_task_prompt(self, task_name: str, method_name: str) -> str:
         """Read the prompt template at tasks/<task>/prompts/<method>.txt."""
         prompt_file = self.tasks_dir / task_name / "prompts" / f"{method_name}.txt"
         if not prompt_file.exists():
@@ -287,7 +285,6 @@ def get_task_loader() -> TaskLoader:
         _task_loader = TaskLoader()
     return _task_loader
 
-def load_task(task_name: str, source_file: str = None, traces_folder: str = None,
-              spec_language: str = "tla") -> GenerationTask:
+def load_task(task_name: str, source_file: str = None, traces_folder: str = None) -> GenerationTask:
     """Convenience function to load a task."""
-    return get_task_loader().load_task(task_name, source_file, traces_folder, spec_language)
+    return get_task_loader().load_task(task_name, source_file, traces_folder)

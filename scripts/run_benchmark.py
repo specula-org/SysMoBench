@@ -204,7 +204,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         task = task_loader.load_task(task_name, source_file, traces_folder)
         logger.info(f"Loaded task: {task.task_name} ({task.system_type})")
 
-        prompt_template = task_loader.get_task_prompt(task_name, method_name, task.spec_language)
+        prompt_template = task_loader.get_task_prompt(task_name, method_name)
         logger.info(f"Loaded prompt template ({len(prompt_template)} chars)")
 
         from tla_eval.models.base import GenerationResult
