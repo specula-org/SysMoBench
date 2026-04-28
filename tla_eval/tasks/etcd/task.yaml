@@ -30,11 +30,6 @@ metadata:
   original_project: "etcd"
   version: "v3.5.12"  # Fixed for stability
 
-# Phase 3 specific configuration
-phase3:
-  patch_required: false  # No patch needed - TraceLogger is built-in
-  description: "etcd raft has built-in TraceLogger support, just needs with_tla build tag"
-
 # WV (action-window validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent

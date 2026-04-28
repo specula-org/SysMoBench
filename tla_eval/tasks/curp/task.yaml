@@ -37,12 +37,6 @@ metadata:
     - "speculative_execution"
     - "quorum_optimization"
   
-# Phase 3 specific configuration
-phase3:
-  patch_required: true
-  patch_file: "data/patches/xline-instrumented.patch"
-  description: "CURP replication protocol with abstracted Raft for reduced complexity"
-
 # WV (action-window validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent

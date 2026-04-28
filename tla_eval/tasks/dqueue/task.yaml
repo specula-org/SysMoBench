@@ -27,11 +27,6 @@ traces_folder: "data/sys_traces/dqueue"
 metadata:
   original_project: "dqueue"
 
-# Phase 3 specific configuration
-phase3:
-  patch_required: false  
-  description: "Use existing, generated TraceLink traces"
-
 # WV (action-window validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent

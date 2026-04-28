@@ -28,12 +28,6 @@ metadata:
   original_project: "asterinas"
   concurrency_model: "lock_free_spsc"
 
-# Phase 3 specific configuration
-phase3:
-  patch_required: true
-  patch_file: "data/patches/asterinas_tla_trace.patch"
-  patch_description: "Inject TLA+ trace instrumentation for Asterinas sync primitives"
-
 # WV (action-window validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent

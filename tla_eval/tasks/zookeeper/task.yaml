@@ -36,11 +36,6 @@ metadata:
   protocol_scope: "zab_leader_election_only"
   version: "3.9.1"
 
-# Phase 3 specific configuration
-phase3:
-  patch_required: true
-  patch_file: "data/patches/remix_ndjson_output_complete.patch"
-
 # WV (action-window validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent

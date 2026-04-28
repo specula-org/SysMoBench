@@ -28,10 +28,6 @@ metadata:
   original_project: "redisraft"
   description: "Redis module implementing Raft consensus for strongly-consistent clusters"
   
-# Phase 3 specific configuration
-phase3:
-  patch_required: true
-
 # WV (action-window validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
