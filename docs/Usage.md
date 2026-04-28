@@ -115,13 +115,31 @@ models × systems.
 python3 scripts/run_batch_experiment.py [options]
 ```
 
-Outputs land under `experiments/batch_<timestamp>/`. Key flags:
+Outputs land under `experiments/batch_<timestamp>/<system>/run_*.json`. Key flags:
 
-- `--enable-wv` — also run Phase 3 WV for cells that pass P2
-- `--wv-agent <name>` / `--wv-model <id>` — WV agent adapter + model override
-- `--inv-model <id>` — invariant-translator model (Phase 4)
+- `--all` / `--systems <name> ...` — pick all 11 or a subset
+- `--model <id>` — generation model (entry in `config/models.yaml`)
+- `--runs <N>` — runs per (model, system); default 5
+- `--threads <N>` — parallelism; default 5
+- `--enable-wv` — also run Phase 3 WV for cells where P2 passes
+- `--wv-agent <name>` / `--wv-model <id>` — WV agent adapter and model
+- `--wv-budget <USD>` / `--wv-timeout <s>` — per-WV cost cap (default 5) and timeout (default 1800s)
+- `--inv-model <id>` — Phase-4 invariant-translator model
 
-> **TODO:** concrete end-to-end example with `--models`, `--systems`, cost expectations.
+`python3 scripts/run_batch_experiment.py --list-systems` and `--list-agents` enumerate the choices.
+
+End-to-end example (one model across all 11 systems, with WV and Phase 4):
+
+```bash
+python3 scripts/run_batch_experiment.py \
+    --all \
+    --model claude \
+    --runs 3 --threads 8 \
+    --enable-wv --wv-agent claude-code --wv-model sonnet \
+    --inv-model sonnet
+```
+
+WV adds roughly **\$1–4 per (model, system)** spec via the WV agent; budget on a 5-model × 11-system sweep is in the low-hundreds of USD. Phase 4 invariant translation runs through the agent's own credentials, not your API key — see [API usage policy](../README.md#) and CLAUDE.md.
 
 ---
 
@@ -148,11 +166,25 @@ Each launch creates `wv-workspaces/<timestamp>_<task>/` containing the agent's
 
 ## Phase 4 — Invariant verification
 
-Agent translates the system's invariant templates (under
-`data/invariant_templates/<task>/`) against the generated spec, then TLC
-verifies them.
+Each system has a set of expert-written invariant templates under
+`data/invariant_templates/<task>/invariants.yaml`. A translator turns each
+template into a TLA+ predicate against the generated spec's variable names,
+then TLC verifies them.
 
-> **TODO:** flag summary, translator models, expected runtime.
+```bash
+sysmobench --task etcd --method direct_call --model claude \
+  --metric invariant_verification \
+  --inv-translator-type {direct|agent} \
+  --tlc-timeout 600
+```
+
+- `--inv-translator-type direct` — single LLM call (cheap, fast, default)
+- `--inv-translator-type agent` — Claude Code agent (more thorough; uses agent's
+  own credentials per the API usage policy in CLAUDE.md)
+- `--tlc-timeout` — per-invariant TLC timeout, seconds
+
+Expected runtime varies by system: simple synchronization specs finish in seconds,
+distributed consensus systems can take minutes per invariant.
 
 ---
 
@@ -186,7 +218,17 @@ Scripts that populate `docs/leaderboard/`:
 
 Canonical phase weights: **P1=0.15, P2=0.15, P3=0.35, P4=0.35**.
 
-> **TODO:** schema of each CSV, how the website consumes them, reproduce steps.
+CSV/JSON schemas, model canonicalization rules, and the abandoned-runs policy
+are documented in [`docs/leaderboard/schema.md`](leaderboard/schema.md).
+
+To reproduce the public leaderboard from a clean clone:
+
+```bash
+python3 scripts/run_batch_experiment.py --all --model <model> --enable-wv  # populate experiments/
+python3 scripts/build_leaderboard.py                                         # baseline CSVs
+python3 scripts/batch_repair_and_wv.py --phase all                           # repair + rescore
+python3 scripts/build_leaderboard_repaired.py                                # *_repaired.csv
+```
 
 ---
 
@@ -202,7 +244,19 @@ Three agent-driven skills under `tla_eval/skills/`:
 
 Each skill has its own `SKILL.md` + `guide.md`.
 
-> **TODO:** one-paragraph invocation example per skill.
+These skills are intended to be invoked from a Claude Code session inside the
+repo — the CLI agent loads `SKILL.md` and follows it. Typical triggers:
+
+- **`harness-gen`** — "bootstrap a trace harness for system `<name>`". The agent
+  clones the system into `artifacts/<name>/`, instruments it to emit NDJSON
+  traces at the granularity declared in `tla_eval/tasks/<name>/task.yaml`,
+  writes `run.sh`, and produces `INSTRUMENTATION.md`.
+- **`wv-eval`** — typically launched non-interactively via
+  `scripts/launch_wv_eval.sh --task=<name> --spec=<dir>`; the wrapper invokes
+  the configured agent (Claude Code or Codex) with the skill's guide.
+- **`spec-repair`** — "repair the spec at `<path>` so it passes P1/P2 without
+  changing modeling intent". Outputs a `repair_manifest.json` listing the edits
+  applied (allow-list) and any forbidden changes that were rejected.
 
 ---
 
@@ -305,4 +359,28 @@ wv:
 
 The `wv:` block is consumed by `scripts/launch_wv_eval.sh` to set up Phase 3.
 
-> **TODO:** field reference for `wv:` block and invariant template locations.
+### `wv:` block fields
+
+| Field | Required | Meaning |
+|---|---|---|
+| `repo_path` | yes | Where the WV agent should keep its instrumented system clone (e.g., `artifacts/<task>/`) |
+| `target_actions` | yes | Spec-level action names to score (the agent maps these onto the spec's own action names) |
+| `harness.type` | yes | `docker` or `native` |
+| `harness.docker_image` | docker | Docker image with the test target installed |
+| `harness.test_target` | docker | Test that emits NDJSON traces |
+| `harness.reference_patch` | optional | Existing instrumentation patch to apply / re-base |
+| `harness.instrumentation_file` | native | Patch file driving the instrumentation |
+| `harness.test_file` | native | Source file under test |
+| `harness.run_command` | native | Shell command to run the harness |
+| `harness.traces_output_env` | native | Env var pointing at the trace output directory |
+| `harness.trace_action_map` | optional | Maps raw trace event names → spec action names when they differ |
+| `harness.coverage_gaps` | optional | Documented gaps where some target actions are under-sampled |
+
+See `tla_eval/tasks/spin/task.yaml` (docker) and `tla_eval/tasks/zookeeper/task.yaml` (native + map) for full examples.
+
+### Invariant templates
+
+Phase 4 reads `data/invariant_templates/<task>/invariants.yaml`. Each entry has
+`name`, `type` (safety/liveness), `natural_language`, `formal_description`, and
+`tla_example`. The translator concretizes each template against the generated
+spec's variable names; TLC then checks the resulting predicate.
