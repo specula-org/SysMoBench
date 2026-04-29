@@ -1,134 +1,92 @@
-# SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems
+# SysMoBench
 
-[![Paper](https://img.shields.io/badge/arXiv-2509.23130-b31b1b.svg)](https://arxiv.org/abs/2509.23130)
-[![Conference](https://img.shields.io/badge/Venue-ICLR%202026-blue.svg)](https://openreview.net/forum?id=SAeaTz8YoM)
-[![Website](https://img.shields.io/badge/Website-sysmobench.com-brightgreen.svg)](https://sysmobench.com)
+SysMoBench is a benchmark for evaluating AI on formally modeling complex real-world systems. It targets TLA+, the de facto specification language for concurrent and distributed systems, and automates four kinds of evaluation: syntax checking with SANY, runtime model checking with TLC, transition validation against captured system traces, and verification of expert-written invariants. Eleven systems are included, ranging from kernel-level synchronization primitives in the Asterinas operating system to industrially deployed consensus implementations such as etcd Raft, Redis Raft, and Xline CURP.
 
-> **News**: "**SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems**" has been accepted to **ICLR 2026**. Project site: [sysmobench.com](https://sysmobench.com).
+The corresponding paper appears at ICLR 2026: ["SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems"](https://openreview.net/forum?id=SAeaTz8YoM). Up-to-date scores are at [sysmobench.com](https://sysmobench.com).
 
-## Overview
+## Highlights
 
-Formal models specify large, complex systems and verify their correctness, but are notoriously expensive to write. Generative AI shows promise for producing certain specifications, yet existing work mostly targets small code, not complete systems. It is unclear whether AI can deal with realistic system artifacts, which requires abstracting complex behavioral properties into formal models.
+- **End-to-end automation.** Generation, compilation, model checking, transition validation against real traces, and invariant verification all run as a single pipeline, with no human in the loop.
+- **Real systems with real traces.** Each task is built around the upstream system's actual source code, paired with an instrumentation harness that emits NDJSON traces from a real execution and a hand-written invariant template.
 
-SysMoBench evaluates AI's ability to formally model real-world concurrent and distributed systems. We use TLA+, the de facto specification language for these domains, and automate four kinds of metric: **syntax**, **runtime**, **conformance to implementation** (action-window verification, "WV"), and **invariant correctness**.
+## Setup
 
-![SysMoBench Overview](docs/pic/overview.png)
-
-## Key features
-
-- **4-phase automated scoring** — syntax (SANY), runtime (TLC), Phase-3 conformance via per-action WV against real system traces, Phase-4 invariant verification with expert templates.
-- **11 real-world systems** — concurrent synchronization (Asterinas spinlock/mutex/rwmutex, ringbuffer), distributed consensus (etcd Raft, Redis Raft, Xline CURP, ZooKeeper), and PGo-compiled systems (dqueue, locksvc, raftkvs).
-- **Agent-driven Phase 3** — WV is run by an evaluator agent (Claude Code or Codex) per the `wv-eval` skill, so each generated spec is judged on its own action mapping.
-- **Spec repair** — `spec-repair` skill applies bounded edits to broken specs so P3/P4 can still be measured on a comparable model.
-
-## Quick start
-
-### Prerequisites
+Required on the host:
 
 - Python 3.8+
-- Java 11+ (for TLA+ tools)
+- Java 11+ (for SANY and TLC, downloaded by the setup script below)
+- Docker (for the Asterinas-based harnesses: `spin`, `mutex`, `rwmutex`)
+- Go 1.20+ (for the `etcd` harness)
+- Maven and a JDK build chain (for the `zookeeper` and `redisraft` harnesses)
+- A coding-agent CLI — either [`claude-code`](https://github.com/anthropics/claude-code) or [`codex`](https://github.com/openai/codex) — used by transition validation and by the agent-driven invariant translator
 
-### Setup
+Then install:
 
-```bash
+```
 git clone https://github.com/specula-org/SysMoBench.git
 cd SysMoBench
 pip install -e .
-sysmobench-setup           # download tla2tools.jar
-export ANTHROPIC_API_KEY=...   # or OPENAI_API_KEY / GEMINI_API_KEY etc.
-sysmobench --list-tasks
+sysmobench-setup
 ```
 
-### Single-cell run
+`sysmobench-setup` downloads `tla2tools.jar` and `CommunityModules-deps.jar` into `lib/`.
 
-```bash
+Add the models you intend to evaluate to `config/models.yaml` (the file ships with example entries) and export the corresponding API keys.
+
+## Running
+
+A single (system, model, metric) cell:
+
+```
 sysmobench --task spin --method direct_call --model claude --metric compilation_check
 ```
 
-Single-cell results land under `output/<metric>/<task>/<method>_<model>/<timestamp>/`.
+A full sweep across all 11 systems with transition validation enabled:
 
-For batch evaluation, the WV pipeline, the spec-repair flow, and the leaderboard build, see the **[Usage Guide](docs/Usage.md)**.
+```
+python3 scripts/run_batch_experiment.py --all --model claude --enable-wv
+```
+
+For details on transition validation, the spec-repair flow, leaderboard regeneration, and the agent-driven skills used by the pipeline, see [`docs/Usage.md`](docs/Usage.md).
 
 ## Tasks
 
-11 system artifacts. Run `sysmobench --list-tasks` for the live list.
+`sysmobench --list-tasks` enumerates the live set.
 
 | System | Type |
 |---|---|
-| `spin`, `mutex`, `rwmutex` | Asterinas OS synchronization |
-| `ringbuffer` | concurrent queue |
+| `spin`, `mutex`, `rwmutex` | Asterinas OS synchronization primitives |
+| `ringbuffer` | Concurrent queue |
 | `etcd`, `redisraft` | Raft consensus |
 | `curp` | Xline CURP replication |
-| `zookeeper` | distributed coordination |
-| `dqueue`, `locksvc`, `raftkvs` | PGo-compiled systems |
+| `zookeeper` | Distributed coordination |
+| `dqueue`, `locksvc`, `raftkvs` | PGo-compiled distributed systems |
 
 ## Metrics
 
-| Phase | Metric | Tool |
-|---|---|---|
-| 1 — Syntax | `compilation_check`, `action_decomposition` | SANY |
-| 2 — Runtime | `runtime_check`, `coverage`, `runtime_coverage` | TLC |
-| 3 — Conformance | Window verification (WV) | Agent + TLC over (pre, post)-state windows |
-| 4 — Invariant | `invariant_verification` | TLC + agent-translated invariants |
+| Stage | What it measures |
+|---|---|
+| Syntax | The spec compiles (`compilation_check`, `action_decomposition`) |
+| Runtime | TLC can execute it (`runtime_check`, `coverage`, `runtime_coverage`) |
+| Transition validation | Per-action conformance to captured system traces |
+| Invariant verification | The spec satisfies expert invariants (`invariant_verification`) |
 
-`sysmobench --list-metrics` enumerates all metric names.
-
-> **Canonical phase weights**: P1 = 0.15, P2 = 0.15, P3 = 0.35, P4 = 0.35.
+`sysmobench --list-metrics` gives the full catalog. Canonical aggregate weights are 0.15, 0.15, 0.35, and 0.35 for the four stages above.
 
 ## Leaderboard
 
-Scored data under [`docs/leaderboard/`](docs/leaderboard/) feeds the website at [sysmobench.com](https://sysmobench.com).
-
-> **TODO** (paper-reproduce runbook): walk through `scripts/build_leaderboard.py` → `scripts/batch_repair_and_wv.py` → `scripts/build_leaderboard_repaired.py`.
+[`docs/leaderboard/`](docs/leaderboard/) holds CSV and JSON snapshots of the most recent scoring run; the website at [sysmobench.com](https://sysmobench.com) reads from the same files.
 
 ## Adding a new system
 
-`tla_eval/tasks/<task>/task.yaml` declares the system; prompts go under `tla_eval/tasks/<task>/prompts/`; invariant templates live at `data/invariant_templates/<task>/`; the WV harness is bootstrapped via the `harness-gen` skill into `artifacts/<task>/`.
-
-See [Adding a New System](docs/add_new_system.md) for the step-by-step.
-
-## Project layout
-
-```
-SysMoBench/
-├── scripts/                      # CLI entry points and batch orchestrators
-│   ├── run_benchmark.py          # single-cell runner (wired as `sysmobench`)
-│   ├── run_batch_experiment.py   # full P1→P4 batch
-│   ├── launch_wv_eval.sh         # Phase 3 (WV) launcher
-│   ├── batch_repair_and_wv.py    # spec-repair + WV orchestrator
-│   └── build_leaderboard*.py     # CSV/JSON leaderboard builders
-├── tla_eval/
-│   ├── tasks/                    # task.yaml + prompts/ for each of the 11 systems
-│   ├── methods/                  # generation methods (currently: direct_call)
-│   ├── models/                   # LiteLLM-based model adapters
-│   ├── evaluation/               # P1, P2, P4 evaluators
-│   ├── wv_tools/                 # WV runner helpers
-│   └── skills/                   # agent skills (harness-gen, wv-eval, spec-repair)
-├── data/
-│   ├── invariant_templates/      # P4 expert invariants per system
-│   ├── patches/                  # trace-instrumentation patches per system
-│   └── sys_traces/               # captured system traces (per task contract)
-├── docs/
-│   ├── Usage.md                  # full usage guide
-│   ├── add_new_system.md         # extension how-to
-│   └── leaderboard/              # scored data + CSV/JSON snapshots
-└── tools/
-    └── submit_spec/              # MCP server for agent-style submission flow
-```
+See [`docs/add_new_system.md`](docs/add_new_system.md). A system is declared by `tla_eval/tasks/<name>/task.yaml`, paired with prompts, an instrumentation harness, and an invariant template; once those pieces are in place the rest of the pipeline picks the system up automatically.
 
 ## Citation
 
 ```bibtex
-@inproceedings{cheng2026sysmobench,
-  title  = {SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems},
-  author = {Cheng, Qian and others},
-  booktitle = {ICLR},
-  year   = {2026}
-}
+% BibTeX entry to be added once the camera-ready is fixed.
 ```
-
-> **TODO**: confirm full author list and final BibTeX once camera-ready is fixed.
 
 ## License
 
-> **TODO**: pick and add a LICENSE file.
+LICENSE file to be added.

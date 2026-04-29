@@ -2,8 +2,7 @@
 # Users configure their models here, then methods use these models
 
 models:
-  # Legacy provider names are still accepted.
-  # If litellm is installed, these route through the unified adapter automatically.
+  # All hosted providers route through the unified LiteLLM adapter.
   gpt-4o:
     provider: "openai"
     model_name: "gpt-4o"
