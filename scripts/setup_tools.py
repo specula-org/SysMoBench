@@ -1,11 +1,15 @@
 """
-TLA+ Tools Setup Script
+SysMoBench setup script.
 
-Downloads `tla2tools.jar` and `CommunityModules-deps.jar` into `lib/`.
+Downloads `tla2tools.jar` and `CommunityModules-deps.jar` into `lib/`,
+then audits the host for the system-level prerequisites required by the
+benchmark and reports anything missing.
+
 Runtime path resolution lives in `tla_eval.utils.setup_utils`.
 """
 
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.request
@@ -123,29 +127,92 @@ def verify_tools() -> bool:
     return results["ready"]
 
 
+def _probe_version(cmd, timeout=5):
+    """Run `cmd` and return its first stdout/stderr line if exit==0, else None."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if r.returncode == 0:
+            return (r.stdout or r.stderr).strip().splitlines()[0]
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
+
+
+# Each row: (label, version-probe command, install hint, affects)
+HOST_DEPENDENCIES = [
+    ("Docker", ["docker", "--version"],
+     "https://docs.docker.com/engine/install/",
+     "spin, mutex, rwmutex (Asterinas-based harnesses)"),
+    ("Go 1.26+", ["go", "version"],
+     "https://go.dev/dl/",
+     "etcd"),
+    ("Maven", ["mvn", "-v"],
+     "apt install maven",
+     "zookeeper, redisraft"),
+    ("javac (JDK build chain)", ["javac", "--version"],
+     "apt install default-jdk",
+     "zookeeper, redisraft"),
+]
+
+
+def check_host_dependencies() -> int:
+    """Audit host-side prerequisites. Returns the number missing."""
+    missing = 0
+
+    if check_java_available():
+        print_success(f"Java: {_probe_version(['java', '-version']) or 'available'}")
+    else:
+        print_warning("Java not found — required for SANY and TLC (every Phase)")
+        print_status("    Install: apt install openjdk-21-jdk  (or any JDK 11+)")
+        missing += 1
+
+    for label, cmd, hint, affects in HOST_DEPENDENCIES:
+        v = _probe_version(cmd)
+        if v:
+            print_success(f"{label}: {v}")
+        else:
+            print_warning(f"{label} not found — required for: {affects}")
+            print_status(f"    Install: {hint}")
+            missing += 1
+
+    for cli in ("claude", "codex"):
+        v = _probe_version([cli, "--version"])
+        if v:
+            print_success(f"Coding-agent CLI ({cli}): {v}")
+            break
+    else:
+        print_warning("No coding-agent CLI found — required for transition validation and the agent invariant translator")
+        print_status("    Install one of:")
+        print_status("      - claude-code: https://github.com/anthropics/claude-code")
+        print_status("      - codex:       https://github.com/openai/codex")
+        missing += 1
+
+    return missing
+
+
 def main():
-    print_status("TLA+ Tools Setup")
+    print_status("SysMoBench setup")
     print_status("================")
 
     try:
-        print_status("\n=== Checking Runtime Dependencies ===")
-        if not check_java_available():
-            print_warning("Java not found. TLA+ tooling requires Java to run.")
-            print_status("Please install Java 11+ and ensure it is in your PATH.")
-        else:
-            print_success("Java is available")
-
-        print_status("\n=== Setting Up Tools ===")
+        print_status("\n=== Setting up TLA+ tools ===")
         setup_tla_tools()
 
-        print_status("\n=== Verification ===")
-        if verify_tools():
-            print_success("\n✓ Setup completed successfully!")
-            print_status("\nTool paths:")
-            print_status(f"  tla2tools.jar: {get_tla_tools_path()}")
-            print_status(f"  CommunityModules-deps.jar: {get_community_modules_path()}")
+        print_status("\n=== Verifying TLA+ tools ===")
+        tla_ready = verify_tools()
+
+        print_status("\n=== Checking host dependencies ===")
+        missing = check_host_dependencies()
+
+        print()
+        if tla_ready and missing == 0:
+            print_success("Setup complete — all prerequisites satisfied.")
+        elif tla_ready:
+            print_warning(f"Setup complete with {missing} missing host dependency item(s).")
+            print_status("Install the items above before running the affected systems.")
         else:
-            print_warning("\n⚠ Setup completed with warnings")
+            print_error("Setup incomplete: TLA+ tools are not ready.")
+            sys.exit(1)
 
     except KeyboardInterrupt:
         print_error("\nSetup interrupted by user")

@@ -29,7 +29,7 @@ pip install -e .
 sysmobench-setup
 ```
 
-`sysmobench-setup` downloads `tla2tools.jar` and `CommunityModules-deps.jar` into `lib/`.
+`sysmobench-setup` downloads `tla2tools.jar` and `CommunityModules-deps.jar` into `lib/`, then audits the host for Docker / Go / Maven / JDK / a coding-agent CLI and reports anything missing along with an install hint.
 
 Add the models you intend to evaluate to `config/models.yaml` (the file ships with example entries) and export the corresponding API keys.
 
