@@ -16,7 +16,7 @@ Required on the host:
 - Python 3.8+
 - Java 11+ (for SANY and TLC, downloaded by the setup script below)
 - Docker (for the Asterinas-based harnesses: `spin`, `mutex`, `rwmutex`)
-- Go 1.20+ (for the `etcd` harness)
+- Go 1.26+ (for the `etcd` harness)
 - Maven and a JDK build chain (for the `zookeeper` and `redisraft` harnesses)
 - A coding-agent CLI — either [`claude-code`](https://github.com/anthropics/claude-code) or [`codex`](https://github.com/openai/codex) — used by transition validation and by the agent-driven invariant translator
 
