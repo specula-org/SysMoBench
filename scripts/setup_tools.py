@@ -159,10 +159,18 @@ def check_host_dependencies() -> int:
     """Audit host-side prerequisites. Returns the number missing."""
     missing = 0
 
+    py = sys.version_info
+    if py >= (3, 8):
+        print_success(f"Python: {py.major}.{py.minor}.{py.micro}")
+    else:
+        print_warning(f"Python {py.major}.{py.minor} is too old — SysMoBench requires Python 3.8+")
+        print_status("    Install: https://www.python.org/downloads/ or use pyenv")
+        missing += 1
+
     if check_java_available():
         print_success(f"Java: {_probe_version(['java', '-version']) or 'available'}")
     else:
-        print_warning("Java not found — required for SANY and TLC (every Phase)")
+        print_warning("Java not found — required for SANY and TLC")
         print_status("    Install: apt install openjdk-21-jdk  (or any JDK 11+)")
         missing += 1
 
