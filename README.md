@@ -29,8 +29,6 @@ pip install -e .
 sysmobench-setup
 ```
 
-`sysmobench-setup` downloads `tla2tools.jar` and `CommunityModules-deps.jar` into `lib/`.
-
 Add the models you intend to evaluate to `config/models.yaml` (the file ships with example entries) and export the corresponding API keys.
 
 ## Running
@@ -41,13 +39,13 @@ A single (system, model, metric) cell:
 sysmobench --task spin --method direct_call --model claude --metric compilation_check
 ```
 
-A full sweep across all 11 systems with transition validation enabled:
+A full sweep across all 11 systems:
 
 ```
 python3 scripts/run_batch_experiment.py --all --model claude --enable-wv
 ```
 
-For details on transition validation, the spec-repair flow, leaderboard regeneration, and the agent-driven skills used by the pipeline, see [`docs/Usage.md`](docs/Usage.md).
+See [`docs/Usage.md`](docs/Usage.md) for details.
 
 ## Tasks
 
