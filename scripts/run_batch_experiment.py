@@ -233,7 +233,7 @@ class BatchExperimentRunner:
                  output_dir: str = "experiments",
                  model: str = "opus",
                  agent: str = DEFAULT_AGENT,
-                 enable_wv: bool = False,
+                 enable_wv: bool = True,
                  wv_budget: float = 5.0,
                  wv_timeout: int = 1800,
                  inv_model: str = "sonnet",
@@ -249,7 +249,7 @@ class BatchExperimentRunner:
             output_dir: Base output directory for results
             model: Model to use for generation and agent translator (default: opus)
             agent: Code agent to use for generation (default: claude_code)
-            enable_wv: Enable Phase 3 WV action-window validation (default: False)
+            enable_wv: Run transition validation (default: True). Set to False for cheap CI/smoke runs.
             wv_budget: Max API budget per WV evaluation in USD (default: 5)
             wv_timeout: Timeout per WV evaluation in seconds (default: 1800)
         """
@@ -862,7 +862,7 @@ class BatchExperimentRunner:
         Phase 3 WV: Action-window validation via agent-driven evaluation.
         Launches the configured agent adapter that follows the wv-eval skill.
 
-        Only runs when --enable-wv is set (costs ~$1-4 per spec).
+        Skipped only when --skip-tv is set (costs ~$1-4 per spec).
         """
         logger.info(f"[{system}][Run {run_id}] Phase 3 WV: starting action-window validation...")
 
@@ -1470,8 +1470,9 @@ Examples:
     parser.add_argument("--agent", default=DEFAULT_AGENT,
                        choices=list(SUPPORTED_AGENTS.keys()),
                        help=f"Code agent to use for generation (default: {DEFAULT_AGENT})")
-    parser.add_argument("--enable-wv", action="store_true",
-                       help="Enable Phase 3 WV (action-window validation). Costs ~$1-4 per spec via Claude agent.")
+    parser.add_argument("--skip-tv", action="store_true",
+                       help="Skip transition validation. By default it runs on every cell that passes compilation; "
+                            "transition validation costs ~$1-4 per spec via the coding-agent CLI.")
     parser.add_argument("--wv-budget", type=float, default=5.0,
                        help="Max API budget (USD) per WV evaluation (default: 5)")
     parser.add_argument("--wv-timeout", type=int, default=1800,
@@ -1525,7 +1526,7 @@ Examples:
         output_dir=args.output,
         model=args.model,
         agent=args.agent,
-        enable_wv=args.enable_wv,
+        enable_wv=not args.skip_tv,
         wv_budget=args.wv_budget,
         wv_timeout=args.wv_timeout,
         wv_agent=args.wv_agent,
