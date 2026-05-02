@@ -73,7 +73,7 @@ See [`docs/Usage.md`](docs/Usage.md) for details.
 
 ## Leaderboard
 
-[`docs/leaderboard/`](docs/leaderboard/) holds CSV and JSON snapshots of the most recent scoring run; the website at [sysmobench.com](https://sysmobench.com) reads from the same files.
+Up-to-date scores live at [sysmobench.com](https://sysmobench.com).
 
 ## Adding a new system
 
@@ -82,9 +82,17 @@ See [`docs/add_new_system.md`](docs/add_new_system.md). A system is declared by 
 ## Citation
 
 ```bibtex
-% BibTeX entry to be added once the camera-ready is fixed.
+@inproceedings{cheng2026sysmobench,
+  title     = {SysMoBench: Evaluating AI on Formally Modeling Complex Real-World Systems},
+  author    = {Cheng, Qian and Tang, Ruize and Ma, Emilie and Hackett, Finn and
+               He, Peiyang and Su, Yiming and Beschastnikh, Ivan and Huang, Yu and
+               Ma, Xiaoxing and Xu, Tianyin},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2026},
+  url       = {https://arxiv.org/abs/2509.23130}
+}
 ```
 
 ## License
 
-LICENSE file to be added.
+Apache License 2.0 — see [`LICENSE`](LICENSE).
