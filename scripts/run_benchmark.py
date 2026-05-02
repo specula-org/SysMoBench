@@ -39,8 +39,12 @@ logger = logging.getLogger(__name__)
 
 
 def _display_evaluation_results(eval_result):
-    """Print a unified summary of either a SyntaxEvaluationResult or SemanticEvaluationResult."""
-    from tla_eval.evaluation.base.result_types import SyntaxEvaluationResult, SemanticEvaluationResult
+    """Print a unified summary across SyntaxEvaluationResult / SemanticEvaluationResult / TransitionValidationResult."""
+    from tla_eval.evaluation.base.result_types import (
+        SyntaxEvaluationResult,
+        SemanticEvaluationResult,
+        TransitionValidationResult,
+    )
 
     if isinstance(eval_result, SyntaxEvaluationResult):
         print(f"\nSyntax Evaluation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
@@ -98,6 +102,19 @@ def _display_evaluation_results(eval_result):
         if eval_result.config_file_path:
             print(f"Config file: {eval_result.config_file_path}")
 
+    elif isinstance(eval_result, TransitionValidationResult):
+        print(f"\nTransition Validation Results: {'✓ PASS' if eval_result.overall_success else '✗ FAIL'}")
+        print(f"Score: {eval_result.score:.1%} ({eval_result.total_passed}/{eval_result.total_windows} windows)")
+        print(f"Elapsed: {eval_result.elapsed_seconds:.0f}s")
+        if eval_result.per_action_pass_rates:
+            print("Per-action pass rates:")
+            for action, rate in sorted(eval_result.per_action_pass_rates.items()):
+                print(f"  - {action}: {rate:.1%}")
+        if eval_result.workspace_dir:
+            print(f"Workspace: {eval_result.workspace_dir}")
+        if eval_result.error_message:
+            print(f"Error: {eval_result.error_message}")
+
 
 # Per-metric whitelist: which CLI metric_params each evaluator accepts.
 METRIC_PARAM_WHITELIST = {
@@ -111,6 +128,9 @@ METRIC_PARAM_WHITELIST = {
     },
     "invariant_verification": {
         "tlc_timeout", "templates_dir", "translator_type", "agent_timeout",
+    },
+    "transition_validation": {
+        "wv_agent", "wv_model", "wv_budget", "wv_timeout", "workspace_root",
     },
 }
 
@@ -317,6 +337,14 @@ Examples:
     parser.add_argument("--inv-translator-type", choices=["direct", "agent"], default="direct",
                        help="Invariant translator: 'direct' (single LLM call) or 'agent' (Claude Code agent)")
 
+    # Transition validation parameters (--metric transition_validation).
+    parser.add_argument("--wv-agent", help="Coding-agent CLI for transition validation (e.g. claude-code, codex)")
+    parser.add_argument("--wv-model", help="Model override passed to the coding-agent CLI for transition validation")
+    parser.add_argument("--wv-budget", type=float, help="Max API budget (USD) for transition validation (default: 5)")
+    parser.add_argument("--wv-timeout", type=int, help="Timeout (seconds) for transition validation (default: 1800)")
+    parser.add_argument("--yes", action="store_true",
+                       help="Skip the interactive cost confirmation for transition validation")
+
     parser.add_argument("--task", help="Task name")
     parser.add_argument("--method", help="Method name")
     parser.add_argument("--model", help="Model name")
@@ -376,6 +404,28 @@ Examples:
         metric_params['tlc_timeout'] = args.tlc_timeout
     if args.inv_translator_type:
         metric_params['translator_type'] = args.inv_translator_type
+    if args.wv_agent:
+        metric_params['wv_agent'] = args.wv_agent
+    if args.wv_model:
+        metric_params['wv_model'] = args.wv_model
+    if args.wv_budget is not None:
+        metric_params['wv_budget'] = args.wv_budget
+    if args.wv_timeout is not None:
+        metric_params['wv_timeout'] = args.wv_timeout
+
+    if args.metric == "transition_validation" and not args.yes:
+        print(
+            "\n[!] transition_validation runs an external coding agent against the live system harness.\n"
+            "    Expect 30 min to several hours per spec and roughly $1-4 in agent API spend.\n"
+            "    Pass --yes to skip this confirmation.\n"
+        )
+        try:
+            answer = input("Proceed? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            print("Aborted.")
+            sys.exit(0)
 
     result = run_single_benchmark(
         args.task,

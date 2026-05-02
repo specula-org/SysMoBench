@@ -183,3 +183,38 @@ class SemanticEvaluationResult(EvaluationResult):
         }
 
 
+class TransitionValidationResult(EvaluationResult):
+    """Result of per-action transition validation against captured system traces."""
+
+    def __init__(self, task_name: str, method_name: str, model_name: str):
+        super().__init__(task_name, method_name, model_name)
+
+        self.generation_time = 0.0
+
+        # Per-action pass rates (action_name -> rate in [0, 1]).
+        self.per_action_pass_rates: Dict[str, float] = {}
+        self.total_passed = 0
+        self.total_windows = 0
+        self.score = 0.0  # total_passed / total_windows
+
+        self.workspace_dir: Optional[str] = None
+        self.error_message: Optional[str] = None
+        self.elapsed_seconds = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "task_name": self.task_name,
+            "method_name": self.method_name,
+            "model_name": self.model_name,
+            "timestamp": self.timestamp,
+            "score": self.score,
+            "total_passed": self.total_passed,
+            "total_windows": self.total_windows,
+            "per_action_pass_rates": self.per_action_pass_rates,
+            "workspace_dir": self.workspace_dir,
+            "elapsed_seconds": self.elapsed_seconds,
+            "overall": {
+                "successful": self.overall_success,
+                "error": self.error_message,
+            },
+        }

@@ -55,6 +55,7 @@ class MetricRegistry:
         from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
         from ..semantics.coverage_evaluator import CoverageEvaluator
         from ..semantics.runtime_coverage_evaluator import RuntimeCoverageEvaluator
+        from ..semantics.transition_validation import TransitionValidationEvaluator
 
         self.register_metric(MetricInfo(
             name="compilation_check",
@@ -99,6 +100,13 @@ class MetricRegistry:
                 "tlc_timeout": 30,
                 "coverage_interval": 1,
             },
+        ))
+
+        self.register_metric(MetricInfo(
+            name="transition_validation",
+            description="Per-action conformance to captured system traces (agent-driven, costs ~$1-4 per spec)",
+            evaluator_class=TransitionValidationEvaluator,
+            default_params={"wv_budget": 5.0, "wv_timeout": 1800},
         ))
 
 
