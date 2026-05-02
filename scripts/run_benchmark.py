@@ -191,13 +191,12 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
 
     registry = get_metric_registry()
     try:
-        metric_info = registry.get_metric(metric)
+        registry.get_metric(metric)
     except ValueError as e:
         available = sorted({m.name for m in registry.list_metrics()})
         raise ValueError(f"Unknown metric '{metric}'. Available metrics: {available}") from e
 
-    evaluation_type = metric_info.dimension
-    logger.info(f"Running {evaluation_type} evaluation with metric '{metric}': {task_name}/{method_name}/{model_name}")
+    logger.info(f"Running metric '{metric}': {task_name}/{method_name}/{model_name}")
 
     try:
         task_loader = get_task_loader()
@@ -266,8 +265,9 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                 error_message=generation_output.error_message,
             )
 
-        if evaluation_type == "semantics" and not generation_result.success and not spec_file:
-            logger.error("Cannot evaluate semantics: TLA+ generation failed")
+        # Syntax metrics still produce a useful score from a broken spec; everything else needs a parseable one.
+        if metric not in {"compilation_check", "action_decomposition"} and not generation_result.success and not spec_file:
+            logger.error(f"Cannot evaluate '{metric}': TLA+ generation failed and no --spec-file provided")
             return {"success": False, "error": "TLA+ generation failed"}
 
         filtered_params = filter_metric_params(metric, metric_params)
@@ -281,7 +281,6 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
 
         return {
             "success": True,
-            "evaluation_type": evaluation_type,
             "metric": metric,
             "evaluation_result": evaluation_result,
             "error": None,
@@ -291,7 +290,6 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
         logger.error(f"Benchmark failed: {e}")
         return {
             "success": False,
-            "evaluation_type": metric_info.dimension if metric else None,
             "metric": metric,
             "evaluation_result": None,
             "error": str(e),
@@ -332,7 +330,6 @@ Examples:
     parser.add_argument("--list-methods", action="store_true", help="List available methods")
     parser.add_argument("--list-models", action="store_true", help="List available models")
     parser.add_argument("--list-metrics", action="store_true", help="List available metrics")
-    parser.add_argument("--list-metrics-for", help="List metrics for specific dimension (syntax/semantics)")
 
     args = parser.parse_args()
 
@@ -353,22 +350,8 @@ Examples:
         return
 
     if args.list_metrics:
-        registry = get_metric_registry()
-        current_dimension = None
-        for metric in registry.list_metrics():
-            if metric.dimension != current_dimension:
-                current_dimension = metric.dimension
-                print(f"\n{current_dimension.title()} dimension:")
+        for metric in get_metric_registry().list_metrics():
             print(f"  - {metric.name}: {metric.description}")
-        return
-
-    if args.list_metrics_for:
-        registry = get_metric_registry()
-        try:
-            for metric in registry.list_metrics(args.list_metrics_for):
-                print(f"  - {metric.name}: {metric.description}")
-        except ValueError:
-            print(f"Unknown dimension: {args.list_metrics_for}")
         return
 
     if not (args.task and args.method and args.model):

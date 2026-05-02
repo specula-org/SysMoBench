@@ -1,127 +1,95 @@
 """
-Metric Registry: Central registry for all evaluation metrics.
+Central registry of all evaluation metrics.
 
-This module defines all available evaluation metrics organized by dimension.
+Each metric maps a CLI-visible name (e.g. `compilation_check`) to an evaluator
+class. `create_evaluator(name, **kwargs)` instantiates one with the right
+default parameters merged in.
 """
 
 from typing import Dict, List, Any, Type
-from abc import ABC, abstractmethod
 
 
 class MetricInfo:
-    """Information about a specific metric"""
-    
-    def __init__(self, 
-                 name: str, 
-                 dimension: str, 
-                 description: str, 
+    """Static info about an evaluation metric."""
+
+    def __init__(self,
+                 name: str,
+                 description: str,
                  evaluator_class: Type,
                  default_params: Dict[str, Any] = None):
         self.name = name
-        self.dimension = dimension
         self.description = description
         self.evaluator_class = evaluator_class
         self.default_params = default_params or {}
 
 
 class MetricRegistry:
-    """Central registry for all available evaluation metrics"""
-    
+    """Central registry for all available evaluation metrics."""
+
     def __init__(self):
         self._metrics: Dict[str, MetricInfo] = {}
         self._metrics_registered = False
-    
+
     def register_metric(self, metric_info: MetricInfo):
-        """Register a new metric"""
         self._metrics[metric_info.name] = metric_info
-    
+
     def _ensure_registered(self):
-        """Ensure default metrics are registered (lazy loading)"""
         if not self._metrics_registered:
             self._register_default_metrics()
             self._metrics_registered = True
-    
+
     def get_metric(self, name: str) -> MetricInfo:
-        """Get metric information by name"""
         self._ensure_registered()
         if name not in self._metrics:
             raise ValueError(f"Unknown metric: {name}")
         return self._metrics[name]
-    
-    def list_metrics(self, dimension: str = None) -> List[MetricInfo]:
-        """List all metrics, optionally filtered by dimension"""
+
+    def list_metrics(self) -> List[MetricInfo]:
         self._ensure_registered()
-        metrics = list(self._metrics.values())
-        if dimension:
-            metrics = [m for m in metrics if m.dimension == dimension]
-        return sorted(metrics, key=lambda m: (m.dimension, m.name))
-    
-    def list_dimensions(self) -> List[str]:
-        """List all available dimensions"""
-        self._ensure_registered()
-        dimensions = set(m.dimension for m in self._metrics.values())
-        return sorted(dimensions)
-    
+        return sorted(self._metrics.values(), key=lambda m: m.name)
+
     def _register_default_metrics(self):
-        """Register all default metrics"""
-        # Import evaluator classes (avoiding circular imports)
         from ..syntax.compilation_check import CompilationCheckEvaluator
         from ..syntax.action_decomposition import ActionDecompositionEvaluator
         from ..semantics.runtime_check import RuntimeCheckEvaluator
         from ..semantics.manual_invariant_evaluator import ManualInvariantEvaluator
         from ..semantics.coverage_evaluator import CoverageEvaluator
         from ..semantics.runtime_coverage_evaluator import RuntimeCoverageEvaluator
-        
-        # Syntax dimension metrics
+
         self.register_metric(MetricInfo(
             name="compilation_check",
-            dimension="syntax",
             description="Basic TLA+ compilation checking using SANY parser",
-            evaluator_class=CompilationCheckEvaluator
+            evaluator_class=CompilationCheckEvaluator,
         ))
-        
+
         self.register_metric(MetricInfo(
-            name="action_decomposition", 
-            dimension="syntax",
+            name="action_decomposition",
             description="Evaluate individual actions separately for better granularity",
             evaluator_class=ActionDecompositionEvaluator,
-            default_params={"validation_timeout": 30, "keep_temp_files": False}
+            default_params={"validation_timeout": 30, "keep_temp_files": False},
         ))
-        
-        # self.register_metric(MetricInfo(
-        #     name="pass_at_k",
-        #     dimension="syntax", 
-        #     description="Pass@k evaluation from code generation benchmarks",
-        #     evaluator_class=PassAtKEvaluator,
-        #     default_params={"k": 5}
-        # ))
-        
-        # Semantics dimension metrics
+
         self.register_metric(MetricInfo(
             name="runtime_check",
-            dimension="semantics",
-            description="Model checking with TLC using specification's own invariants",
-            evaluator_class=RuntimeCheckEvaluator
+            description="Model checking with TLC using the spec's own invariants",
+            evaluator_class=RuntimeCheckEvaluator,
         ))
-        
+
         self.register_metric(MetricInfo(
             name="invariant_verification",
-            dimension="semantics", 
-            description="Phase 4: Testing with expert-written invariants translated to the specification",
-            evaluator_class=ManualInvariantEvaluator
+            description="Verify the spec against expert-written invariants translated to its variables",
+            evaluator_class=ManualInvariantEvaluator,
         ))
-        
+
         self.register_metric(MetricInfo(
             name="coverage",
-            dimension="semantics",
             description="TLA+ specification coverage analysis using TLC coverage statistics",
             evaluator_class=CoverageEvaluator,
-            default_params={"tlc_timeout": 60, "coverage_interval": 1}
+            default_params={"tlc_timeout": 60, "coverage_interval": 1},
         ))
 
         self.register_metric(MetricInfo(
             name="runtime_coverage",
-            dimension="semantics",
             description="Runtime coverage using simulation mode to identify successful vs error-prone actions",
             evaluator_class=RuntimeCoverageEvaluator,
             default_params={
@@ -129,63 +97,29 @@ class MetricRegistry:
                 "simulation_depth": 50,
                 "traces_per_simulation": 50,
                 "tlc_timeout": 30,
-                "coverage_interval": 1
-            }
+                "coverage_interval": 1,
+            },
         ))
-        
-        # Future semantics metrics (placeholders)
-        # self.register_metric(MetricInfo(
-        #     name="ast_analysis",
-        #     dimension="semantics",
-        #     description="Static analysis of specification structure and complexity", 
-        #     evaluator_class=ASTAnalysisEvaluator
-        # ))
-        
-        # self.register_metric(MetricInfo(
-        #     name="llm_quality_assessment",
-        #     dimension="semantics",
-        #     description="LLM-based quality evaluation comparing source and spec",
-        #     evaluator_class=LLMQualityAssessmentEvaluator
-        # ))
-        
 
-# Global registry instance
+
 _registry = MetricRegistry()
 
 
 def get_metric_registry() -> MetricRegistry:
-    """Get the global metric registry"""
     return _registry
 
 
-def get_available_metrics(dimension: str = None) -> List[str]:
-    """Get list of available metric names, optionally filtered by dimension"""
-    registry = get_metric_registry()
-    metrics = registry.list_metrics(dimension)
-    return [m.name for m in metrics]
-
-
-def get_available_dimensions() -> List[str]:
-    """Get list of available evaluation dimensions"""
-    registry = get_metric_registry()
-    return registry.list_dimensions()
+def get_available_metrics() -> List[str]:
+    return [m.name for m in get_metric_registry().list_metrics()]
 
 
 def create_evaluator(metric_name: str, **kwargs):
-    """Create an evaluator instance for the given metric"""
-    registry = get_metric_registry()
-    metric_info = registry.get_metric(metric_name)
-    
-    # Handle parameter mapping for specific evaluators
-    if metric_name == "action_decomposition" and "tlc_timeout" in kwargs:
-        # ActionDecompositionEvaluator expects validation_timeout, not tlc_timeout
+    """Instantiate the evaluator for `metric_name`, merging default params with overrides."""
+    metric_info = get_metric_registry().get_metric(metric_name)
+
+    # Some evaluators accept `validation_timeout` instead of `tlc_timeout`.
+    if metric_name in ("action_decomposition", "compilation_check") and "tlc_timeout" in kwargs:
         kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
 
-    if metric_name == "compilation_check" and "tlc_timeout" in kwargs:
-        # CompilationCheckEvaluator expects validation_timeout, not tlc_timeout
-        kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
-
-    # Merge default params with provided kwargs
     params = {**metric_info.default_params, **kwargs}
-    
     return metric_info.evaluator_class(**params)
