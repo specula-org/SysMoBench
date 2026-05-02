@@ -66,7 +66,7 @@ Your specification will be validated against execution traces collected from the
 Generate a TLA+ specification that accurately models the ring buffer's concurrent behavior.
 
 MANDATORY NAMING CONVENTIONS (Trace Validation Interface):
-To ensure the specification can be validated against real system execution traces, the following action names MUST appear EXACTLY (case-sensitive) as top-level action operators in your TLA+ specification. The WV evaluator maps trace events to these action names — any mismatch and the action scores 0.
+To ensure the specification can be validated against real system execution traces, the following action names MUST appear EXACTLY (case-sensitive) as top-level action operators in your TLA+ specification. The TV evaluator maps trace events to these action names — any mismatch and the action scores 0.
 
 Required actions:
   - `Push`

@@ -1,7 +1,7 @@
 # raftkvs Harness — Instrumentation & Run Notes
 
 Collects traces from PGo's `raftkvs` (monolithic Raft-based key-value
-store, 3 servers × 5 archetypes each + client) for WV action-window
+store, 3 servers × 5 archetypes each + client) for TV action-window
 validation.
 
 ## Where the code lives
@@ -67,7 +67,7 @@ state change (they poll-wait on local `newCommitIndex`):
 - `AServerAdvanceCommitIndex.applyLoop`
 - `AServerAdvanceCommitIndex.serverAdvanceCommitIndexLoop`
 
-Both are dropped at parse time. If a future WV upgrade cares about apply
+Both are dropped at parse time. If a future TV upgrade cares about apply
 loop ordering, remove them from `NOISE_LABELS` in `parse_traces.py`.
 
 ## How to run

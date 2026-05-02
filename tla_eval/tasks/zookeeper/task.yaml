@@ -36,11 +36,11 @@ metadata:
   protocol_scope: "zab_leader_election_only"
   version: "3.9.1"
 
-# WV (action-window validation) configuration
+# TV (transition validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
-wv:
+tv:
   repo_path: "data/repositories/Remix"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
@@ -65,4 +65,4 @@ wv:
     coverage_gaps:
       - "Only 3 demo scenarios — ~32 Notification, ~20 HandleNotification, 2 BecomeLeader windows"
       - "No vote-reject path in demo traces; HandleNotification only scored on vote-grant transitions"
-      - "LocalEvent (~24 per run) emitted by upstream instrumentation is out of scope; wv-eval filters it"
+      - "LocalEvent (~24 per run) emitted by upstream instrumentation is out of scope; tv-eval filters it"

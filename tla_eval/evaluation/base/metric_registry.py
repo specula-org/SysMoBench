@@ -106,7 +106,7 @@ class MetricRegistry:
             name="transition_validation",
             description="Per-action conformance to captured system traces (agent-driven, costs ~$1-4 per spec)",
             evaluator_class=TransitionValidationEvaluator,
-            default_params={"wv_budget": 5.0, "wv_timeout": 1800},
+            default_params={"tv_budget": 5.0, "tv_timeout": 1800},
         ))
 
 

@@ -1,7 +1,7 @@
 # RingBuffer Harness — Instrumentation & Run Notes
 
 Collects execution traces from the Asterinas kernel's lock-free SPSC
-`RingBuffer` (`kernel/src/util/ring_buffer.rs`) for WV action-window
+`RingBuffer` (`kernel/src/util/ring_buffer.rs`) for TV action-window
 validation.
 
 ## Where the code lives
@@ -80,7 +80,7 @@ tooling to drive the build.
 
 ### Raw → spec-action mapping
 
-The ringbuffer task prompt requires just `Push` and `Pop`. The WV agent
+The ringbuffer task prompt requires just `Push` and `Pop`. The TV agent
 maps success-only versions of the raw events:
 
 | Trace `action` (with `success=true`) | Spec action |

@@ -13,7 +13,7 @@ Usage:
 
 Add new formulas in the FORMULAS dict below. A formula is just
     fn(phase_scores: dict[str, float | None]) -> float | None
-where the dict keys are: "compilation", "runtime", "wv", "invariant".
+where the dict keys are: "compilation", "runtime", "tv", "invariant".
 Return None to indicate "not scoreable under this formula".
 """
 
@@ -40,8 +40,8 @@ def equal_weighted(s: PhaseScores) -> Optional[float]:
 
 
 def wv_only(s: PhaseScores) -> Optional[float]:
-    """Only the action-window validation score."""
-    return s.get("wv")
+    """Only the transition validation score."""
+    return s.get("tv")
 
 
 def strict_all_or_nothing(s: PhaseScores) -> Optional[float]:
@@ -53,8 +53,8 @@ def strict_all_or_nothing(s: PhaseScores) -> Optional[float]:
 
 
 def semantic_heavy(s: PhaseScores) -> Optional[float]:
-    """Weights favor P3 WV (the trace-faithfulness signal): 0.1/0.2/0.5/0.2."""
-    weights = {"compilation": 0.1, "runtime": 0.2, "wv": 0.5, "invariant": 0.2}
+    """Weights favor P3 TV (the trace-faithfulness signal): 0.1/0.2/0.5/0.2."""
+    weights = {"compilation": 0.1, "runtime": 0.2, "tv": 0.5, "invariant": 0.2}
     present = {k: v for k, v in s.items() if v is not None}
     if not present:
         return None
@@ -75,7 +75,7 @@ def extract_scores(run: dict) -> PhaseScores:
     return {
         "compilation": (run.get("phase1_compilation") or {}).get("score"),
         "runtime": (run.get("phase2_runtime") or {}).get("score"),
-        "wv": (run.get("phase3_wv") or {}).get("score"),
+        "tv": (run.get("phase3_tv") or {}).get("score"),
         "invariant": (run.get("phase3_invariant") or {}).get("score"),
     }
 
@@ -121,14 +121,14 @@ def main():
         except Exception:
             pass
         gen = (data.get("phase0_usage") or {}).get("usage") or {}
-        wv_usage = data.get("phase3_wv_usage") or {}
+        wv_usage = data.get("phase3_tv_usage") or {}
         rows.append({
             "batch": batch,
             "system": system,
             "model": model or "?",
             "p1": scores["compilation"],
             "p2": scores["runtime"],
-            "p3_wv": scores["wv"],
+            "p3_wv": scores["tv"],
             "p3b": scores["invariant"],
             "total": total,
             "gen_prompt_tok": gen.get("prompt_tokens"),
@@ -146,7 +146,7 @@ def main():
         return
 
     print(f"Formula: {args.formula}")
-    print(f"{'Model':25} {'System':10} {'P1':>5} {'P2':>5} {'WV':>5} {'P3b':>5} {'Total':>7} {'WV $':>7} {'WV min':>7}")
+    print(f"{'Model':25} {'System':10} {'P1':>5} {'P2':>5} {'TV':>5} {'P3b':>5} {'Total':>7} {'TV $':>7} {'TV min':>7}")
     print("-" * 95)
     for r in rows:
         fmt = lambda x: f"{x:.2f}" if isinstance(x, float) else str(x or "-")

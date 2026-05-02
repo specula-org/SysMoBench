@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import scripts.batch_repair_and_wv as rwv
+import scripts.batch_repair_and_tv as rwv
 
 REPAIRED_DIR = PROJECT_ROOT / "docs" / "leaderboard" / "specs_repaired"
 BATCH_LOG_DIR = PROJECT_ROOT / "batch_logs"

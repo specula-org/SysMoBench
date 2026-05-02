@@ -4,7 +4,7 @@ SysMoBench evaluates AI-generated TLA+ models across **4 phases**:
 
 1. **Phase 1 — Compilation** (syntax, via SANY)
 2. **Phase 2 — Runtime** (bounded model checking, via TLC)
-3. **Phase 3 — Conformance** (window verification against system traces, agent-driven)
+3. **Phase 3 — Conformance** (transition validation against system traces, agent-driven)
 4. **Phase 4 — Invariant** (TLC with system-specific invariants, agent-translated)
 
 Three ways to use the benchmark:
@@ -85,10 +85,10 @@ sysmobench --list-metrics
 
 **Phase 3 — Conformance to implementation**
 
-The canonical Phase-3 flow is **Window Verification (WV)**, an agent-driven
-evaluation launched via `scripts/launch_wv_eval.sh`. See [Phase 3 — WV](#phase-3--window-verification-wv).
+The canonical Phase-3 flow is **Transition Validation (TV)**, an agent-driven
+evaluation launched via `scripts/launch_tv_eval.sh`. See [Phase 3 — TV](#phase-3--window-verification-tv).
 
-Low-level trace-validation metrics (pre-WV):
+Low-level trace-validation metrics (pre-TV):
 
 | Metric | Applies to | Parameters |
 |---|---|---|
@@ -108,7 +108,7 @@ Low-level trace-validation metrics (pre-WV):
 
 ## Batch evaluation
 
-Run the full pipeline (P1 → P2 → optional WV → optional P4) across multiple
+Run the full pipeline (P1 → P2 → optional TV → optional P4) across multiple
 models × systems.
 
 ```bash
@@ -121,43 +121,43 @@ Outputs land under `experiments/batch_<timestamp>/<system>/run_*.json`. Key flag
 - `--model <id>` — generation model (entry in `config/models.yaml`)
 - `--runs <N>` — runs per (model, system); default 5
 - `--threads <N>` — parallelism; default 5
-- `--enable-wv` — also run Phase 3 WV for cells where P2 passes
-- `--wv-agent <name>` / `--wv-model <id>` — WV agent adapter and model
-- `--wv-budget <USD>` / `--wv-timeout <s>` — per-WV cost cap (default 5) and timeout (default 1800s)
+- `--enable-tv` — also run Phase 3 TV for cells where P2 passes
+- `--tv-agent <name>` / `--tv-model <id>` — TV agent adapter and model
+- `--tv-budget <USD>` / `--tv-timeout <s>` — per-TV cost cap (default 5) and timeout (default 1800s)
 - `--inv-model <id>` — Phase-4 invariant-translator model
 
 `python3 scripts/run_batch_experiment.py --list-systems` and `--list-agents` enumerate the choices.
 
-End-to-end example (one model across all 11 systems, with WV and Phase 4):
+End-to-end example (one model across all 11 systems, with TV and Phase 4):
 
 ```bash
 python3 scripts/run_batch_experiment.py \
     --all \
     --model claude \
     --runs 3 --threads 8 \
-    --enable-wv --wv-agent claude-code --wv-model sonnet \
+    --enable-tv --tv-agent claude-code --tv-model sonnet \
     --inv-model sonnet
 ```
 
-WV adds roughly **\$1–4 per (model, system)** spec via the WV agent; budget on a 5-model × 11-system sweep is in the low-hundreds of USD. Phase 4 invariant translation runs through the agent's own credentials, not your API key — see [API usage policy](../README.md#) and CLAUDE.md.
+TV adds roughly **\$1–4 per (model, system)** spec via the TV agent; budget on a 5-model × 11-system sweep is in the low-hundreds of USD. Phase 4 invariant translation runs through the agent's own credentials, not your API key — see [API usage policy](../README.md#) and CLAUDE.md.
 
 ---
 
-## Phase 3 — Window verification (WV)
+## Phase 3 — Window verification (TV)
 
-WV validates each action's transitions against windows cut from system traces,
-running TLC on every (pre-state, post-state) pair. Driven by the `wv-eval` skill.
+TV validates each action's transitions against windows cut from system traces,
+running TLC on every (pre-state, post-state) pair. Driven by the `tv-eval` skill.
 
 ```bash
-bash scripts/launch_wv_eval.sh \
+bash scripts/launch_tv_eval.sh \
   --task=<name> \
   --spec=<dir-containing-.tla-and-.cfg> \
   [--agent=claude-code|codex] \
   [--model=<id>] \
-  [--workspace-root=./wv-workspaces]
+  [--workspace-root=./tv-workspaces]
 ```
 
-Each launch creates `wv-workspaces/<timestamp>_<task>/` containing the agent's
+Each launch creates `tv-workspaces/<timestamp>_<task>/` containing the agent's
 `reports/final_report.md` with per-action pass rates and an audit summary.
 
 > **TODO:** scoring rule (zero-tolerance per action), audit step, cost range.
@@ -195,7 +195,7 @@ edits so P3/P4 can still be measured on a comparable spec. Use the batch
 orchestrator to repair every cell in `docs/leaderboard/specs/`:
 
 ```bash
-python3 scripts/batch_repair_and_wv.py [--phase repair|wv|all] [--dry-run]
+python3 scripts/batch_repair_and_tv.py [--phase repair|tv|all] [--dry-run]
 ```
 
 Repaired specs go to `docs/leaderboard/specs_repaired/<model>/<system>/` with a
@@ -224,9 +224,9 @@ are documented in [`docs/leaderboard/schema.md`](leaderboard/schema.md).
 To reproduce the public leaderboard from a clean clone:
 
 ```bash
-python3 scripts/run_batch_experiment.py --all --model <model> --enable-wv  # populate experiments/
+python3 scripts/run_batch_experiment.py --all --model <model> --enable-tv  # populate experiments/
 python3 scripts/build_leaderboard.py                                         # baseline CSVs
-python3 scripts/batch_repair_and_wv.py --phase all                           # repair + rescore
+python3 scripts/batch_repair_and_tv.py --phase all                           # repair + rescore
 python3 scripts/build_leaderboard_repaired.py                                # *_repaired.csv
 ```
 
@@ -239,7 +239,7 @@ Three agent-driven skills under `tla_eval/skills/`:
 | Skill | When to use |
 |---|---|
 | `harness-gen` | Bootstrap a trace harness for a new system |
-| `wv-eval` | Run Phase 3 window verification + audit on one spec |
+| `tv-eval` | Run Phase 3 transition validation + audit on one spec |
 | `spec-repair` | Repair a P1- or P2-failing spec without changing its modeling intent |
 
 Each skill has its own `SKILL.md` + `guide.md`.
@@ -251,8 +251,8 @@ repo — the CLI agent loads `SKILL.md` and follows it. Typical triggers:
   clones the system into `artifacts/<name>/`, instruments it to emit NDJSON
   traces at the granularity declared in `tla_eval/tasks/<name>/task.yaml`,
   writes `run.sh`, and produces `INSTRUMENTATION.md`.
-- **`wv-eval`** — typically launched non-interactively via
-  `scripts/launch_wv_eval.sh --task=<name> --spec=<dir>`; the wrapper invokes
+- **`tv-eval`** — typically launched non-interactively via
+  `scripts/launch_tv_eval.sh --task=<name> --spec=<dir>`; the wrapper invokes
   the configured agent (Claude Code or Codex) with the skill's guide.
 - **`spec-repair`** — "repair the spec at `<path>` so it passes P1/P2 without
   changing modeling intent". Outputs a `repair_manifest.json` listing the edits
@@ -327,7 +327,7 @@ output/compilation_check/spin/direct_call_claude/20260101_120000/
 
 Batch runs land under `experiments/batch_<timestamp>/<system>/run_*.json`.
 
-WV workspaces land under `wv-workspaces/<timestamp>_<system>/` (gitignored).
+TV workspaces land under `tv-workspaces/<timestamp>_<system>/` (gitignored).
 
 ---
 
@@ -352,18 +352,18 @@ default_source_file: "ostd/src/sync/spin.rs"
 specModule: "spin"
 traces_folder: "data/sys_traces/spin"
 
-wv:
+tv:
   repo_path: "artifacts/spin"
   target_actions: ["AcquireLock", "ReleaseLock"]
 ```
 
-The `wv:` block is consumed by `scripts/launch_wv_eval.sh` to set up Phase 3.
+The `tv:` block is consumed by `scripts/launch_tv_eval.sh` to set up Phase 3.
 
-### `wv:` block fields
+### `tv:` block fields
 
 | Field | Required | Meaning |
 |---|---|---|
-| `repo_path` | yes | Where the WV agent should keep its instrumented system clone (e.g., `artifacts/<task>/`) |
+| `repo_path` | yes | Where the TV agent should keep its instrumented system clone (e.g., `artifacts/<task>/`) |
 | `target_actions` | yes | Spec-level action names to score (the agent maps these onto the spec's own action names) |
 | `harness.type` | yes | `docker` or `native` |
 | `harness.docker_image` | docker | Docker image with the test target installed |

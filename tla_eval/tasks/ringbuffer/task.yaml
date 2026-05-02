@@ -28,11 +28,11 @@ metadata:
   original_project: "asterinas"
   concurrency_model: "lock_free_spsc"
 
-# WV (action-window validation) configuration
+# TV (transition validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
-wv:
+tv:
   # Shared Asterinas kernel clone (same tree as mutex/rwmutex/spin, with
   # ringbuffer-specific patches). See INSTRUMENTATION.md.
   repo_path: "artifacts/spin"

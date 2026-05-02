@@ -17,7 +17,7 @@ leaderboard. A website agent reads them to populate the public scoreboard.
 python3 scripts/build_leaderboard.py
 ```
 
-Scans `experiments/batch_*/` (Phase A) and `wv-workspaces/*/` (Phase 3 WV + audit),
+Scans `experiments/batch_*/` (Phase A) and `tv-workspaces/*/` (Phase 3 TV + audit),
 merges best-of-N per (model, system), writes the three files above. **Idempotent**.
 
 Run this whenever new experiments complete. The script is the single source of
@@ -40,7 +40,7 @@ truth; don't hand-edit the CSV/JSON.
       "phase2_runtime_check_passed": true,
       "phase3b_score": 0.9231,
       "phase_a_total": 1.0,
-      "phase3_wv_rate": 1.0,
+      "phase3_tv_rate": 1.0,
       "phase3_audit_run": true,
       "phase3_audit_bugs": [
         {"action": "Commit", "line": "Commit | 1.0 | yes | wrong (NullLeader, ...) | 0"}
@@ -49,12 +49,12 @@ truth; don't hand-edit the CSV/JSON.
       "overall_score": 0.954,
       "best_run_spec_path": "output/compilation_check/.../curp.tla",
       "best_run_json_path": "experiments/batch_.../curp/run_4.json",
-      "wv_workspace_path": "wv-workspaces/.../reports/",
+      "wv_workspace_path": "tv-workspaces/.../reports/",
       "gen_tokens_in": 12345,
       "gen_tokens_out": 6789,
-      "wv_agent_cost_usd": 4.18,
-      "wv_agent_duration_s": 1230.0,
-      "wv_agent_turns": 52,
+      "tv_agent_cost_usd": 4.18,
+      "tv_agent_duration_s": 1230.0,
+      "tv_agent_turns": 52,
       "notes": []
     }
   ]
@@ -71,12 +71,12 @@ truth; don't hand-edit the CSV/JSON.
 - `phase3b_score`: invariant-check pass rate (agent-translated invariants)
 - `phase_a_total`: current total_score from batch runner (mean over ran phases)
 
-### Phase 3 (Window Validation + Audit)
-- `phase3_wv_rate`: mean of per-action WV pass rates (TLC window check)
+### Phase 3 (Transition Validation + Audit)
+- `phase3_tv_rate`: mean of per-action TV pass rates (TLC window check)
 - `phase3_audit_run`: was Step 9 audit performed?
 - `phase3_audit_bugs`: list of `{action, line}` — actions downgraded to 0 by audit
   because audit found a TLC-verified impossibility the spec accepts
-- `phase3_final_score`: WV score AFTER audit downgrade
+- `phase3_final_score`: TV score AFTER audit downgrade
 
 ### Composite
 - `overall_score`: mean over {phase1, phase2, phase3_final (or _wv_rate fallback), phase3b}
@@ -84,20 +84,20 @@ truth; don't hand-edit the CSV/JSON.
 ### Provenance (for auditability)
 - `best_run_spec_path`: the .tla file that won best-of-N
 - `best_run_json_path`: raw run JSON in experiments/
-- `wv_workspace_path`: where WV + audit artifacts live (for drill-down)
+- `wv_workspace_path`: where TV + audit artifacts live (for drill-down)
 
 ### Cost
 - `gen_tokens_in` / `gen_tokens_out`: Phase A LLM usage (provider-billed)
-- `wv_agent_cost_usd` / `duration_s` / `turns`: Claude Code agent (subscription,
+- `tv_agent_cost_usd` / `duration_s` / `turns`: Claude Code agent (subscription,
   not billed per call — the USD value is the equivalent API cost)
 
 ## Notes on score interpretation
 
 - **`overall_score` is the headline ranking metric** — higher = better spec quality
 - **`audit_bugs_total > 0`** (in aggregate.csv) flags a model whose specs hide
-  real bugs behind high WV pass rates. Example from pilot: kimi curp has 1 bug
+  real bugs behind high TV pass rates. Example from pilot: kimi curp has 1 bug
   (NullLeader), deepseek mutex has 1 bug (DoubleQueue)
-- **`phase3_final_score < phase3_wv_rate`** means audit downgraded something
+- **`phase3_final_score < phase3_tv_rate`** means audit downgraded something
 - Missing values mean the phase didn't run (e.g., spec failed to compile
   → downstream phases skipped)
 
@@ -106,7 +106,7 @@ truth; don't hand-edit the CSV/JSON.
 - **Don't hand-edit these files.** Re-run `scripts/build_leaderboard.py` instead.
 - **Don't modify run_*.json in `experiments/`** after the fact — those are
   evidence. If a run needs correcting, re-run the experiment.
-- **WV workspaces under `wv-workspaces/`** are per-evaluation. Historical ones
+- **TV workspaces under `tv-workspaces/`** are per-evaluation. Historical ones
   stay even when new ones are added; the script picks the latest matching one.
 
 ## Model canonicalization and abandoned models

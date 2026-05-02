@@ -5,7 +5,7 @@ Build docs/leaderboard/specs/ — the "show me the spec behind each score" folde
 For every (model, system) cell in docs/leaderboard/paper_summary.csv, copy:
   - the leaderboard-picked .tla + .cfg
   - a scores.json with all four phase scores + their status (ran/skipped/etc.)
-  - the WV final_report.md if Phase 3 WV ran
+  - the TV final_report.md if Phase 3 TV ran
 
 Pick rule: max total_score across all batches for that (canonical_model, system).
 Same rule the leaderboard uses (see scripts/build_leaderboard.py).
@@ -19,7 +19,7 @@ Layout:
           <module>.tla
           <module>.cfg
           scores.json
-          wv_report.md               # only present if Phase 3 WV ran
+          wv_report.md               # only present if Phase 3 TV ran
 
 Idempotent — re-run any time.
 """
@@ -53,7 +53,7 @@ def build_scores(row: dict) -> dict:
     p2 = row.get("phase2_score")
     p2_rc = row.get("phase2_runtime_check_passed")
     p2_cov = row.get("phase2_coverage")
-    p3_wv_rate = row.get("phase3_wv_rate")
+    p3_wv_rate = row.get("phase3_tv_rate")
     p3_final = row.get("phase3_final_score")
     p4 = row.get("phase3b_score")
     return {
@@ -118,10 +118,10 @@ def copy_cell(row: dict, model_dir: Path) -> dict:
         json.dumps(build_scores(row), indent=2, ensure_ascii=False)
     )
 
-    # WV report if any
-    wv = row.get("wv_workspace_path")
-    if wv:
-        report = PROJECT_ROOT / wv / "reports" / "final_report.md"
+    # TV report if any
+    tv = row.get("wv_workspace_path")
+    if tv:
+        report = PROJECT_ROOT / tv / "reports" / "final_report.md"
         if report.exists():
             shutil.copy2(report, cell_dir / "wv_report.md")
 
@@ -200,7 +200,7 @@ phase-level details go into `scores.json`.
           <module>.tla             the exact spec that got scored
           <module>.cfg             TLC config used for P1/P2
           scores.json              P1/P2/P3/P4 with status + provenance
-          wv_report.md             present only if Phase 3 WV ran
+          wv_report.md             present only if Phase 3 TV ran
 
 ## scores.json schema
 
@@ -214,7 +214,7 @@ phase-level details go into `scores.json`.
 
 `status` values: `ran_passed` (1.0), `ran_failed` (0.0), `ran_partial`
 (0 < score < 1), `skipped` (phase didn't run — cascade from an upstream failure,
-or WV gate not met).
+or TV gate not met).
 
 ## Regenerating
 

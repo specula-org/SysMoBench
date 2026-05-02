@@ -23,13 +23,13 @@ default_source_file: "path/in/repo/to/file.go"
 specModule: "<TLA+ module name>"
 traces_folder: "data/sys_traces/<system_name>"
 
-# Phase 3 (window verification) configuration
-wv:
+# Phase 3 (transition validation) configuration
+tv:
   repo_path: "artifacts/<system_name>"
   target_actions: ["<ActionA>", "<ActionB>"]
 ```
 
-The `wv:` block is consumed by `scripts/launch_wv_eval.sh`.
+The `tv:` block is consumed by `scripts/launch_tv_eval.sh`.
 
 ## 2. Prompts
 
@@ -57,4 +57,4 @@ Phase 4 (`invariant_verification`) translates each entry against the generated s
 
 ## 4. Phase-3 trace harness
 
-Use the `harness-gen` skill to bootstrap `artifacts/<system_name>/` with an instrumented build that emits NDJSON traces at the granularity declared in `task.yaml`. The harness is one-time per system and is then reused by every spec evaluation through the `wv-eval` skill (driven by `scripts/launch_wv_eval.sh`).
+Use the `harness-gen` skill to bootstrap `artifacts/<system_name>/` with an instrumented build that emits NDJSON traces at the granularity declared in `task.yaml`. The harness is one-time per system and is then reused by every spec evaluation through the `tv-eval` skill (driven by `scripts/launch_tv_eval.sh`).

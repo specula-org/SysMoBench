@@ -2,7 +2,7 @@
 """
 Build SysMoBench leaderboard by scanning:
   - experiments/batch_*/    → Phase A (gen + P1 + P2 + P3b) results per model
-  - wv-workspaces/*/        → Phase 3 WV + Audit results per model/system
+  - tv-workspaces/*/        → Phase 3 TV + Audit results per model/system
 
 Outputs (all under docs/leaderboard/):
   - detail.csv       one row per (model, system)
@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 EXP_ROOT = PROJECT_ROOT / "experiments"
-WV_ROOT = PROJECT_ROOT / "wv-workspaces"
+TV_ROOT = PROJECT_ROOT / "tv-workspaces"
 OUT_ROOT = PROJECT_ROOT / "docs" / "leaderboard"
 
 SYSTEMS = ["spin", "etcd", "curp", "dqueue", "locksvc", "mutex",
@@ -69,11 +69,11 @@ ABANDONED_MODELS = {
     "grok4_proxy",        # proxy retry storm, cost control issue
 }
 
-# (model, system) pairs where WV was launched despite the cascade gate saying
-# it shouldn't have been. These scores are degenerate (WV on a spec that
+# (model, system) pairs where TV was launched despite the cascade gate saying
+# it shouldn't have been. These scores are degenerate (TV on a spec that
 # failed Phase 2 is meaningless — TLC can't run it meaningfully) and would
-# give the model unfair credit for partial traces. Treat as if WV never ran.
-# Observed 2026-04-18 from a WV batch that bypassed P2 eligibility gating.
+# give the model unfair credit for partial traces. Treat as if TV never ran.
+# Observed 2026-04-18 from a TV batch that bypassed P2 eligibility gating.
 CASCADE_VIOLATIONS = {
     ("gpt52", "raftkvs"),     # P1 PARTIAL 0.47, shouldn't have reached P2
     ("gpt52", "ringbuffer"),  # P2 runtime_check FAILED (cov=0.30)
@@ -97,8 +97,8 @@ class SystemResult:
     phase2_runtime_check_passed: bool | None = None
     phase3b_score: float | None = None
     phase_a_total: float | None = None
-    # Phase 3 WV+Audit
-    phase3_wv_rate: float | None = None  # mean of per-action WV pass rates
+    # Phase 3 TV+Audit
+    phase3_tv_rate: float | None = None  # mean of per-action TV pass rates
     phase3_audit_run: bool = False
     phase3_audit_bugs: list = field(default_factory=list)
     phase3_final_score: float | None = None
@@ -111,9 +111,9 @@ class SystemResult:
     # Cost / usage
     gen_tokens_in: int | None = None
     gen_tokens_out: int | None = None
-    wv_agent_cost_usd: float | None = None
-    wv_agent_duration_s: float | None = None
-    wv_agent_turns: int | None = None
+    tv_agent_cost_usd: float | None = None
+    tv_agent_duration_s: float | None = None
+    tv_agent_turns: int | None = None
     # Status flags
     notes: list = field(default_factory=list)
 
@@ -148,7 +148,7 @@ def scan_phase_a_batches():
 
 
 def find_wv_workspace_for(model: str, system: str) -> Path | None:
-    """Find the latest WV workspace whose spec symlink points to this canonical
+    """Find the latest TV workspace whose spec symlink points to this canonical
     model's output.
 
     Workspace directory names use the TLA+ MODULE name, which can differ
@@ -156,7 +156,7 @@ def find_wv_workspace_for(model: str, system: str) -> Path | None:
     So we search for both "*_<system>/" and "*_<module>/" if task.yaml
     declares a specModule.
     """
-    if not WV_ROOT.exists():
+    if not TV_ROOT.exists():
         return None
     aliases = {k for k, v in MODEL_ALIASES.items() if v == model}
     aliases.add(model)
@@ -173,7 +173,7 @@ def find_wv_workspace_for(model: str, system: str) -> Path | None:
     candidates = []
     search_names = {system, module_name}  # set handles the spin==spin case
     for name in search_names:
-        for ws in sorted(WV_ROOT.glob(f"*_{name}")):
+        for ws in sorted(TV_ROOT.glob(f"*_{name}")):
             spec_link = ws / "spec" / f"{name}.tla"
             if not spec_link.exists():
                 continue
@@ -246,8 +246,8 @@ def parse_wv_final_report(ws: Path) -> dict:
     """Extract Phase 3 final score + per-action verdicts from the report.
 
     Phase 3 uses ZERO-TOLERANCE scoring at the action level:
-      final(A) = 1.0  iff WV rate == 1.0 AND audit verdict is not 'wrong'
-      final(A) = 0    otherwise (any WV failure OR audit-verified bug)
+      final(A) = 1.0  iff TV rate == 1.0 AND audit verdict is not 'wrong'
+      final(A) = 0    otherwise (any TV failure OR audit-verified bug)
       phase3_final_score = mean(final(A_i))
 
     The per-action rate (x/y) is still parsed and reported for diagnostic
@@ -260,7 +260,7 @@ def parse_wv_final_report(ws: Path) -> dict:
     rep = ws / "reports" / "final_report.md"
     out = {
         "phase3_final_score": None,
-        "phase3_wv_rate": None,
+        "phase3_tv_rate": None,
         "audit_run": False,
         "audit_bugs": [],  # list of {action, reason}
     }
@@ -316,7 +316,7 @@ def parse_wv_final_report(ws: Path) -> dict:
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         # Per-action rows need ≥3 columns — modern reports use 5-column
-        # final tables (Action | WV | Audited | Verdict | Final) but older
+        # final tables (Action | TV | Audited | Verdict | Final) but older
         # ones use 3-col Pass-Rate tables (Action | Pass/Total | Rate).
         # 2-column rows are typically step-status tables (e.g. "| 0 Contract
         # | PASS ... 420/420 compliant |") — rejecting those plus the
@@ -357,7 +357,7 @@ def parse_wv_final_report(ws: Path) -> dict:
 
     if per_action:
         # Deduplicate (action names can appear in multiple tables within the
-        # report — WV-only table + Final-Score table). Keep the entry whose
+        # report — TV-only table + Final-Score table). Keep the entry whose
         # rate matches the action's most-recent mention, which is the Final
         # table since it's written last. A dict overwrite by action name
         # achieves this given Python's insertion-order semantics.
@@ -365,7 +365,7 @@ def parse_wv_final_report(ws: Path) -> dict:
         for action, rate, is_wrong in per_action:
             dedup[action] = (rate, is_wrong)
         rates = [r for (r, _) in dedup.values()]
-        out["phase3_wv_rate"] = sum(rates) / len(rates) if rates else None
+        out["phase3_tv_rate"] = sum(rates) / len(rates) if rates else None
         # Zero-tolerance final score.
         finals = [
             1.0 if (r == 1.0 and not wrong) else 0.0
@@ -384,9 +384,9 @@ def parse_wv_cost(ws: Path) -> dict:
     except Exception:
         return {}
     return {
-        "wv_agent_cost_usd": d.get("total_cost_usd"),
-        "wv_agent_duration_s": (d.get("duration_ms") or 0) / 1000 or None,
-        "wv_agent_turns": d.get("num_turns"),
+        "tv_agent_cost_usd": d.get("total_cost_usd"),
+        "tv_agent_duration_s": (d.get("duration_ms") or 0) / 1000 or None,
+        "tv_agent_turns": d.get("num_turns"),
     }
 
 
@@ -414,8 +414,8 @@ def build_rows():
         usage = ((d.get("phase0_usage") or {}).get("usage") or {})
         r.gen_tokens_in = usage.get("prompt_tokens")
         r.gen_tokens_out = usage.get("completion_tokens")
-        # WV workspace lookup (skip if this pair is on the cascade-violation
-        # blocklist — the WV ran but shouldn't have, score is invalid).
+        # TV workspace lookup (skip if this pair is on the cascade-violation
+        # blocklist — the TV ran but shouldn't have, score is invalid).
         if (model, system) in CASCADE_VIOLATIONS:
             r.notes.append("cascade_violation_wv_excluded")
         else:
@@ -423,7 +423,7 @@ def build_rows():
             if ws:
                 r.wv_workspace_path = str(ws.relative_to(PROJECT_ROOT))
                 wv_info = parse_wv_final_report(ws)
-                r.phase3_wv_rate = wv_info["phase3_wv_rate"]
+                r.phase3_tv_rate = wv_info["phase3_tv_rate"]
                 r.phase3_audit_run = wv_info["audit_run"]
                 r.phase3_audit_bugs = wv_info["audit_bugs"]
                 r.phase3_final_score = wv_info["phase3_final_score"]
@@ -434,7 +434,7 @@ def build_rows():
         p1v = r.phase1_score or 0.0
         p2v = r.phase2_score or 0.0
         p3v = (r.phase3_final_score if r.phase3_final_score is not None
-               else r.phase3_wv_rate) or 0.0
+               else r.phase3_tv_rate) or 0.0
         p4v = r.phase3b_score or 0.0
         r.overall_score = (p1v + p2v + p3v + p4v) / 4.0
         rows.append(r)
@@ -452,10 +452,10 @@ def write_detail_csv(rows, path: Path):
         "model", "system",
         "phase1_score", "phase2_score", "phase2_coverage",
         "phase2_runtime_check_passed", "phase3b_score",
-        "phase3_wv_rate", "phase3_audit_run", "phase3_final_score",
+        "phase3_tv_rate", "phase3_audit_run", "phase3_final_score",
         "overall_score",
         "gen_tokens_in", "gen_tokens_out",
-        "wv_agent_cost_usd", "wv_agent_duration_s",
+        "tv_agent_cost_usd", "tv_agent_duration_s",
         "best_run_spec_path", "wv_workspace_path",
     ]
     with path.open("w", newline="") as f:
@@ -475,7 +475,7 @@ def write_aggregate_csv(rows, path: Path):
         "model", "systems_evaluated", "overall_score_mean",
         "phase1_mean", "phase2_mean", "phase3b_mean", "phase3_final_mean",
         "audit_bugs_total", "total_gen_tokens_in", "total_gen_tokens_out",
-        "total_wv_cost_usd",
+        "total_tv_cost_usd",
     ]
     with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -508,7 +508,7 @@ def write_aggregate_csv(rows, path: Path):
                 "audit_bugs_total": sum(len(r.phase3_audit_bugs) for r in items),
                 "total_gen_tokens_in": total("gen_tokens_in"),
                 "total_gen_tokens_out": total("gen_tokens_out"),
-                "total_wv_cost_usd": round(total("wv_agent_cost_usd") or 0, 2) or None,
+                "total_tv_cost_usd": round(total("tv_agent_cost_usd") or 0, 2) or None,
             })
 
 
@@ -541,12 +541,12 @@ def write_paper_summary_csv(rows, path: Path):
        (phase1_score is not None for every system).
 
     2. For every system whose P2 runtime_check passed (rc=True),
-       Phase 3 WV has completed — i.e. a final_report.md exists and
+       Phase 3 TV has completed — i.e. a final_report.md exists and
        produced a parseable phase3_final_score, OR the agent wrote
        an explicit "Cannot evaluate" marker (captured upstream as
        status=pending with a reason).
 
-    If a system is WV-eligible but the WV agent is still running (no
+    If a system is TV-eligible but the TV agent is still running (no
     report yet), the ENTIRE model is treated as in-progress and
     excluded from this file. Paper readers should not see half-done
     data masquerading as a score.
@@ -554,7 +554,7 @@ def write_paper_summary_csv(rows, path: Path):
     Paper-standard phase names:
         Phase 1 = compilation
         Phase 2 = runtime
-        Phase 3 = conformance (WV, zero-tolerance)
+        Phase 3 = conformance (TV, zero-tolerance)
         Phase 4 = invariant correctness (agent-translated invariants)
     Means use fixed denominator = 11 (rule: "没跑的算零分").
     Cost excluded — inconsistent across workspaces.
@@ -570,12 +570,12 @@ def write_paper_summary_csv(rows, path: Path):
         have = {r.system for r in items if r.phase1_score is not None}
         if not set(BENCHMARK_SYSTEMS).issubset(have):
             return False
-        # WV-eligibility rule (user 2026-04-19):
-        #   - P2 rc=False          → skip WV (runtime error)
-        #   - P2 score=0 / cov=0   → skip WV (TLC explored 0 states; WV would
+        # TV-eligibility rule (user 2026-04-19):
+        #   - P2 rc=False          → skip TV (runtime error)
+        #   - P2 score=0 / cov=0   → skip TV (TLC explored 0 states; TV would
         #                            be degenerate — no traces to score)
-        #   - P2 rc=True, score>0  → WV must have produced a final_report
-        # An in-progress WV (workspace exists, report missing) keeps the model
+        #   - P2 rc=True, score>0  → TV must have produced a final_report
+        # An in-progress TV (workspace exists, report missing) keeps the model
         # marked in-progress.
         by_sys = {r.system: r for r in items}
         for s in BENCHMARK_SYSTEMS:
@@ -586,8 +586,8 @@ def write_paper_summary_csv(rows, path: Path):
                 continue
             # P2 ran with no runtime error, but coverage may still be 0.
             if (r.phase2_score or 0) == 0 or (r.phase2_coverage or 0) == 0:
-                continue  # legitimate "no WV" — TLC explored nothing
-            # Otherwise WV is required.
+                continue  # legitimate "no TV" — TLC explored nothing
+            # Otherwise TV is required.
             if r.phase3_final_score is None:
                 ws = (PROJECT_ROOT / r.wv_workspace_path) if r.wv_workspace_path else None
                 report = ws / "reports" / "final_report.md" if ws else None

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert dqueue PGo-native trace to SysMoBench WV-ready NDJSON.
+"""Convert dqueue PGo-native trace to SysMoBench TV-ready NDJSON.
 
 PGo emits one JSON line per MPCal block execution, including aborted steps
 (failed attempts to take a label). Each line has:
@@ -20,7 +20,7 @@ Mapping (dqueue-specific):
   Everything else → no spec action (internal transition)
 
 Output: one `{"tag":"trace", "event":{...}}` line per input event. Same
-NDJSON schema the wv-eval skill already handles for redisraft/spin.
+NDJSON schema the tv-eval skill already handles for redisraft/spin.
 
 Usage:
   parse_traces.py <input.ndjson> <output_dir>

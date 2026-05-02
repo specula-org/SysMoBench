@@ -30,11 +30,11 @@ metadata:
   original_project: "etcd"
   version: "v3.5.12"  # Fixed for stability
 
-# WV (action-window validation) configuration
+# TV (transition validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
-wv:
+tv:
   # Local instrumented repo (launcher uses as default --repo)
   repo_path: "/home/ubuntu/Specula/case-studies/etcd-raft/artifact/raft"
 

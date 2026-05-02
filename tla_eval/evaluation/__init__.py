@@ -4,7 +4,7 @@ Evaluation modules for TLA+ benchmark framework.
 Phases:
 - Phase 1 (Syntax): Compilation checking (SANY)
 - Phase 2 (Semantics): Runtime correctness via TLC bounded model checking
-- Phase 3 (Conformance): Window verification — see scripts/launch_wv_eval.sh
+- Phase 3 (Conformance): Window verification — see scripts/launch_tv_eval.sh
 - Phase 4 (Invariant): Agent-translated invariants verified by TLC
 """
 

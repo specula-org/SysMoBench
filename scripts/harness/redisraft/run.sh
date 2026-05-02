@@ -12,7 +12,7 @@
 # Usage (from project root):
 #   bash scripts/harness/redisraft/run.sh
 #
-# Or from the wv-eval agent's workspace (passing its copy of the case dir):
+# Or from the tv-eval agent's workspace (passing its copy of the case dir):
 #   REPO_PATH=/abs/path/to/workspace/repo bash scripts/harness/redisraft/run.sh
 
 set -euo pipefail

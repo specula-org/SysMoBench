@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert raftkvs PGo-native trace to SysMoBench WV-ready NDJSON.
+"""Convert raftkvs PGo-native trace to SysMoBench TV-ready NDJSON.
 
 Action mapping (raftkvs-specific):
 

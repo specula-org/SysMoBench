@@ -27,11 +27,11 @@ traces_folder: "data/sys_traces/spin"
 metadata:
   original_project: "asterinas"
 
-# WV (action-window validation) configuration
+# TV (transition validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
-wv:
+tv:
   # Local Asterinas source clone (shallow). Agent instruments the kernel here.
   repo_path: "artifacts/spin"
 

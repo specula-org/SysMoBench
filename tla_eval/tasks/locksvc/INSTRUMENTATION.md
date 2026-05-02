@@ -1,7 +1,7 @@
 # locksvc Harness — Instrumentation & Run Notes
 
 Collects traces from PGo's `locksvc` (centralized lock service with one
-server and N clients) for WV action-window validation.
+server and N clients) for TV transition validation.
 
 ## Where the code lives
 

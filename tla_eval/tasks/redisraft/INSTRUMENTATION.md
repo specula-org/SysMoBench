@@ -1,7 +1,7 @@
 # RedisRaft Harness — Instrumentation & Run Notes
 
 Collects execution traces from RedisRaft's embedded Raft library
-(`deps/raft/src/raft_server.c`) for WV (action-window validation) of
+(`deps/raft/src/raft_server.c`) for TV (transition validation) of
 generated TLA+ specs.
 
 ## Where the code lives
@@ -51,7 +51,7 @@ Full details: `/home/ubuntu/Specula/case-studies/redisraft/harness/INSTRUMENTATI
 
 ### Raw event → spec-action mapping
 
-The redisraft prompt requires 6 spec actions. WV windowing translates:
+The redisraft prompt requires 6 spec actions. TV windowing translates:
 
 | Trace event                  | Spec action(s)                          |
 |------------------------------|-----------------------------------------|
@@ -87,7 +87,7 @@ Build+run is fast — ~5 seconds on a warm tree, ~15 seconds cold.
 | `TRACES_DIR` | `artifacts/redisraft/traces`                    | Where NDJSON files land      |
 | `REPO_PATH`  | `/home/ubuntu/Specula/case-studies/redisraft`   | Specula case dir (or copy)   |
 
-When the wv-eval agent runs in a workspace copy, pass
+When the tv-eval agent runs in a workspace copy, pass
 `REPO_PATH=<workspace>/repo` so it uses its own sandboxed tree.
 
 ## Coverage

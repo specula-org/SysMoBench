@@ -1,7 +1,7 @@
 # Mutex Harness — Instrumentation & Run Notes
 
 This harness collects execution traces from the Asterinas OS `Mutex`
-synchronization primitive (ostd/src/sync/mutex.rs) for WV (action-window
+synchronization primitive (ostd/src/sync/mutex.rs) for TV (action-window
 validation) of generated TLA+ specs.
 
 ## Where the code lives
@@ -39,7 +39,7 @@ Each mutex operation emits one NDJSON line on the serial port:
 ### Action → spec-action mapping
 
 The mutex prompt (`tla_eval/tasks/mutex/prompts/direct_call.txt`) requires
-these action names in the generated TLA+ spec. The WV agent maps raw
+these action names in the generated TLA+ spec. The TV agent maps raw
 trace events → spec actions when building windows:
 
 | Trace `action` | Spec action       | Semantic                            |

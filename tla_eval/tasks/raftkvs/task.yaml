@@ -27,11 +27,11 @@ traces_folder: "data/sys_traces/raftkvs"
 metadata:
   original_project: "DistCompiler/pgo"
 
-# WV (action-window validation) configuration
+# TV (transition validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
-wv:
+tv:
   repo_path: "data/repositories/pgo"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.

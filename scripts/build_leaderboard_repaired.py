@@ -6,7 +6,7 @@ Sources per cell:
               (ORIGINAL, pre-repair values — P1/P2 measure the model's own
               syntax/runtime fluency. Using the post-repair values would
               make every cell 1.0 and erase the signal.)
-  P3 (WV)   — latest WV workspace whose spec symlink points at
+  P3 (TV)   — latest TV workspace whose spec symlink points at
               docs/leaderboard/specs_repaired/<model>/<system>/, else fall back
               to the old workspace used for the original scores.json.
               Parsed via the shared helper in build_leaderboard.py
@@ -45,7 +45,7 @@ from build_leaderboard import parse_wv_final_report  # type: ignore
 
 SPECS_DIR = PROJECT_ROOT / "docs" / "leaderboard" / "specs"
 REPAIRED_DIR = PROJECT_ROOT / "docs" / "leaderboard" / "specs_repaired"
-WV_ROOT = PROJECT_ROOT / "wv-workspaces"
+TV_ROOT = PROJECT_ROOT / "tv-workspaces"
 P4_RESULTS = PROJECT_ROOT / "batch_logs" / "p4_results"
 OUT_DIR = PROJECT_ROOT / "docs" / "leaderboard"
 
@@ -75,16 +75,16 @@ def read_original_scores(model: str, system: str) -> dict | None:
         return None
 
 
-# ── P3 (WV) ──
+# ── P3 (TV) ──
 
 def find_latest_wv_for(model: str, system: str) -> Path | None:
     """Prefer workspaces whose spec symlink points at specs_repaired/<cell>.
-    Fall back to the one referenced by original scores.json if no new WV.
+    Fall back to the one referenced by original scores.json if no new TV.
     """
     target = (REPAIRED_DIR / model / system).resolve()
     candidates = []
-    if WV_ROOT.exists():
-        for wdir in WV_ROOT.iterdir():
+    if TV_ROOT.exists():
+        for wdir in TV_ROOT.iterdir():
             if not wdir.is_dir():
                 continue
             spec_link = wdir / "spec"
@@ -185,8 +185,8 @@ def build_one(model: str, system: str) -> dict:
     ws = find_latest_wv_for(model, system)
     if ws is not None:
         row["wv_workspace"] = str(ws.relative_to(PROJECT_ROOT))
-        wv = parse_wv_final_report(ws)
-        row["p3"] = wv.get("phase3_final_score")
+        tv = parse_wv_final_report(ws)
+        row["p3"] = tv.get("phase3_final_score")
         # Mark where P3 came from
         target = (REPAIRED_DIR / model / system).resolve()
         try:
@@ -195,7 +195,7 @@ def build_one(model: str, system: str) -> dict:
                                 else "original")
         except Exception:
             row["p3_source"] = "original"
-    # If no WV workspace found, P3 stays None
+    # If no TV workspace found, P3 stays None
 
     new_p4 = read_p4_from_new_batch(model, system)
     if new_p4 is not None:
@@ -322,7 +322,7 @@ def write_paper_summary(agg, rows, path: Path):
 
 def print_table(agg):
     print()
-    print(f"{'model':<25} {'n':>3} {'overall':>8} {'P1':>6} {'P2':>6} {'P3(WV)':>8} {'P4(Inv)':>8}  {'gaps (p3/p4 miss)':>18}")
+    print(f"{'model':<25} {'n':>3} {'overall':>8} {'P1':>6} {'P2':>6} {'P3(TV)':>8} {'P4(Inv)':>8}  {'gaps (p3/p4 miss)':>18}")
     print("-" * 92)
     for r in agg:
         gap = f"{r['n_no_p3']}/{r['n_no_p4']}"

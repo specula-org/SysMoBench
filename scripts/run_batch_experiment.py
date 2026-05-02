@@ -122,7 +122,7 @@ class PhaseResult:
       - "skipped": cascade-skip — upstream phase failed so evaluating this
                    phase is pointless. score=0.0 but does NOT count as a real
                    failure; just an absence of signal.
-      - "pending": infrastructure missing (e.g., WV requires a trace harness
+      - "pending": infrastructure missing (e.g., TV requires a trace harness
                    that hasn't been built yet). score=None; to be filled in
                    later when the infra exists.
       - "not_evaluated": the pipeline never reached this phase (e.g.,
@@ -153,15 +153,15 @@ class RunResult:
 
     phase1_compilation: Optional[PhaseResult] = None
     phase2_runtime: Optional[PhaseResult] = None
-    phase3_wv: Optional[PhaseResult] = None
+    phase3_tv: Optional[PhaseResult] = None
     phase3_invariant: Optional[PhaseResult] = None
 
     # Per-phase API usage. phase0 = generation (dict from generation_usage.json),
-    # phase3_wv_usage = {"cost_usd", "duration_ms", "num_turns", "model_usage"}
-    # from the WV agent's .run.usage.json. Dollar amounts for phase0 are NOT
+    # phase3_tv_usage = {"cost_usd", "duration_ms", "num_turns", "model_usage"}
+    # from the TV agent's .run.usage.json. Dollar amounts for phase0 are NOT
     # included (adapter reports only tokens; user looks up $ from gptsapi dashboard).
     phase0_usage: Optional[Dict[str, Any]] = None
-    phase3_wv_usage: Optional[Dict[str, Any]] = None
+    phase3_tv_usage: Optional[Dict[str, Any]] = None
 
     total_score: float = 0.0
     is_perfect: bool = False
@@ -179,11 +179,11 @@ class RunResult:
         the average. That was generous nonsense — fixed here.
 
         "not_evaluated" / "pending" phases remain excluded: those mean
-        "we never attempted this phase" (e.g., WV not enabled, generation
+        "we never attempted this phase" (e.g., TV not enabled, generation
         failed entirely) rather than "we attempted but cascade-skipped".
         """
         phases = [self.phase1_compilation, self.phase2_runtime,
-                  self.phase3_wv, self.phase3_invariant]
+                  self.phase3_tv, self.phase3_invariant]
         scored = []
         for p in phases:
             if p is None:
@@ -233,12 +233,12 @@ class BatchExperimentRunner:
                  output_dir: str = "experiments",
                  model: str = "opus",
                  agent: str = DEFAULT_AGENT,
-                 enable_wv: bool = True,
-                 wv_budget: float = 5.0,
-                 wv_timeout: int = 1800,
+                 enable_tv: bool = True,
+                 tv_budget: float = 5.0,
+                 tv_timeout: int = 1800,
                  inv_model: str = "sonnet",
-                 wv_agent: Optional[str] = None,
-                 wv_model: Optional[str] = None):
+                 tv_agent: Optional[str] = None,
+                 tv_model: Optional[str] = None):
         """
         Initialize the batch experiment runner.
 
@@ -249,9 +249,9 @@ class BatchExperimentRunner:
             output_dir: Base output directory for results
             model: Model to use for generation and agent translator (default: opus)
             agent: Code agent to use for generation (default: claude_code)
-            enable_wv: Run transition validation (default: True). Set to False for cheap CI/smoke runs.
-            wv_budget: Max API budget per WV evaluation in USD (default: 5)
-            wv_timeout: Timeout per WV evaluation in seconds (default: 1800)
+            enable_tv: Run transition validation (default: True). Set to False for cheap CI/smoke runs.
+            tv_budget: Max API budget per TV evaluation in USD (default: 5)
+            tv_timeout: Timeout per TV evaluation in seconds (default: 1800)
         """
         self.systems = systems
         self.max_runs = max_runs
@@ -260,12 +260,12 @@ class BatchExperimentRunner:
         self.model = model
         self.agent = agent
         self.agent_method = SUPPORTED_AGENTS[agent]
-        self.enable_wv = enable_wv
-        self.wv_budget = wv_budget
-        self.wv_timeout = wv_timeout
+        self.enable_tv = enable_tv
+        self.tv_budget = tv_budget
+        self.tv_timeout = tv_timeout
         self.inv_model = inv_model
-        self.wv_agent = wv_agent
-        self.wv_model = wv_model
+        self.tv_agent = tv_agent
+        self.tv_model = tv_model
 
         # Create output directory with timestamp
         self.experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -856,18 +856,18 @@ class BatchExperimentRunner:
                 error=str(e)
             )
 
-    def run_phase3_wv(self, system: str, run_id: int,
+    def run_phase3_tv(self, system: str, run_id: int,
                       spec_path: str) -> PhaseResult:
         """
-        Phase 3 WV: Action-window validation via agent-driven evaluation.
-        Launches the configured agent adapter that follows the wv-eval skill.
+        Phase 3 TV: Transition validation via agent-driven evaluation.
+        Launches the configured agent adapter that follows the tv-eval skill.
 
         Skipped only when --skip-tv is set (costs ~$1-4 per spec).
         """
-        logger.info(f"[{system}][Run {run_id}] Phase 3 WV: starting action-window validation...")
+        logger.info(f"[{system}][Run {run_id}] Phase 3 TV: starting transition validation...")
 
-        launcher = PROJECT_ROOT / "scripts" / "launch_wv_eval.sh"
-        workspace_root = PROJECT_ROOT / "wv-workspaces"
+        launcher = PROJECT_ROOT / "scripts" / "launch_tv_eval.sh"
+        workspace_root = PROJECT_ROOT / "tv-workspaces"
 
         try:
             cmd = [
@@ -875,17 +875,17 @@ class BatchExperimentRunner:
                 f"--task={system}",
                 f"--spec={spec_path}",
                 f"--workspace-root={workspace_root}",
-                f"--max-budget={self.wv_budget}",
+                f"--max-budget={self.tv_budget}",
             ]
-            if self.wv_agent:
-                cmd.append(f"--agent={self.wv_agent}")
-            if self.wv_model:
-                cmd.append(f"--model={self.wv_model}")
+            if self.tv_agent:
+                cmd.append(f"--agent={self.tv_agent}")
+            if self.tv_model:
+                cmd.append(f"--model={self.tv_model}")
 
             result = subprocess.run(
                 cmd,
                 capture_output=True, text=True,
-                timeout=self.wv_timeout,
+                timeout=self.tv_timeout,
                 cwd=str(PROJECT_ROOT),
             )
 
@@ -894,31 +894,31 @@ class BatchExperimentRunner:
             ws_pattern = str(workspace_root / "*")
             workspaces = sorted(glob.glob(ws_pattern), key=os.path.getmtime, reverse=True)
             if not workspaces:
-                return PhaseResult(phase_name="wv", score=None, passed=False,
+                return PhaseResult(phase_name="tv", score=None, passed=False,
                                    status="pending",
                                    details={"reason": "no_workspace_created"},
                                    error="no workspace created")
 
             ws = Path(workspaces[0])
             report_path = ws / "reports" / "final_report.md"
-            results_path = ws / "reports" / "wv_results.json"
+            results_path = ws / "reports" / "tv_results.json"
 
             # Try to parse structured results
             if results_path.exists():
                 with open(results_path) as f:
-                    wv_data = json.load(f)
+                    tv_data = json.load(f)
                 total_passed, total_windows = 0, 0
                 action_scores = {}
-                for action, info in wv_data.items():
+                for action, info in tv_data.items():
                     stats = info.get("stats", {})
                     p, t = stats.get("passed", 0), stats.get("total", 0)
                     total_passed += p
                     total_windows += t
                     action_scores[action] = stats.get("pass_rate", 0.0)
                 score = total_passed / total_windows if total_windows > 0 else 0.0
-                logger.info(f"[{system}][Run {run_id}] Phase 3 WV: {total_passed}/{total_windows} ({score:.1%})")
+                logger.info(f"[{system}][Run {run_id}] Phase 3 TV: {total_passed}/{total_windows} ({score:.1%})")
                 return PhaseResult(
-                    phase_name="wv",
+                    phase_name="tv",
                     score=score,
                     passed=score > 0,
                     details={"per_action": action_scores, "total_passed": total_passed,
@@ -929,12 +929,12 @@ class BatchExperimentRunner:
             if report_path.exists():
                 report = report_path.read_text()
                 if "Cannot evaluate" in report or "CANNOT EVALUATE" in report:
-                    # Spec compiled but WV agent couldn't meaningfully evaluate
+                    # Spec compiled but TV agent couldn't meaningfully evaluate
                     # (e.g., SANY errors found in composite step, or harness
                     # doesn't exist yet for this task). Not a real 0 — score
                     # is unknown until infra is fixed or spec is correct.
-                    logger.info(f"[{system}][Run {run_id}] Phase 3 WV: cannot evaluate")
-                    return PhaseResult(phase_name="wv", score=None, passed=False,
+                    logger.info(f"[{system}][Run {run_id}] Phase 3 TV: cannot evaluate")
+                    return PhaseResult(phase_name="tv", score=None, passed=False,
                                        status="pending",
                                        details={"reason": "cannot_evaluate",
                                                 "workspace": str(ws)})
@@ -960,26 +960,26 @@ class BatchExperimentRunner:
                     tp = sum(m[0] for m in matches)
                     tw = sum(m[1] for m in matches)
                     score = tp / tw if tw > 0 else 0.0
-                    logger.info(f"[{system}][Run {run_id}] Phase 3 WV: {tp}/{tw} ({score:.1%})")
-                    return PhaseResult(phase_name="wv", score=score, passed=score > 0,
+                    logger.info(f"[{system}][Run {run_id}] Phase 3 TV: {tp}/{tw} ({score:.1%})")
+                    return PhaseResult(phase_name="tv", score=score, passed=score > 0,
                                        details={"total_passed": tp, "total_windows": tw,
                                                  "workspace": str(ws)})
 
-            return PhaseResult(phase_name="wv", score=None, passed=False,
+            return PhaseResult(phase_name="tv", score=None, passed=False,
                                status="pending",
                                details={"reason": "no_results_in_workspace",
                                         "workspace": str(ws)},
                                error="no results found in workspace")
 
         except subprocess.TimeoutExpired:
-            logger.warning(f"[{system}][Run {run_id}] Phase 3 WV: timeout ({self.wv_timeout}s)")
-            return PhaseResult(phase_name="wv", score=None, passed=False,
+            logger.warning(f"[{system}][Run {run_id}] Phase 3 TV: timeout ({self.tv_timeout}s)")
+            return PhaseResult(phase_name="tv", score=None, passed=False,
                                status="pending",
-                               details={"reason": "wv_timeout"},
+                               details={"reason": "tv_timeout"},
                                error="timeout")
         except Exception as e:
-            logger.error(f"[{system}][Run {run_id}] Phase 3 WV: error - {e}")
-            return PhaseResult(phase_name="wv", score=0.0, passed=False, error=str(e))
+            logger.error(f"[{system}][Run {run_id}] Phase 3 TV: error - {e}")
+            return PhaseResult(phase_name="tv", score=0.0, passed=False, error=str(e))
 
     def run_single_experiment(self, system: str, run_id: int) -> RunResult:
         """
@@ -1032,8 +1032,8 @@ class BatchExperimentRunner:
                     phase_name="runtime", score=None, passed=False,
                     status="not_evaluated", details=not_eval
                 )
-                result.phase3_wv = PhaseResult(
-                    phase_name="wv", score=None, passed=False,
+                result.phase3_tv = PhaseResult(
+                    phase_name="tv", score=None, passed=False,
                     status="not_evaluated", details=not_eval
                 )
                 result.phase3_invariant = PhaseResult(
@@ -1052,7 +1052,7 @@ class BatchExperimentRunner:
 
             # Cascade skip: if Phase 1 fails the spec cannot run in TLC, so
             # Phase 2/3/3b all produce no signal and waste resources (especially
-            # the agent-based Phase 3 WV which costs real $). Short-circuit here.
+            # the agent-based Phase 3 TV which costs real $). Short-circuit here.
             if not phase1_ok:
                 logger.info(f"[{system}][Run {run_id}] Phase 1 failed — skipping Phase 2/3/3b")
                 skip_reason = {"skipped": "phase1_failed"}
@@ -1060,8 +1060,8 @@ class BatchExperimentRunner:
                     phase_name="runtime", score=None, passed=False,
                     status="skipped", details=skip_reason
                 )
-                result.phase3_wv = PhaseResult(
-                    phase_name="wv", score=None, passed=False,
+                result.phase3_tv = PhaseResult(
+                    phase_name="tv", score=None, passed=False,
                     status="skipped", details=skip_reason
                 )
                 result.phase3_invariant = PhaseResult(
@@ -1102,8 +1102,8 @@ class BatchExperimentRunner:
                     f"({reason_tag}) — skipping Phase 3/3b"
                 )
                 skip_reason = {"skipped": reason_tag}
-                result.phase3_wv = PhaseResult(
-                    phase_name="wv", score=None, passed=False,
+                result.phase3_tv = PhaseResult(
+                    phase_name="tv", score=None, passed=False,
                     status="skipped", details=skip_reason
                 )
                 result.phase3_invariant = PhaseResult(
@@ -1114,18 +1114,18 @@ class BatchExperimentRunner:
                 logger.info(f"[{system}][Run {run_id}] Completed (early) - Total Score: {result.total_score:.2f}")
                 return result
 
-            # Phase 3a: WV action-window validation (if enabled and Phase 1 passed)
-            if self.enable_wv and result.phase1_compilation and result.phase1_compilation.passed:
-                result.phase3_wv = self.run_phase3_wv(system, run_id, spec_path)
-                # Load the WV agent's cost/usage breakdown
-                ws = (result.phase3_wv.details or {}).get("workspace") if result.phase3_wv else None
+            # Phase 3a: TV transition validation (if enabled and Phase 1 passed)
+            if self.enable_tv and result.phase1_compilation and result.phase1_compilation.passed:
+                result.phase3_tv = self.run_phase3_tv(system, run_id, spec_path)
+                # Load the TV agent's cost/usage breakdown
+                ws = (result.phase3_tv.details or {}).get("workspace") if result.phase3_tv else None
                 if ws:
                     wv_usage_file = Path(ws) / ".run.usage.json"
                     if wv_usage_file.exists():
                         try:
                             with open(wv_usage_file, 'r', encoding='utf-8') as f:
                                 full = json.load(f)
-                            result.phase3_wv_usage = {
+                            result.phase3_tv_usage = {
                                 "cost_usd": full.get("total_cost_usd"),
                                 "duration_ms": full.get("duration_ms"),
                                 "num_turns": full.get("num_turns"),
@@ -1134,10 +1134,10 @@ class BatchExperimentRunner:
                             }
                         except Exception as e:
                             logger.warning(f"[{system}] Failed to read {wv_usage_file}: {e}")
-            elif self.enable_wv:
-                logger.info(f"[{system}][Run {run_id}] Skipping Phase 3 WV (Phase 1 failed)")
-                result.phase3_wv = PhaseResult(
-                    phase_name="wv", score=0.0, passed=False,
+            elif self.enable_tv:
+                logger.info(f"[{system}][Run {run_id}] Skipping Phase 3 TV (Phase 1 failed)")
+                result.phase3_tv = PhaseResult(
+                    phase_name="tv", score=0.0, passed=False,
                     details={"skipped": "phase1_failed"}
                 )
 
@@ -1228,10 +1228,10 @@ class BatchExperimentRunner:
             "workspace_path": run_result.workspace_path,
             "phase1_compilation": phase_to_dict(run_result.phase1_compilation),
             "phase2_runtime": phase_to_dict(run_result.phase2_runtime),
-            "phase3_wv": phase_to_dict(run_result.phase3_wv),
+            "phase3_tv": phase_to_dict(run_result.phase3_tv),
             "phase3_invariant": phase_to_dict(run_result.phase3_invariant),
             "phase0_usage": run_result.phase0_usage,
-            "phase3_wv_usage": run_result.phase3_wv_usage,
+            "phase3_tv_usage": run_result.phase3_tv_usage,
             "total_score": run_result.total_score,
             "is_perfect": run_result.is_perfect,
             "error": run_result.error
@@ -1473,14 +1473,14 @@ Examples:
     parser.add_argument("--skip-tv", action="store_true",
                        help="Skip transition validation. By default it runs on every cell that passes compilation; "
                             "transition validation costs ~$1-4 per spec via the coding-agent CLI.")
-    parser.add_argument("--wv-budget", type=float, default=5.0,
-                       help="Max API budget (USD) per WV evaluation (default: 5)")
-    parser.add_argument("--wv-timeout", type=int, default=1800,
-                       help="Timeout (seconds) per WV evaluation (default: 1800)")
-    parser.add_argument("--wv-agent", default=None,
-                       help="Agent adapter for WV launcher (e.g. claude-code, codex)")
-    parser.add_argument("--wv-model", default=None,
-                       help="Model override passed to the WV agent adapter")
+    parser.add_argument("--tv-budget", type=float, default=5.0,
+                       help="Max API budget (USD) per TV evaluation (default: 5)")
+    parser.add_argument("--tv-timeout", type=int, default=1800,
+                       help="Timeout (seconds) per TV evaluation (default: 1800)")
+    parser.add_argument("--tv-agent", default=None,
+                       help="Agent adapter for TV launcher (e.g. claude-code, codex)")
+    parser.add_argument("--tv-model", default=None,
+                       help="Model override passed to the TV agent adapter")
     parser.add_argument("--inv-model", default="sonnet",
                        help="Model for Phase 3b invariant-translator agent CLI (default: sonnet). "
                             "Uses Claude Code's own credentials, NOT user's paid API.")
@@ -1526,11 +1526,11 @@ Examples:
         output_dir=args.output,
         model=args.model,
         agent=args.agent,
-        enable_wv=not args.skip_tv,
-        wv_budget=args.wv_budget,
-        wv_timeout=args.wv_timeout,
-        wv_agent=args.wv_agent,
-        wv_model=args.wv_model,
+        enable_tv=not args.skip_tv,
+        tv_budget=args.tv_budget,
+        tv_timeout=args.tv_timeout,
+        tv_agent=args.tv_agent,
+        tv_model=args.tv_model,
         inv_model=args.inv_model,
     )
 

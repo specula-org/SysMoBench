@@ -27,17 +27,17 @@ traces_folder: "data/sys_traces/rwmutex"
 metadata:
   original_project: "asterinas"
   
-# WV (action-window validation) configuration
+# TV (transition validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
-wv:
+tv:
   # Shared Asterinas kernel clone (also used by mutex, spin, ringbuffer).
   repo_path: "artifacts/spin"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
   # Raw trace emits ReadLock/WriteLock/UpreadLock/Try*/*Unlock/UpgradeLock;
-  # WV windowing translates to these spec actions.
+  # TV windowing translates to these spec actions.
   target_actions:
     - AcquireReadLock
     - AcquireWriteLock

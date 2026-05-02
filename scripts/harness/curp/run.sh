@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/harness/curp/run.sh — run the Xline/CURP madsim trace generator,
 # writing an NDJSON trace where each line is already {"event": ..., ...state}
-# (no post-processing needed; the wv-eval skill consumes it directly).
+# (no post-processing needed; the tv-eval skill consumes it directly).
 #
 # The harness depends on the xline-instrumented patch already being applied
 # to the Xline clone. If this script sees a pristine tree it applies the

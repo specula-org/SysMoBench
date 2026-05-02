@@ -1,12 +1,12 @@
 # Spec-Repair Skill — TLA+ Spec Repair
 
-You are the repairer. Given a model-generated TLA+ spec that fails **P1 (SANY parse)** or **P2 (TLC from Init)**, repair it so both pass. The goal is to unblock downstream P3 (WV) and P4 (invariant) scoring.
+You are the repairer. Given a model-generated TLA+ spec that fails **P1 (SANY parse)** or **P2 (TLC from Init)**, repair it so both pass. The goal is to unblock downstream P3 (TV) and P4 (invariant) scoring.
 
 ## Core principle
 
 > **Make it run. Preserve the model's intent, not its broken syntax.**
 
-A spec that doesn't run gives us zero signal about modeling quality. A spec that runs but has a real modeling bug will be caught by P3 (WV) per-action. So: **default to fixing**, and reserve refusal for the narrow cases where fixing would actually change what the model said about the system — adding actions the model didn't write, weakening guards, changing which variables an action writes to, etc.
+A spec that doesn't run gives us zero signal about modeling quality. A spec that runs but has a real modeling bug will be caught by P3 (TV) per-action. So: **default to fixing**, and reserve refusal for the narrow cases where fixing would actually change what the model said about the system — adding actions the model didn't write, weakening guards, changing which variables an action writes to, etc.
 
 **"Intent" means**:
 - Which actions exist (the Next disjunct set)
@@ -40,7 +40,7 @@ The cell's own `scores.json` may be used to discover which phase(s) failed (`pha
 
 ## Outputs
 
-Write to `<out_dir>/` (e.g., `docs/leaderboard/specs_repaired/gpt52/locksvc/`). **The output cell mirrors the input cell structure and keeps the original filenames** — the downstream WV pipeline expects `<module>.tla` / `<module>.cfg`, so do not rename.
+Write to `<out_dir>/` (e.g., `docs/leaderboard/specs_repaired/gpt52/locksvc/`). **The output cell mirrors the input cell structure and keeps the original filenames** — the downstream TV pipeline expects `<module>.tla` / `<module>.cfg`, so do not rename.
 
 | File | Purpose |
 |---|---|
@@ -102,9 +102,9 @@ Halt with `repair_status: unrepairable` ONLY if the fix requires one of these. D
 
 | # | Forbidden | Why it matters for fairness |
 |---|---|---|
-| F1 | **Add or remove an entire action** (disjunct of `Next`). | The set of actions is the model's answer to "what can happen?" WV scores per-action; inventing an action gives the model credit for code it didn't write. |
+| F1 | **Add or remove an entire action** (disjunct of `Next`). | The set of actions is the model's answer to "what can happen?" TV scores per-action; inventing an action gives the model credit for code it didn't write. |
 | F2 | **Change a guard's substantive logical condition**. E.g., `r = leader` → `TRUE`, `x > 0` → `x >= 0`, negating a conjunct, dropping a conjunct. | Guards decide from which states an action can fire. Weakening them hides real bugs in the model's precondition reasoning. |
-| F3 | **Change which variables an action writes to**. If the model's `Propose` only writes `clientMsgs`, don't add writes to `log`. (Adjusting UNCHANGED per A2 is fine — that's saying "doesn't write", not "writes to".) | WV checks post-state per variable; changing write-set changes the answer. |
+| F3 | **Change which variables an action writes to**. If the model's `Propose` only writes `clientMsgs`, don't add writes to `log`. (Adjusting UNCHANGED per A2 is fine — that's saying "doesn't write", not "writes to".) | TV checks post-state per variable; changing write-set changes the answer. |
 | F4 | **Add, rename, or remove VARIABLES declarations**. | Changes the state vocabulary the model chose. |
 | F5 | **Add invariants or `PROPERTY` clauses the model didn't write**. | We score what the model claimed, not what it should have claimed. |
 | F6 | **Remove or weaken invariants the model did write**, even if they cause P2 to fail. If the model wrote a wrong invariant, that's a real modeling bug and honest to preserve. | Weakening would launder a bug. |
@@ -233,7 +233,7 @@ If at any point a forbidden op is the only way forward:
 4. **Never add invariants or properties.** You are unblocking the scoring pipeline, not enriching the spec.
 5. **Do not re-try the same fix.** If an edit didn't resolve the error, the root cause was different — re-diagnose, don't retry.
 6. **Halt on forbidden ops, don't tiptoe.** An unrepairable status is a valid, expected outcome — it tells the downstream pipeline to mark P3/P4 as N/A honestly.
-7. **Keep originals.** The input cell (`<in_dir>/`) is read-only. Repaired spec lives at `<out_dir>/<module>.tla` / `<out_dir>/<module>.cfg` with the **original filenames** — the WV pipeline expects them unchanged.
+7. **Keep originals.** The input cell (`<in_dir>/`) is read-only. Repaired spec lives at `<out_dir>/<module>.tla` / `<out_dir>/<module>.cfg` with the **original filenames** — the TV pipeline expects them unchanged.
 8. **Logs are evidence.** `repair_logs/sany_before.log`, `repair_logs/sany_after.log`, `repair_logs/tlc_before.log`, `repair_logs/tlc_after.log` must exist even on unrepairable exits — they are what distinguishes an honest halt from an opaque failure.
 
 ---

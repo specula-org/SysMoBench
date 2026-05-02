@@ -1,8 +1,8 @@
 # dqueue Harness — Instrumentation & Run Notes
 
 Collects execution traces from the PGo-compiled `dqueue` system
-(distributed producer-consumer queue, MPCal archetype-based) for WV
-action-window validation.
+(distributed producer-consumer queue, MPCal archetype-based) for TV
+transition validation.
 
 ## Where the code lives
 
@@ -54,7 +54,7 @@ From `dqueue.tla` (the canonical PlusCal translation):
 | `AProducer.p2`     | `net[requester] := stream++` (send data) | **`Produce`** |
 
 Events with no mapped action carry `"action": null` in the output — the
-wv-eval windowing step is free to drop them.
+tv-eval windowing step is free to drop them.
 
 ## Output schema (after `parse_traces.py`)
 
@@ -101,11 +101,11 @@ Writes `artifacts/dqueue/traces/trace_01.ndjson` (~19 events: 3 `Request`
   backpressure, producer-crash) would strengthen scoring. Out of scope
   for bootstrap.
 - **Partial state in each event**. PGo emits the fields the block
-  touched, not the full global snapshot. The wv-eval agent must
+  touched, not the full global snapshot. The tv-eval agent must
   accumulate `writes` across events to reconstruct running state.
 - **No retry/failure scoring**. `isAbort=true` steps are dropped; a
   failure-aware spec would have nothing to be scored against.
-- **Vector clocks are present but unused** by the current wv-eval
+- **Vector clocks are present but unused** by the current tv-eval
   skill (it uses start/end monotonic order like the distributed
   NDJSON cases). A future upgrade could use `clock` for stronger
   happens-before reasoning.

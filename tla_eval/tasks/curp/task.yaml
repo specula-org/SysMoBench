@@ -37,11 +37,11 @@ metadata:
     - "speculative_execution"
     - "quorum_optimization"
   
-# WV (action-window validation) configuration
+# TV (transition validation) configuration
 # Only infrastructure + evaluation scope go here. Schema variables,
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
-wv:
+tv:
   repo_path: "data/repositories/Xline"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
@@ -74,4 +74,4 @@ wv:
     coverage_gaps:
       - "3 nodes / 30 operations / 10% packet loss by default (CURP_NODES, CURP_OP_COUNT env overrides)"
       - "Only r2 becomes leader once in default seed; for more LeaderChange windows, rerun or lengthen the scenario"
-      - "trace events carry state deltas (json-patch-like format), not full snapshots; WV agent reconstructs state by replaying deltas"
+      - "trace events carry state deltas (json-patch-like format), not full snapshots; TV agent reconstructs state by replaying deltas"

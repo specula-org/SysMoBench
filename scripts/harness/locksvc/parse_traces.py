@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert locksvc PGo-native trace to SysMoBench WV-ready NDJSON.
+"""Convert locksvc PGo-native trace to SysMoBench TV-ready NDJSON.
 
 Action mapping (locksvc-specific):
   AClient.acquireLock      → ClientLockRequest

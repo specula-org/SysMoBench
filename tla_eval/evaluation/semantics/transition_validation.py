@@ -1,12 +1,12 @@
 """
 Transition Validation evaluator.
 
-Wraps `scripts/launch_wv_eval.sh` so it can be invoked through the standard
+Wraps `scripts/launch_tv_eval.sh` so it can be invoked through the standard
 metric registry as `--metric transition_validation`. The launcher hands the
-spec to a coding-agent CLI (claude-code or codex) that runs the `wv-eval`
+spec to a coding-agent CLI (claude-code or codex) that runs the `tv-eval`
 skill: instrument the upstream system, generate windows, run TLC on every
 (pre, post)-state pair, and produce per-action pass rates in
-`<workspace>/reports/wv_results.json`.
+`<workspace>/reports/tv_results.json`.
 
 This evaluator parses that JSON and packages the results.
 """
@@ -34,17 +34,17 @@ class TransitionValidationEvaluator(BaseEvaluator):
     """Score a TLA+ spec against captured system traces, action by action."""
 
     def __init__(self,
-                 wv_agent: Optional[str] = None,
-                 wv_model: Optional[str] = None,
-                 wv_budget: float = 5.0,
-                 wv_timeout: int = 1800,
+                 tv_agent: Optional[str] = None,
+                 tv_model: Optional[str] = None,
+                 tv_budget: float = 5.0,
+                 tv_timeout: int = 1800,
                  workspace_root: Optional[str] = None):
-        super().__init__(timeout=wv_timeout)
-        self.wv_agent = wv_agent
-        self.wv_model = wv_model
-        self.wv_budget = wv_budget
-        self.wv_timeout = wv_timeout
-        self.workspace_root = Path(workspace_root) if workspace_root else (PROJECT_ROOT / "wv-workspaces")
+        super().__init__(timeout=tv_timeout)
+        self.tv_agent = tv_agent
+        self.tv_model = tv_model
+        self.tv_budget = tv_budget
+        self.tv_timeout = tv_timeout
+        self.workspace_root = Path(workspace_root) if workspace_root else (PROJECT_ROOT / "tv-workspaces")
 
     def evaluate(self,
                  generation_result: GenerationResult,
@@ -81,35 +81,35 @@ class TransitionValidationEvaluator(BaseEvaluator):
             task_name,
         )
 
-        launcher = PROJECT_ROOT / "scripts" / "launch_wv_eval.sh"
+        launcher = PROJECT_ROOT / "scripts" / "launch_tv_eval.sh"
         cmd = [
             "bash", str(launcher),
             f"--task={task_name}",
             f"--spec={spec_dir}",
             f"--workspace-root={self.workspace_root}",
-            f"--max-budget={self.wv_budget}",
+            f"--max-budget={self.tv_budget}",
         ]
-        if self.wv_agent:
-            cmd.append(f"--agent={self.wv_agent}")
-        if self.wv_model:
-            cmd.append(f"--model={self.wv_model}")
+        if self.tv_agent:
+            cmd.append(f"--agent={self.tv_agent}")
+        if self.tv_model:
+            cmd.append(f"--model={self.tv_model}")
 
         start = time.time()
         try:
             subprocess.run(
                 cmd,
                 capture_output=True, text=True,
-                timeout=self.wv_timeout,
+                timeout=self.tv_timeout,
                 cwd=str(PROJECT_ROOT),
             )
         except subprocess.TimeoutExpired:
             result.elapsed_seconds = time.time() - start
-            result.error_message = f"launch_wv_eval.sh timed out after {self.wv_timeout}s"
+            result.error_message = f"launch_tv_eval.sh timed out after {self.tv_timeout}s"
             logger.error(result.error_message)
             return result
         except Exception as e:
             result.elapsed_seconds = time.time() - start
-            result.error_message = f"launch_wv_eval.sh failed: {e}"
+            result.error_message = f"launch_tv_eval.sh failed: {e}"
             logger.error(result.error_message)
             return result
         result.elapsed_seconds = time.time() - start
@@ -127,7 +127,7 @@ class TransitionValidationEvaluator(BaseEvaluator):
 
         workspace = Path(candidates[0])
         result.workspace_dir = str(workspace)
-        results_path = workspace / "reports" / "wv_results.json"
+        results_path = workspace / "reports" / "tv_results.json"
 
         if not results_path.exists():
             result.error_message = f"Workspace exists but {results_path} is missing"
@@ -136,13 +136,13 @@ class TransitionValidationEvaluator(BaseEvaluator):
 
         try:
             with open(results_path) as f:
-                wv_data = json.load(f)
+                tv_data = json.load(f)
         except Exception as e:
             result.error_message = f"Failed to parse {results_path}: {e}"
             logger.error(result.error_message)
             return result
 
-        for action, info in wv_data.items():
+        for action, info in tv_data.items():
             stats = info.get("stats", {})
             result.total_passed += stats.get("passed", 0)
             result.total_windows += stats.get("total", 0)

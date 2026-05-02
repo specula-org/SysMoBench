@@ -69,7 +69,7 @@ models:
     thinking_budget: 32768
 
 
-  # === GPTsAPI proxy models (for WV experiments) ===
+  # === GPTsAPI proxy models (for TV experiments) ===
 
   claude_sonnet_proxy:
     # gptsapi serves Claude via OpenAI-compatible endpoint — so the provider

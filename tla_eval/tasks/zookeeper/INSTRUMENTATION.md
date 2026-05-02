@@ -26,7 +26,7 @@ against model-level traces from `traces/demo/`).
 
 A `LocalEvent` emit is also inherited from upstream hunk 8 of the
 complete patch (in `offerLocalEvent`); it stays out of
-`wv.target_actions` — the wv-eval agent filters it as internal.
+`tv.target_actions` — the tv-eval agent filters it as internal.
 
 ## Event schema
 
@@ -91,5 +91,5 @@ git diff checker/server/src/main/java/org/disalg/remix/server/ReplayService.java
 - **Notification→HandleNotification pairing**. Because
   `ElectionMessageExecutor.releaseMessage` fires per-event (not per-thread),
   one Notification may be followed by multiple HandleNotifications if
-  the scheduler broadcasts. WV windows should pair by `msgId` in the
+  the scheduler broadcasts. TV windows should pair by `msgId` in the
   `data` field if strict pairing is needed.

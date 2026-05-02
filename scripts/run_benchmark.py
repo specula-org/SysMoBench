@@ -4,7 +4,7 @@ Single-cell SysMoBench runner.
 
 Runs one (task, method, model, metric) combination and prints results.
 Phase 1 (compilation/syntax) and Phase 2 (runtime/semantics) live here;
-Phase 3 (window verification) is launched via scripts/launch_wv_eval.sh,
+Phase 3 (transition validation) is launched via scripts/launch_tv_eval.sh,
 and Phase 4 (invariant verification) is selected by --metric invariant_verification.
 
 For batch evaluation across many models/systems, use scripts/run_batch_experiment.py.
@@ -130,7 +130,7 @@ METRIC_PARAM_WHITELIST = {
         "tlc_timeout", "templates_dir", "translator_type", "agent_timeout",
     },
     "transition_validation": {
-        "wv_agent", "wv_model", "wv_budget", "wv_timeout", "workspace_root",
+        "tv_agent", "tv_model", "tv_budget", "tv_timeout", "workspace_root",
     },
 }
 
@@ -338,10 +338,10 @@ Examples:
                        help="Invariant translator: 'direct' (single LLM call) or 'agent' (Claude Code agent)")
 
     # Transition validation parameters (--metric transition_validation).
-    parser.add_argument("--wv-agent", help="Coding-agent CLI for transition validation (e.g. claude-code, codex)")
-    parser.add_argument("--wv-model", help="Model override passed to the coding-agent CLI for transition validation")
-    parser.add_argument("--wv-budget", type=float, help="Max API budget (USD) for transition validation (default: 5)")
-    parser.add_argument("--wv-timeout", type=int, help="Timeout (seconds) for transition validation (default: 1800)")
+    parser.add_argument("--tv-agent", help="Coding-agent CLI for transition validation (e.g. claude-code, codex)")
+    parser.add_argument("--tv-model", help="Model override passed to the coding-agent CLI for transition validation")
+    parser.add_argument("--tv-budget", type=float, help="Max API budget (USD) for transition validation (default: 5)")
+    parser.add_argument("--tv-timeout", type=int, help="Timeout (seconds) for transition validation (default: 1800)")
     parser.add_argument("--yes", action="store_true",
                        help="Skip the interactive cost confirmation for transition validation")
 
@@ -404,14 +404,14 @@ Examples:
         metric_params['tlc_timeout'] = args.tlc_timeout
     if args.inv_translator_type:
         metric_params['translator_type'] = args.inv_translator_type
-    if args.wv_agent:
-        metric_params['wv_agent'] = args.wv_agent
-    if args.wv_model:
-        metric_params['wv_model'] = args.wv_model
-    if args.wv_budget is not None:
-        metric_params['wv_budget'] = args.wv_budget
-    if args.wv_timeout is not None:
-        metric_params['wv_timeout'] = args.wv_timeout
+    if args.tv_agent:
+        metric_params['tv_agent'] = args.tv_agent
+    if args.tv_model:
+        metric_params['tv_model'] = args.tv_model
+    if args.tv_budget is not None:
+        metric_params['tv_budget'] = args.tv_budget
+    if args.tv_timeout is not None:
+        metric_params['tv_timeout'] = args.tv_timeout
 
     if args.metric == "transition_validation" and not args.yes:
         print(

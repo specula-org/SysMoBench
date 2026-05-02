@@ -1,7 +1,7 @@
 # RwMutex Harness — Instrumentation & Run Notes
 
 This harness collects execution traces from the Asterinas OS `RwMutex`
-read-write lock (ostd/src/sync/rwmutex.rs) for WV (action-window
+read-write lock (ostd/src/sync/rwmutex.rs) for TV (action-window
 validation) of generated TLA+ specs.
 
 ## Where the code lives
@@ -41,7 +41,7 @@ Each rwmutex operation emits one NDJSON line on the serial port:
 ### Raw event → spec-action mapping
 
 The rwmutex prompt (`tla_eval/tasks/rwmutex/prompts/direct_call.txt`)
-requires these 4 spec actions. The WV agent maps raw trace events →
+requires these 4 spec actions. The TV agent maps raw trace events →
 spec actions when building windows:
 
 | Trace `action`                 | Spec action         | Semantic                            |
@@ -58,7 +58,7 @@ failed`) but NOT trace events — only successful paths are scored.
 ## Known coverage gaps
 
 - **`AcquireUpReadLock` has 0 windows**. `test_rwmutex_trace` doesn't
-  exercise the upread / upgrade paths — WV will report the action as
+  exercise the upread / upgrade paths — TV will report the action as
   untested. Future work: extend the ktest to include upread scenarios.
 - **No failed-try paths**. Same gap as mutex — spec's handling of
   contention-failure paths (`try_lock` returns `None`) can only be

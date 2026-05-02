@@ -28,7 +28,7 @@ trace generator — we only wrap it.
 
 No extra parser needed — the trace generator emits NDJSON where every
 line is `{"event": "<name>", …state deltas}`, matching the schema the
-wv-eval skill already consumes.
+tv-eval skill already consumes.
 
 ## Emitted events (match spec 1:1)
 
@@ -43,7 +43,7 @@ wv-eval skill already consumes.
 
 Event fields carry **deltas** (json-patch-style) against a running
 `ClusterState` = `{term, leader, role, spec_pool, uncommitted_pool}`.
-The wv-eval agent replays deltas from the trace start to reconstruct
+The tv-eval agent replays deltas from the trace start to reconstruct
 full state at each window boundary.
 
 ## How to run
@@ -99,6 +99,6 @@ bash scripts/harness/curp/run.sh   # applies the patch on first run
   linearizability-stress patterns. Extend `trace_generator.rs` if the
   spec needs those exercised.
 - **State deltas, not snapshots**. Unlike the spin/etcd NDJSON format,
-  curp trace lines are patches. The wv-eval agent replays them from
+  curp trace lines are patches. The tv-eval agent replays them from
   `Init` to compute pre/post snapshots — standard enough, but worth
   noting if downstream consumers expect full snapshots.
