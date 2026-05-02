@@ -42,7 +42,7 @@ sysmobench --task spin --method direct_call --model claude --metric compilation_
 A full sweep across all 11 systems:
 
 ```
-python3 scripts/run_batch_experiment.py --all --model claude --enable-tv
+python3 scripts/run_batch_experiment.py --all --model claude
 ```
 
 See [`docs/Usage.md`](docs/Usage.md) for details.
@@ -66,7 +66,7 @@ See [`docs/Usage.md`](docs/Usage.md) for details.
 |---|---|
 | Syntax | The spec compiles (`compilation_check`, `action_decomposition`) |
 | Runtime | TLC can execute it (`runtime_check`, `coverage`, `runtime_coverage`) |
-| Transition validation | Per-action conformance to captured system traces (launched via `scripts/launch_tv_eval.sh`) |
+| Transition validation | Per-action conformance to captured system traces (`transition_validation`) |
 | Invariant verification | The spec satisfies expert invariants (`invariant_verification`) |
 
 `sysmobench --list-metrics` gives the full catalog. Canonical aggregate weights are 0.15, 0.15, 0.35, and 0.35 for the four stages above.

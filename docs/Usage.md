@@ -85,24 +85,15 @@ sysmobench --list-metrics
 
 **Phase 3 — Conformance to implementation**
 
-The canonical Phase-3 flow is **Transition Validation (TV)**, an agent-driven
-evaluation launched via `scripts/launch_tv_eval.sh`. See [Phase 3 — TV](#phase-3--window-verification-tv).
-
-Low-level trace-validation metrics (pre-TV):
-
-| Metric | Applies to | Parameters |
+| Metric | Description | Parameters |
 |---|---|---|
-| `trace_validation` | `spin`, `mutex`, `rwmutex`, `etcd`, `redisraft`, `curp` | `--with-exist-traces <N>`, `--with-exist-specTrace`, `--create-mapping` |
-| `pgo_trace_validation` | `dqueue`, `locksvc`, `raftkvs` | `--with-exist-traces <N>` |
+| `transition_validation` | Per-action conformance against captured system traces (agent-driven; see [§ Phase 3](#phase-3--transition-validation)) | `--tv-agent <name>`, `--tv-model <id>`, `--tv-budget <USD>`, `--tv-timeout <seconds>` |
 
 **Phase 4 — Invariant correctness**
 
 | Metric | Description | Parameters |
 |---|---|---|
 | `invariant_verification` | TLC with agent-translated system invariants | `--tlc-timeout <seconds>`, `--inv-translator-type <type>` |
-
-> **Note:** the old `composite` metric has been removed. A new 4-phase
-> composite is on the roadmap.
 
 ---
 
@@ -121,21 +112,21 @@ Outputs land under `experiments/batch_<timestamp>/<system>/run_*.json`. Key flag
 - `--model <id>` — generation model (entry in `config/models.yaml`)
 - `--runs <N>` — runs per (model, system); default 5
 - `--threads <N>` — parallelism; default 5
-- `--enable-tv` — also run Phase 3 TV for cells where P2 passes
+- `--skip-tv` — skip Phase 3 transition validation (TV runs by default; this is the cost opt-out)
 - `--tv-agent <name>` / `--tv-model <id>` — TV agent adapter and model
 - `--tv-budget <USD>` / `--tv-timeout <s>` — per-TV cost cap (default 5) and timeout (default 1800s)
 - `--inv-model <id>` — Phase-4 invariant-translator model
 
 `python3 scripts/run_batch_experiment.py --list-systems` and `--list-agents` enumerate the choices.
 
-End-to-end example (one model across all 11 systems, with TV and Phase 4):
+End-to-end example (one model across all 11 systems, all four stages):
 
 ```bash
 python3 scripts/run_batch_experiment.py \
     --all \
     --model claude \
     --runs 3 --threads 8 \
-    --enable-tv --tv-agent claude-code --tv-model sonnet \
+    --tv-agent claude-code --tv-model sonnet \
     --inv-model sonnet
 ```
 
@@ -143,12 +134,21 @@ TV adds roughly **\$1–4 per (model, system)** spec via the TV agent; budget on
 
 ---
 
-## Phase 3 — Window verification (TV)
+## Phase 3 — Transition validation
 
-TV validates each action's transitions against windows cut from system traces,
-running TLC on every (pre-state, post-state) pair. Driven by the `tv-eval` skill.
+Transition validation cuts every captured trace into per-action windows of the
+form (pre-state, post-state) and asks TLC whether the spec's action allows the
+transition. The pipeline is driven by the `tv-eval` skill, which the launcher
+hands to a coding agent (`claude-code` or `codex`).
+
+Two ways to invoke it:
 
 ```bash
+# As a single-cell metric, on a spec already on disk.
+sysmobench --task <name> --method direct_call --model <id> \
+  --metric transition_validation --spec-file <path-to-.tla>
+
+# Directly via the launcher (used internally by the batch pipeline).
 bash scripts/launch_tv_eval.sh \
   --task=<name> \
   --spec=<dir-containing-.tla-and-.cfg> \
@@ -157,8 +157,9 @@ bash scripts/launch_tv_eval.sh \
   [--workspace-root=./tv-workspaces]
 ```
 
-Each launch creates `tv-workspaces/<timestamp>_<task>/` containing the agent's
-`reports/final_report.md` with per-action pass rates and an audit summary.
+Each launch creates `tv-workspaces/<timestamp>_<task>/` with the agent's
+`reports/final_report.md` (per-action pass rates, audit summary) and the
+machine-readable `reports/tv_results.json` consumed by the metric registry.
 
 > **TODO:** scoring rule (zero-tolerance per action), audit step, cost range.
 
@@ -224,7 +225,7 @@ are documented in [`docs/leaderboard/schema.md`](leaderboard/schema.md).
 To reproduce the public leaderboard from a clean clone:
 
 ```bash
-python3 scripts/run_batch_experiment.py --all --model <model> --enable-tv  # populate experiments/
+python3 scripts/run_batch_experiment.py --all --model <model>                # populate experiments/
 python3 scripts/build_leaderboard.py                                         # baseline CSVs
 python3 scripts/batch_repair_and_tv.py --phase all                           # repair + rescore
 python3 scripts/build_leaderboard_repaired.py                                # *_repaired.csv
