@@ -1,15 +1,13 @@
-# Adding a New System to SysMoBench
+# Adding a new system
 
-Adding a new system involves four steps: declaring the task, writing prompts, defining invariant templates, and bootstrapping a Phase-3 trace harness.
+Four files. Once they exist the rest of the pipeline picks the system up automatically.
 
-## 1. Task configuration
-
-Create `tla_eval/tasks/<system_name>/task.yaml`:
+## 1. `tla_eval/tasks/<name>/task.yaml`
 
 ```yaml
-name: "<system_name>"
+name: "<name>"
 description: "<one-line summary>"
-system_type: "concurrent" | "distributed" | ...
+system_type: "concurrent" | "distributed"
 language: "rust" | "go" | "java" | ...
 
 repository:
@@ -21,29 +19,25 @@ source_files:
 
 default_source_file: "path/in/repo/to/file.go"
 specModule: "<TLA+ module name>"
-traces_folder: "data/sys_traces/<system_name>"
 
-# Phase 3 (transition validation) configuration
 tv:
-  repo_path: "artifacts/<system_name>"
+  repo_path: "artifacts/<name>"
   target_actions: ["<ActionA>", "<ActionB>"]
 ```
 
-The `tv:` block is consumed by `scripts/launch_tv_eval.sh`.
+The `tv:` block is consumed by `scripts/launch_tv_eval.sh`. See `tla_eval/tasks/spin/task.yaml` (docker harness) and `tla_eval/tasks/zookeeper/task.yaml` (native harness with action map) for full examples.
 
-## 2. Prompts
+## 2. `tla_eval/tasks/<name>/prompts/`
 
-Create `tla_eval/tasks/<system_name>/prompts/` with:
+Three prompt files:
 
-- `direct_call.txt` — full TLA+ spec generation prompt
-- `phase2_config.txt` — TLC `.cfg` generation prompt (Phase 2)
-- `phase3_invariant_implementation.txt` — invariant translation prompt (Phase 4)
+- `direct_call.txt` — full TLA+ generation prompt
+- `phase2_config.txt` — TLC `.cfg` generation prompt
+- `phase3_invariant_implementation.txt` — Phase-4 invariant translation prompt
 
-Use `tla_eval/tasks/etcd/prompts/` as the reference layout.
+Reference layout: `tla_eval/tasks/etcd/prompts/`.
 
-## 3. Invariant templates
-
-Create `data/invariant_templates/<system_name>/invariants.yaml` listing each core invariant:
+## 3. `data/invariant_templates/<name>/invariants.yaml`
 
 ```yaml
 - name: "<InvariantName>"
@@ -53,8 +47,6 @@ Create `data/invariant_templates/<system_name>/invariants.yaml` listing each cor
   tla_example: "<TLA+ snippet>"
 ```
 
-Phase 4 (`invariant_verification`) translates each entry against the generated spec and runs TLC.
+## 4. Trace harness
 
-## 4. Phase-3 trace harness
-
-Use the `harness-gen` skill to bootstrap `artifacts/<system_name>/` with an instrumented build that emits NDJSON traces at the granularity declared in `task.yaml`. The harness is one-time per system and is then reused by every spec evaluation through the `tv-eval` skill (driven by `scripts/launch_tv_eval.sh`).
+Use the `harness-gen` skill to bootstrap `artifacts/<name>/` with an instrumented build emitting NDJSON traces at the granularity the task requires. One-time per system; reused by every spec evaluation through the `tv-eval` skill.
