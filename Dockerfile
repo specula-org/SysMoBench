@@ -22,11 +22,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openjdk-21-jdk-headless \
         maven \
         golang-go \
-        nodejs npm \
-        git curl ca-certificates build-essential \
+        git curl ca-certificates build-essential gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g --no-fund --no-audit @anthropic-ai/claude-code
+# Node.js 20 from NodeSource (Ubuntu 24.04's apt npm bundles Node 18, which
+# is below the minimum the claude-code CLI now requires).
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g --no-fund --no-audit @anthropic-ai/claude-code@2.1.126
 
 WORKDIR /opt/sysmobench
 COPY . /opt/sysmobench
