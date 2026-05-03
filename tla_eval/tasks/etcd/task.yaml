@@ -35,8 +35,10 @@ metadata:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 tv:
-  # Local instrumented repo (launcher uses as default --repo)
-  repo_path: "/home/ubuntu/Specula/case-studies/etcd-raft/artifact/raft"
+  # Local instrumented repo (launcher uses as default --repo).
+  # Bootstrap: clone etcd-io/raft into artifacts/etcd/ and apply the
+  # `with_tla` build-tag instrumentation; see harness-gen skill / docs.
+  repo_path: "artifacts/etcd"
 
   # Semantic scope of evaluation. These are canonical names for the
   # behaviors being evaluated. Agent maps them to whatever the spec

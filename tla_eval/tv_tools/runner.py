@@ -19,9 +19,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 
-# Default TLA+ tooling paths (override via env vars or function args)
-DEFAULT_TLA_JAR = "/home/ubuntu/Specula/lib/tla2tools.jar"
-DEFAULT_COMMUNITY_JAR = "/home/ubuntu/Specula/lib/CommunityModules-deps.jar"
+from tla_eval.utils.setup_utils import (
+    get_tla_tools_path,
+    get_community_modules_path,
+)
+
+DEFAULT_TLA_JAR = str(get_tla_tools_path())
+DEFAULT_COMMUNITY_JAR = str(get_community_modules_path())
 
 
 @dataclass

@@ -33,9 +33,10 @@ metadata:
 # auxiliary variables, and value conventions are derived by the agent
 # from reading the spec — not prescribed in this file.
 tv:
-  # Points at the Specula case dir; expects the nested layout
-  # {repo_path}/harness/run.sh + {repo_path}/artifact/redisraft/
-  repo_path: "/home/ubuntu/Specula/case-studies/redisraft"
+  # Bootstrap: clone RedisLabs/redisraft into artifacts/redisraft/ and apply
+  # the harness instrumentation patch; see INSTRUMENTATION.md for the
+  # nested layout this expects ({repo_path}/harness/run.sh + artifact dirs).
+  repo_path: "artifacts/redisraft"
 
   # Semantic scope of evaluation. Agent maps these to the spec's own names.
   # The raw trace emits the event names in the right column; TV windowing

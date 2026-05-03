@@ -402,7 +402,7 @@ Examples:
     metric_params = {}
     if args.tlc_timeout is not None:
         metric_params['tlc_timeout'] = args.tlc_timeout
-    if args.inv_translator_type:
+    if args.metric == "invariant_verification":
         metric_params['translator_type'] = args.inv_translator_type
     if args.tv_agent:
         metric_params['tv_agent'] = args.tv_agent

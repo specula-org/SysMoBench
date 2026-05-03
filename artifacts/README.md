@@ -30,7 +30,7 @@ Two paths:
 
 ## Which systems are ready?
 
-Check `tla_eval/tasks/<task>/task.yaml`'s `wv.repo_path`:
+Check `tla_eval/tasks/<task>/task.yaml`'s `tv.repo_path`:
 - non-null → artifact exists (locally or referenced)
 - null → needs bootstrap via harness-gen skill
 
