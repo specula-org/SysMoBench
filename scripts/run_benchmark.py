@@ -26,6 +26,12 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
+except ImportError:
+    pass
+
 from tla_eval.config import get_configured_model, get_config_manager
 from tla_eval.tasks.loader import get_task_loader
 from tla_eval.methods import get_method
