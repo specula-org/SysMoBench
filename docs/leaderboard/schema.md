@@ -36,7 +36,7 @@ The files in this directory are the canonical source for the SysMoBench leaderbo
       "overall_score": 0.954,
       "best_run_spec_path": "output/compilation_check/.../curp.tla",
       "best_run_json_path": "experiments/batch_.../curp/run_4.json",
-      "wv_workspace_path": "tv-workspaces/.../reports/",
+      "tv_workspace_path": "tv-workspaces/.../reports/",
       "gen_tokens_in": 12345,
       "gen_tokens_out": 6789,
       "tv_agent_cost_usd": 4.18,
@@ -63,7 +63,7 @@ The files in this directory are the canonical source for the SysMoBench leaderbo
 | | `phase3_audit_bugs` | `{action, line}` entries downgraded to 0 by audit |
 | | `phase3_final_score` | TV score after audit downgrade |
 | Composite | `overall_score` | Headline metric: mean over phase1 / phase2 / phase3_final / phase3b |
-| Provenance | `best_run_spec_path`, `best_run_json_path`, `wv_workspace_path` | Drill-down paths for the winning run |
+| Provenance | `best_run_spec_path`, `best_run_json_path`, `tv_workspace_path` | Drill-down paths for the winning run |
 | Cost | `gen_tokens_in`, `gen_tokens_out` | Phase-A LLM usage (provider-billed) |
 | | `tv_agent_cost_usd`, `tv_agent_duration_s`, `tv_agent_turns` | Coding-agent usage during TV |
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# scripts/harness/redisraft/run.sh — thin wrapper around the Specula-style
-# redisraft trace harness at /home/ubuntu/Specula/case-studies/redisraft/.
+# scripts/harness/redisraft/run.sh — thin wrapper around the redisraft trace
+# harness; expects an instrumented redisraft tree at $REPO_PATH (default
+# artifacts/redisraft) following the harness-gen layout
+# {REPO_PATH}/{harness/run.sh, artifact/redisraft}.
 #
 # The inner harness (harness/run.sh inside REPO_PATH) applies an
 # instrumentation patch to deps/raft, builds libraft.a with
@@ -20,7 +22,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 
-REPO_PATH="${REPO_PATH:-/home/ubuntu/Specula/case-studies/redisraft}"
+REPO_PATH="${REPO_PATH:-$PROJECT_ROOT/artifacts/redisraft}"
 TRACES_DIR="${TRACES_DIR:-$PROJECT_ROOT/artifacts/redisraft/traces}"
 
 if [[ ! -x "$REPO_PATH/harness/run.sh" ]]; then

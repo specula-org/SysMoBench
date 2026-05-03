@@ -55,12 +55,12 @@ ALL_SYSTEMS = [
     "locksvc", "raftkvs", "redisraft", "ringbuffer", "zookeeper"
 ]
 
-# Supported code agents and their corresponding method names
+# Supported generation methods. Only `direct_call` (single-shot API call via
+# the configured model adapter in config/models.yaml) is wired up today;
+# previous coding-agent driven generation paths were never finished and have
+# been removed to avoid silently misdirecting users.
 SUPPORTED_AGENTS = {
-    "claude_code": "code_agent_claude_code",
-    "gemini": "code_agent_gemini",
-    "codex": "code_agent_codex",
-    "direct_call": "direct_call",  # single-shot API call via configured model adapter
+    "direct_call": "direct_call",
 }
 
 DEFAULT_AGENT = "direct_call"
@@ -430,24 +430,9 @@ class BatchExperimentRunner:
         """
         logger.info(f"[{system}][Run {run_id}] Phase 1: Compilation check...")
 
-        # For direct_call, always run real SANY — the generator doesn't verify
-        # its own output, so trusting `generation_passed=True` lets
-        # semantically-broken specs (e.g., undeclared NULL) silently pass
-        # Phase 1 and waste downstream agent budget.
-        # Only code_agent methods that demonstrably run SANY in their loop
-        # can keep the fast path.
-        trust_self_report = (
-            generation_passed
-            and self.agent_method in ("code_agent_claude_code", "code_agent_gemini", "code_agent_codex")
-        )
-        if trust_self_report:
-            logger.info(f"[{system}][Run {run_id}] Phase 1: PASS (generation already verified)")
-            return PhaseResult(
-                phase_name="compilation",
-                score=1.0,
-                passed=True,
-                details={"method": "generation_verified"}
-            )
+        # Always re-run SANY: direct_call generation does not verify its
+        # own output, so semantically-broken specs (e.g., undeclared NULL)
+        # would silently pass Phase 1 and waste downstream agent budget.
 
         # Run compilation_check
         cmd = [
