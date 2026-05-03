@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generic TV validation runner. Discovers (TV_<action>.tla, TV_<action>.cfg,
-windows_<action>.ndjson) tuples in a tv/ directory, calls run_wv_batch
+windows_<action>.ndjson) tuples in a tv/ directory, calls run_tv_batch
 per action, prints a standardized summary the mutation tester can parse.
 
 Usage: python3 scripts/tv_generic_runner.py <workspace-tv-dir>
@@ -13,21 +13,21 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-from tla_eval.tv_tools.runner import run_wv_batch, summarize
+from tla_eval.tv_tools.runner import run_tv_batch, summarize
 
 
 def main():
-    wv_dir = Path(sys.argv[1])
+    tv_dir = Path(sys.argv[1])
     tla_jar = str(PROJECT_ROOT / "lib" / "tla2tools.jar")
     cm_jar = str(PROJECT_ROOT / "lib" / "CommunityModules-deps.jar")
 
     actions = []
-    for tla_file in sorted(wv_dir.glob("TV_*.tla")):
+    for tla_file in sorted(tv_dir.glob("TV_*.tla")):
         name = tla_file.stem.replace("TV_", "")
         if "TTrace" in name:
             continue
-        cfg_file = wv_dir / f"TV_{name}.cfg"
-        windows_file = wv_dir / f"windows_{name}.ndjson"
+        cfg_file = tv_dir / f"TV_{name}.cfg"
+        windows_file = tv_dir / f"windows_{name}.ndjson"
         if not (cfg_file.exists() and windows_file.exists()):
             continue
         n = sum(1 for _ in windows_file.open())
@@ -36,11 +36,11 @@ def main():
     results_by_action = {}
     for name, tla, cfg, n in actions:
         print(f"\n=== {name} ({n} windows) ===")
-        results = run_wv_batch(
+        results = run_tv_batch(
             num_windows=n,
-            wv_tla=tla,
-            wv_cfg=cfg,
-            work_dir=str(wv_dir),
+            tv_tla=tla,
+            tv_cfg=cfg,
+            work_dir=str(tv_dir),
             workers=8,
             timeout=60,
             tla_jar=tla_jar,

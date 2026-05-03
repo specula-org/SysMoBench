@@ -107,7 +107,7 @@ class SystemResult:
     # Provenance
     best_run_spec_path: str | None = None
     best_run_json_path: str | None = None
-    wv_workspace_path: str | None = None
+    tv_workspace_path: str | None = None
     # Cost / usage
     gen_tokens_in: int | None = None
     gen_tokens_out: int | None = None
@@ -147,7 +147,7 @@ def scan_phase_a_batches():
     return by_ms
 
 
-def find_wv_workspace_for(model: str, system: str) -> Path | None:
+def find_tv_workspace_for(model: str, system: str) -> Path | None:
     """Find the latest TV workspace whose spec symlink points to this canonical
     model's output.
 
@@ -242,7 +242,7 @@ def find_wv_workspace_for(model: str, system: str) -> Path | None:
     return candidates[-1] if candidates else None
 
 
-def parse_wv_final_report(ws: Path) -> dict:
+def parse_tv_final_report(ws: Path) -> dict:
     """Extract Phase 3 final score + per-action verdicts from the report.
 
     Phase 3 uses ZERO-TOLERANCE scoring at the action level:
@@ -375,7 +375,7 @@ def parse_wv_final_report(ws: Path) -> dict:
     return out
 
 
-def parse_wv_cost(ws: Path) -> dict:
+def parse_tv_cost(ws: Path) -> dict:
     u = ws / ".run.usage.json"
     if not u.exists():
         return {}
@@ -417,17 +417,17 @@ def build_rows():
         # TV workspace lookup (skip if this pair is on the cascade-violation
         # blocklist — the TV ran but shouldn't have, score is invalid).
         if (model, system) in CASCADE_VIOLATIONS:
-            r.notes.append("cascade_violation_wv_excluded")
+            r.notes.append("cascade_violation_tv_excluded")
         else:
-            ws = find_wv_workspace_for(model, system)
+            ws = find_tv_workspace_for(model, system)
             if ws:
-                r.wv_workspace_path = str(ws.relative_to(PROJECT_ROOT))
-                wv_info = parse_wv_final_report(ws)
-                r.phase3_tv_rate = wv_info["phase3_tv_rate"]
-                r.phase3_audit_run = wv_info["audit_run"]
-                r.phase3_audit_bugs = wv_info["audit_bugs"]
-                r.phase3_final_score = wv_info["phase3_final_score"]
-                r.__dict__.update(parse_wv_cost(ws))
+                r.tv_workspace_path = str(ws.relative_to(PROJECT_ROOT))
+                tv_info = parse_tv_final_report(ws)
+                r.phase3_tv_rate = tv_info["phase3_tv_rate"]
+                r.phase3_audit_run = tv_info["audit_run"]
+                r.phase3_audit_bugs = tv_info["audit_bugs"]
+                r.phase3_final_score = tv_info["phase3_final_score"]
+                r.__dict__.update(parse_tv_cost(ws))
         # overall_score per (model, system) = fixed mean of 4 phases.
         # Missing / skipped / not_evaluated phases ALL count as 0.
         # No selective denominator — the formula is literally (P1+P2+P3+P4)/4.
@@ -456,7 +456,7 @@ def write_detail_csv(rows, path: Path):
         "overall_score",
         "gen_tokens_in", "gen_tokens_out",
         "tv_agent_cost_usd", "tv_agent_duration_s",
-        "best_run_spec_path", "wv_workspace_path",
+        "best_run_spec_path", "tv_workspace_path",
     ]
     with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
@@ -589,7 +589,7 @@ def write_paper_summary_csv(rows, path: Path):
                 continue  # legitimate "no TV" — TLC explored nothing
             # Otherwise TV is required.
             if r.phase3_final_score is None:
-                ws = (PROJECT_ROOT / r.wv_workspace_path) if r.wv_workspace_path else None
+                ws = (PROJECT_ROOT / r.tv_workspace_path) if r.tv_workspace_path else None
                 report = ws / "reports" / "final_report.md" if ws else None
                 if not (report and report.exists()):
                     return False

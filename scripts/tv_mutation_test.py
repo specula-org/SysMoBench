@@ -103,11 +103,11 @@ def main():
     # (curp / rwmutex / spin), mutating spec/ alone does NOT propagate — TV keeps
     # reading the untouched copy and all mutations appear as "no-change". Write
     # the mutant to BOTH locations to be safe.
-    wv_spec = ws_dir / "tv" / spec.name
+    tv_spec = ws_dir / "tv" / spec.name
     targets = [spec]
-    if wv_spec.exists() and not wv_spec.is_symlink():
-        targets.append(wv_spec)
-    elif wv_spec.is_symlink():
+    if tv_spec.exists() and not tv_spec.is_symlink():
+        targets.append(tv_spec)
+    elif tv_spec.is_symlink():
         # Already chained back to spec/ — leave it, write_text on spec will
         # propagate through the symlink chain.
         pass

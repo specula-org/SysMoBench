@@ -162,12 +162,12 @@ Write the cfg: fixed, per-system constants only. One cfg per TV module. Never ch
 Use `tla_eval/tv_tools/runner.py` for parallel TLC execution:
 
 ```python
-from tla_eval.tv_tools import run_wv_batch, summarize
+from tla_eval.tv_tools import run_tv_batch, summarize
 
-results = run_wv_batch(
+results = run_tv_batch(
     num_windows=N,
-    wv_tla="TV_AcquireLock.tla",
-    wv_cfg="TV_AcquireLock.cfg",
+    tv_tla="TV_AcquireLock.tla",
+    tv_cfg="TV_AcquireLock.cfg",
     work_dir="<workspace>/tv",
     workers=8,
 )

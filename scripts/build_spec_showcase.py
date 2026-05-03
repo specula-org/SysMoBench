@@ -19,7 +19,7 @@ Layout:
           <module>.tla
           <module>.cfg
           scores.json
-          wv_report.md               # only present if Phase 3 TV ran
+          tv_report.md               # only present if Phase 3 TV ran
 
 Idempotent — re-run any time.
 """
@@ -53,7 +53,7 @@ def build_scores(row: dict) -> dict:
     p2 = row.get("phase2_score")
     p2_rc = row.get("phase2_runtime_check_passed")
     p2_cov = row.get("phase2_coverage")
-    p3_wv_rate = row.get("phase3_tv_rate")
+    p3_tv_rate = row.get("phase3_tv_rate")
     p3_final = row.get("phase3_final_score")
     p4 = row.get("phase3b_score")
     return {
@@ -71,7 +71,7 @@ def build_scores(row: dict) -> dict:
         },
         "phase3_conformance": {
             "final_score": p3_final,
-            "wv_rate": p3_wv_rate,
+            "tv_rate": p3_tv_rate,
             "audit_run": row.get("phase3_audit_run"),
             "audit_bugs": row.get("phase3_audit_bugs") or [],
             "status": ("ran_passed" if p3_final == 1.0
@@ -86,7 +86,7 @@ def build_scores(row: dict) -> dict:
         "source": {
             "best_run_json": row.get("best_run_json_path"),
             "best_run_spec": row.get("best_run_spec_path"),
-            "wv_workspace": row.get("wv_workspace_path"),
+            "tv_workspace": row.get("tv_workspace_path"),
             "notes": row.get("notes") or [],
         },
     }
@@ -119,11 +119,11 @@ def copy_cell(row: dict, model_dir: Path) -> dict:
     )
 
     # TV report if any
-    tv = row.get("wv_workspace_path")
+    tv = row.get("tv_workspace_path")
     if tv:
         report = PROJECT_ROOT / tv / "reports" / "final_report.md"
         if report.exists():
-            shutil.copy2(report, cell_dir / "wv_report.md")
+            shutil.copy2(report, cell_dir / "tv_report.md")
 
     return {
         "model": row["model"],
@@ -134,7 +134,7 @@ def copy_cell(row: dict, model_dir: Path) -> dict:
         "phase3_conformance": row.get("phase3_final_score"),
         "phase4": row.get("phase3b_score"),
         "spec_file": copied_spec,
-        "has_wv_report": (cell_dir / "wv_report.md").exists(),
+        "has_tv_report": (cell_dir / "tv_report.md").exists(),
     }
 
 
@@ -163,7 +163,7 @@ def main():
         w = csv.DictWriter(f, fieldnames=[
             "model", "system", "overall_score",
             "phase1", "phase2", "phase3_conformance", "phase4",
-            "spec_file", "has_wv_report",
+            "spec_file", "has_tv_report",
         ])
         w.writeheader()
         w.writerows(index_rows)
@@ -172,10 +172,10 @@ def main():
 
     print(f"Wrote {len(index_rows)} cells ({len(paper_models)} models × 11 systems) "
           f"to {OUT_ROOT.relative_to(PROJECT_ROOT)}")
-    wv_count = sum(1 for r in index_rows if r["has_wv_report"])
+    tv_count = sum(1 for r in index_rows if r["has_tv_report"])
     spec_count = sum(1 for r in index_rows if r["spec_file"])
     print(f"  specs copied: {spec_count}/{len(index_rows)}")
-    print(f"  wv_report.md: {wv_count}/{len(index_rows)}")
+    print(f"  tv_report.md: {tv_count}/{len(index_rows)}")
 
 
 README_MD = """
@@ -200,7 +200,7 @@ phase-level details go into `scores.json`.
           <module>.tla             the exact spec that got scored
           <module>.cfg             TLC config used for P1/P2
           scores.json              P1/P2/P3/P4 with status + provenance
-          wv_report.md             present only if Phase 3 TV ran
+          tv_report.md             present only if Phase 3 TV ran
 
 ## scores.json schema
 
@@ -208,9 +208,9 @@ phase-level details go into `scores.json`.
     formula              : "mean(P1, P2, P3_final, P4); missing count as 0"
     phase1_compilation   : { score, status }
     phase2_runtime       : { score, status, coverage, runtime_check_passed }
-    phase3_conformance   : { final_score, wv_rate, audit_run, audit_bugs, status }
+    phase3_conformance   : { final_score, tv_rate, audit_run, audit_bugs, status }
     phase4_invariant     : { score, status }
-    source               : { best_run_json, best_run_spec, wv_workspace, notes }
+    source               : { best_run_json, best_run_spec, tv_workspace, notes }
 
 `status` values: `ran_passed` (1.0), `ran_failed` (0.0), `ran_partial`
 (0 < score < 1), `skipped` (phase didn't run — cascade from an upstream failure,

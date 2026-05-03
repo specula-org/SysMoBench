@@ -1120,10 +1120,10 @@ class BatchExperimentRunner:
                 # Load the TV agent's cost/usage breakdown
                 ws = (result.phase3_tv.details or {}).get("workspace") if result.phase3_tv else None
                 if ws:
-                    wv_usage_file = Path(ws) / ".run.usage.json"
-                    if wv_usage_file.exists():
+                    tv_usage_file = Path(ws) / ".run.usage.json"
+                    if tv_usage_file.exists():
                         try:
-                            with open(wv_usage_file, 'r', encoding='utf-8') as f:
+                            with open(tv_usage_file, 'r', encoding='utf-8') as f:
                                 full = json.load(f)
                             result.phase3_tv_usage = {
                                 "cost_usd": full.get("total_cost_usd"),
@@ -1133,7 +1133,7 @@ class BatchExperimentRunner:
                                 "model_usage": full.get("model_usage"),
                             }
                         except Exception as e:
-                            logger.warning(f"[{system}] Failed to read {wv_usage_file}: {e}")
+                            logger.warning(f"[{system}] Failed to read {tv_usage_file}: {e}")
             elif self.enable_tv:
                 logger.info(f"[{system}][Run {run_id}] Skipping Phase 3 TV (Phase 1 failed)")
                 result.phase3_tv = PhaseResult(

@@ -41,7 +41,7 @@ W_P1, W_P2, W_P3, W_P4 = 0.15, 0.15, 0.35, 0.35
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
-from build_leaderboard import parse_wv_final_report  # type: ignore
+from build_leaderboard import parse_tv_final_report  # type: ignore
 
 SPECS_DIR = PROJECT_ROOT / "docs" / "leaderboard" / "specs"
 REPAIRED_DIR = PROJECT_ROOT / "docs" / "leaderboard" / "specs_repaired"
@@ -77,7 +77,7 @@ def read_original_scores(model: str, system: str) -> dict | None:
 
 # ── P3 (TV) ──
 
-def find_latest_wv_for(model: str, system: str) -> Path | None:
+def find_latest_tv_for(model: str, system: str) -> Path | None:
     """Prefer workspaces whose spec symlink points at specs_repaired/<cell>.
     Fall back to the one referenced by original scores.json if no new TV.
     """
@@ -102,7 +102,7 @@ def find_latest_wv_for(model: str, system: str) -> Path | None:
     # Fallback: use the one recorded in original scores.json
     orig = read_original_scores(model, system)
     if orig:
-        ws = (orig.get("source") or {}).get("wv_workspace")
+        ws = (orig.get("source") or {}).get("tv_workspace")
         if ws:
             p = PROJECT_ROOT / ws
             if (p / "reports" / "final_report.md").exists():
@@ -167,7 +167,7 @@ def build_one(model: str, system: str) -> dict:
         "model": model, "system": system,
         "p1": None, "p2": None, "p3": None, "p4": None,
         "p3_source": "", "p4_source": "", "repair_status": "",
-        "wv_workspace": "", "edits": 0,
+        "tv_workspace": "", "edits": 0,
     }
     man = read_repair_manifest(model, system)
     orig = read_original_scores(model, system)
@@ -182,10 +182,10 @@ def build_one(model: str, system: str) -> dict:
         row["repair_status"] = man.get("status", "")
         row["edits"] = man.get("edit_count", 0) or 0
 
-    ws = find_latest_wv_for(model, system)
+    ws = find_latest_tv_for(model, system)
     if ws is not None:
-        row["wv_workspace"] = str(ws.relative_to(PROJECT_ROOT))
-        tv = parse_wv_final_report(ws)
+        row["tv_workspace"] = str(ws.relative_to(PROJECT_ROOT))
+        tv = parse_tv_final_report(ws)
         row["p3"] = tv.get("phase3_final_score")
         # Mark where P3 came from
         target = (REPAIRED_DIR / model / system).resolve()
@@ -234,7 +234,7 @@ def build_all() -> list[dict]:
 def write_detail(rows, path: Path):
     cols = ["model", "system", "overall", "p1", "p2", "p3", "p4",
             "p3_source", "p4_source", "repair_status", "edits",
-            "wv_workspace"]
+            "tv_workspace"]
     with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()

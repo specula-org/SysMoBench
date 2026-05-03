@@ -217,7 +217,7 @@ def repair_already_done(model: str, system: str) -> bool:
     return bool(d.get("p1_passed")) and bool(d.get("p2_passed"))
 
 
-def wv_already_done(model: str, system: str) -> bool:
+def tv_already_done(model: str, system: str) -> bool:
     # launch_tv_eval.sh names workspaces <TIMESTAMP>_<system>, losing the
     # model. Identify the cell via the `spec/` symlink target, which points
     # back at docs/leaderboard/specs_repaired/<model>/<system>/.
@@ -355,7 +355,7 @@ def run_adapter(prompt_text: str, log_path: Path, claude_alias: str,
         return 1, f"adapter launch failed: {e}"
 
 
-def run_wv_launcher(model: str, system: str, log_path: Path,
+def run_tv_launcher(model: str, system: str, log_path: Path,
                     agent: str, agent_model: str | None) -> tuple[int, str]:
     BATCH_LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,7 +426,7 @@ def do_repair(model: str, system: str, module: str,
 def do_wv(model: str, system: str, module: str,
           claude_alias: str, force: bool, dry: bool,
           tv_agent: str, tv_model: str | None) -> dict:
-    if not force and wv_already_done(model, system):
+    if not force and tv_already_done(model, system):
         return {"cell": f"{model}/{system}", "skipped": "tv already done"}
 
     # Run TV only on cells we actually repaired. Trivial-copied cells
@@ -443,7 +443,7 @@ def do_wv(model: str, system: str, module: str,
     log(f"[tv] {model}/{system} — launching via {tv_agent} ({tv_model or 'default'})")
     ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = BATCH_LOG_DIR / "tv" / f"{ts}_{model}__{system}.log"
-    rc, tail = run_wv_launcher(model, system, log_path, tv_agent, tv_model)
+    rc, tail = run_tv_launcher(model, system, log_path, tv_agent, tv_model)
     return {"cell": f"{model}/{system}", "rc": rc}
 
 
@@ -524,7 +524,7 @@ def main() -> int:
     if args.phase in ("tv", "all"):
         pending_wv = [(m, s, mod) for (m, s, mod) in cells
                       if repair_was_real(m, s)
-                      and (args.force_wv or not wv_already_done(m, s))]
+                      and (args.force_tv or not tv_already_done(m, s))]
         log(f"[tv plan] pending={len(pending_wv)}  (real-repair cells only)")
 
     if args.dry_run:
@@ -549,13 +549,13 @@ def main() -> int:
         log(f"PHASE TV — concurrency={args.concurrency}")
         log("═" * 60)
         # Re-discover which cells are TV-ready (repaired successfully, real edits)
-        wv_cells = [(m, s, mod) for (m, s, mod) in cells
+        tv_cells = [(m, s, mod) for (m, s, mod) in cells
                     if repair_was_real(m, s)
-                    and (args.force_wv or not wv_already_done(m, s))]
-        rr = run_phase("tv", wv_cells, args.concurrency,
-                       args.claude_alias, args.force_wv, dry=False,
+                    and (args.force_tv or not tv_already_done(m, s))]
+        rr = run_phase("tv", tv_cells, args.concurrency,
+                       args.claude_alias, args.force_tv, dry=False,
                        tv_agent=args.tv_agent, tv_model=args.tv_model)
-        summary_path = BATCH_LOG_DIR / f"wv_summary_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        summary_path = BATCH_LOG_DIR / f"tv_summary_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         summary_path.write_text(json.dumps(rr, indent=2))
         log(f"[tv] summary -> {summary_path}")
 

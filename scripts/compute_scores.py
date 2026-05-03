@@ -7,7 +7,7 @@ any weighting scheme after the fact, without re-running experiments.
 
 Usage:
     python3 scripts/compute_scores.py                     # default: equal-weighted
-    python3 scripts/compute_scores.py --formula wv_only   # use custom formula
+    python3 scripts/compute_scores.py --formula tv_only   # use custom formula
     python3 scripts/compute_scores.py --systems spin etcd # filter systems
     python3 scripts/compute_scores.py --csv > results.csv
 
@@ -39,7 +39,7 @@ def equal_weighted(s: PhaseScores) -> Optional[float]:
     return sum(vals) / len(vals) if vals else None
 
 
-def wv_only(s: PhaseScores) -> Optional[float]:
+def tv_only(s: PhaseScores) -> Optional[float]:
     """Only the transition validation score."""
     return s.get("tv")
 
@@ -65,7 +65,7 @@ def semantic_heavy(s: PhaseScores) -> Optional[float]:
 
 FORMULAS: Dict[str, Formula] = {
     "equal_weighted": equal_weighted,
-    "wv_only": wv_only,
+    "tv_only": tv_only,
     "strict": strict_all_or_nothing,
     "semantic_heavy": semantic_heavy,
 }
@@ -121,7 +121,7 @@ def main():
         except Exception:
             pass
         gen = (data.get("phase0_usage") or {}).get("usage") or {}
-        wv_usage = data.get("phase3_tv_usage") or {}
+        tv_usage = data.get("phase3_tv_usage") or {}
         rows.append({
             "batch": batch,
             "system": system,
@@ -134,8 +134,8 @@ def main():
             "gen_prompt_tok": gen.get("prompt_tokens"),
             "gen_completion_tok": gen.get("completion_tokens"),
             "gen_reasoning_tok": (gen.get("completion_tokens_details") or {}).get("reasoning_tokens"),
-            "wv_cost_usd": wv_usage.get("cost_usd"),
-            "wv_min": (wv_usage.get("duration_ms") or 0) / 1000 / 60 if wv_usage.get("duration_ms") else None,
+            "tv_cost_usd": tv_usage.get("cost_usd"),
+            "tv_min": (tv_usage.get("duration_ms") or 0) / 1000 / 60 if tv_usage.get("duration_ms") else None,
         })
 
     if args.csv:
@@ -152,8 +152,8 @@ def main():
         fmt = lambda x: f"{x:.2f}" if isinstance(x, float) else str(x or "-")
         print(f"{r['model']:25} {r['system']:10} {fmt(r['p1']):>5} {fmt(r['p2']):>5} "
               f"{fmt(r['p3_wv']):>5} {fmt(r['p3b']):>5} {fmt(r['total']):>7} "
-              f"{('$' + fmt(r['wv_cost_usd'])) if r['wv_cost_usd'] else '-':>7} "
-              f"{fmt(r['wv_min']):>7}")
+              f"{('$' + fmt(r['tv_cost_usd'])) if r['tv_cost_usd'] else '-':>7} "
+              f"{fmt(r['tv_min']):>7}")
 
 
 if __name__ == "__main__":

@@ -43,8 +43,8 @@ def _tlc_cmd(tla_jar: str, community_jar: str) -> list[str]:
 
 def check_one_window(
     window_index: int,
-    wv_tla: str,
-    wv_cfg: str,
+    tv_tla: str,
+    tv_cfg: str,
     work_dir: str,
     tla_jar: str = DEFAULT_TLA_JAR,
     community_jar: str = DEFAULT_COMMUNITY_JAR,
@@ -53,11 +53,11 @@ def check_one_window(
     """Run TLC for a single window. Uses a unique metadir per window so
     parallel runs don't collide."""
     env = {**os.environ, "WINDOW_INDEX": str(window_index)}
-    metadir = f"/tmp/wv_{os.getpid()}_{window_index}"
+    metadir = f"/tmp/tv_{os.getpid()}_{window_index}"
     cmd = _tlc_cmd(tla_jar, community_jar) + [
         "-metadir", metadir,
-        "-config", wv_cfg,
-        wv_tla,
+        "-config", tv_cfg,
+        tv_tla,
     ]
     try:
         r = subprocess.run(
@@ -81,10 +81,10 @@ def _worker(args):
     return check_one_window(*args)
 
 
-def run_wv_batch(
+def run_tv_batch(
     num_windows: int,
-    wv_tla: str,
-    wv_cfg: str,
+    tv_tla: str,
+    tv_cfg: str,
     work_dir: str,
     workers: int = 8,
     timeout: int = 60,
@@ -97,7 +97,7 @@ def run_wv_batch(
     Returns {window_index: WindowResult}. Window indices are 1-based.
     """
     tasks = [
-        (i, wv_tla, wv_cfg, work_dir, tla_jar, community_jar, timeout)
+        (i, tv_tla, tv_cfg, work_dir, tla_jar, community_jar, timeout)
         for i in range(1, num_windows + 1)
     ]
     results: dict[int, WindowResult] = {}

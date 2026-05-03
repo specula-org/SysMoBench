@@ -9,7 +9,7 @@ Validates that the TV framework handles actions consuming external messages by c
 | ai_spec_1 | 21 | 21/21 (100%) | Grant logic permissive, reproduces all observed transitions |
 | ai_spec_2 | 21 | 14/21 (66.7%) | Grant logic too restrictive: rejects same-term re-votes |
 
-Execution: ~2s each via `tv_tools.run_wv_batch` with 8 workers.
+Execution: ~2s each via `tv_tools.run_tv_batch` with 8 workers.
 
 ## ai_spec_2 Failure Analysis (agent-visible signal)
 
@@ -58,5 +58,5 @@ cd tla_eval/skills/tv-eval/examples/etcd
 python3 generate_windows.py HandleRequestVoteRequest
 python3 ai_spec_1/make_windows.py HandleRequestVoteRequest HandleVoteRequest
 python3 ai_spec_2/make_windows.py HandleRequestVoteRequest HandleVoteRequest
-# Run TV via tv_tools.run_wv_batch on both ai_spec_*/TV_HandleVoteRequest
+# Run TV via tv_tools.run_tv_batch on both ai_spec_*/TV_HandleVoteRequest
 ```
