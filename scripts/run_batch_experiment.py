@@ -57,7 +57,7 @@ SUPPORTED_AGENTS = {
     "direct_call": "direct_call",  # single-shot API call via configured model adapter
 }
 
-DEFAULT_AGENT = "claude_code"
+DEFAULT_AGENT = "direct_call"
 
 
 def run_with_timeout_kill_process_group(
@@ -1465,8 +1465,8 @@ Examples:
                        help="Number of parallel threads (default: 5)")
     parser.add_argument("--output", default="experiments",
                        help="Output directory (default: experiments)")
-    parser.add_argument("--model", default="opus",
-                       help="Model to use for generation and agent translator (default: opus)")
+    parser.add_argument("--model", default="claude",
+                       help="Model to use for generation (entry name in config/models.yaml; default: claude)")
     parser.add_argument("--agent", default=DEFAULT_AGENT,
                        choices=list(SUPPORTED_AGENTS.keys()),
                        help=f"Code agent to use for generation (default: {DEFAULT_AGENT})")
