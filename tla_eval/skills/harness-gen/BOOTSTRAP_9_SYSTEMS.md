@@ -151,6 +151,6 @@ For each task, produce a short status entry (one block):
 - Open issues: <any known limitations>
 ```
 
-Append these to `docs/harness_bootstrap_status.md` as you complete each
+Append these to `docs/dev/harness_bootstrap_status.md` as you complete each
 task. When all 9 are done, the user can launch full TV scoring on every
-model's `--enable-tv` runs.
+model's batch runs.
