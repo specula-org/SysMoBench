@@ -1,4 +1,5 @@
-model,systems_evaluated,overall_score_mean,phase1_mean,phase2_mean,phase3b_mean,phase3_final_mean,audit_bugs_total,total_gen_tokens_in,total_gen_tokens_out,total_wv_cost_usd
+model,systems_evaluated,overall_score_mean,phase1_mean,phase2_mean,phase3b_mean,phase3_final_mean,audit_bugs_total,total_gen_tokens_in,total_gen_tokens_out,total_tv_cost_usd
+claude,1,0.0,0.0,0.0,0.0,0.0,0,,,
 claude_opus_proxy,11,0.695,1.0,0.6667,0.5133,0.6,1,296837,32822,19.45
 claude_sonnet,11,0.6921,1.0,0.7697,0.5561,0.4424,4,111474,45063,3.18
 deepseek_r1_openrouter,11,0.5736,0.8505,0.5455,0.4667,0.4318,1,208344,78244,20.0
