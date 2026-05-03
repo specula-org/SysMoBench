@@ -32,7 +32,14 @@ sysmobench-setup
 
 Add the models you intend to evaluate to `config/models.yaml` (the file ships with example entries) and export the corresponding API keys.
 
-Alternatively, build the prebuilt environment as a container:
+Alternatively, pull the prebuilt image (published per release tag):
+
+```
+docker pull ghcr.io/specula-org/sysmobench:latest
+docker run --rm -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY ghcr.io/specula-org/sysmobench:latest
+```
+
+Or build it locally:
 
 ```
 docker build -t sysmobench .
