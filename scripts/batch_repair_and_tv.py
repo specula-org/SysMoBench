@@ -69,7 +69,7 @@ REPAIRED_DIR = PROJECT_ROOT / "docs" / "leaderboard" / "specs_repaired"
 TV_ROOT = PROJECT_ROOT / "tv-workspaces"
 REPAIR_SKILL = PROJECT_ROOT / "tla_eval" / "skills" / "spec-repair"
 ADAPTER = PROJECT_ROOT / "scripts" / "launch" / "adapters" / "claude-code.sh"
-LAUNCH_WV = PROJECT_ROOT / "scripts" / "launch_tv_eval.sh"
+LAUNCH_TV = PROJECT_ROOT / "scripts" / "launch_tv_eval.sh"
 TLA_TOOLS = PROJECT_ROOT / "lib" / "tla2tools.jar"
 BATCH_LOG_DIR = PROJECT_ROOT / "batch_logs"
 
@@ -362,7 +362,7 @@ def run_tv_launcher(model: str, system: str, log_path: Path,
 
     spec_path = REPAIRED_DIR / model / system
     cmd = [
-        "bash", str(LAUNCH_WV),
+        "bash", str(LAUNCH_TV),
         f"--spec={spec_path}",
         f"--task={system}",
         f"--workspace-root={TV_ROOT}",
@@ -423,7 +423,7 @@ def do_repair(model: str, system: str, module: str,
     return {"cell": f"{model}/{system}", "error": "no manifest written", "rc": rc, "tail": tail}
 
 
-def do_wv(model: str, system: str, module: str,
+def do_tv(model: str, system: str, module: str,
           claude_alias: str, force: bool, dry: bool,
           tv_agent: str, tv_model: str | None) -> dict:
     if not force and tv_already_done(model, system):
@@ -454,7 +454,7 @@ def do_wv(model: str, system: str, module: str,
 def run_phase(phase: str, cells: list[tuple[str, str, str]], concurrency: int,
               claude_alias: str, force: bool, dry: bool,
               tv_agent: str, tv_model: str | None) -> list[dict]:
-    fn = do_repair if phase == "repair" else do_wv
+    fn = do_repair if phase == "repair" else do_tv
 
     results: list[dict] = []
     if concurrency <= 1:
@@ -503,8 +503,8 @@ def main() -> int:
     if not ADAPTER.exists():
         log(f"ERROR: adapter not found: {ADAPTER}")
         return 1
-    if args.phase in ("tv", "all") and not LAUNCH_WV.exists():
-        log(f"ERROR: TV launcher not found: {LAUNCH_WV}")
+    if args.phase in ("tv", "all") and not LAUNCH_TV.exists():
+        log(f"ERROR: TV launcher not found: {LAUNCH_TV}")
         return 1
 
     all_cells = discover_cells()
@@ -522,10 +522,10 @@ def main() -> int:
         already = len(cells) - len(need_agent) - len(trivial)
         log(f"[repair plan] agent={len(need_agent)} trivial-copy={len(trivial)} already-done={already}")
     if args.phase in ("tv", "all"):
-        pending_wv = [(m, s, mod) for (m, s, mod) in cells
+        pending_tv = [(m, s, mod) for (m, s, mod) in cells
                       if repair_was_real(m, s)
                       and (args.force_tv or not tv_already_done(m, s))]
-        log(f"[tv plan] pending={len(pending_wv)}  (real-repair cells only)")
+        log(f"[tv plan] pending={len(pending_tv)}  (real-repair cells only)")
 
     if args.dry_run:
         log("--dry-run: exiting without launching agents")

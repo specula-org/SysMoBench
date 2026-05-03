@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import scripts.batch_repair_and_tv as rwv
+import scripts.batch_repair_and_tv as btv
 
 REPAIRED_DIR = PROJECT_ROOT / "docs" / "leaderboard" / "specs_repaired"
 BATCH_LOG_DIR = PROJECT_ROOT / "batch_logs"
@@ -43,8 +43,8 @@ def log(msg: str) -> None:
 def discover_repaired_cells() -> list[tuple[str, str, str]]:
     return [
         (model, system, module)
-        for (model, system, module) in rwv.discover_cells()
-        if rwv.repair_was_real(model, system)
+        for (model, system, module) in btv.discover_cells()
+        if btv.repair_was_real(model, system)
     ]
 
 

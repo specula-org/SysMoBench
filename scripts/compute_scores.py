@@ -128,7 +128,7 @@ def main():
             "model": model or "?",
             "p1": scores["compilation"],
             "p2": scores["runtime"],
-            "p3_wv": scores["tv"],
+            "p3_tv": scores["tv"],
             "p3b": scores["invariant"],
             "total": total,
             "gen_prompt_tok": gen.get("prompt_tokens"),
@@ -151,7 +151,7 @@ def main():
     for r in rows:
         fmt = lambda x: f"{x:.2f}" if isinstance(x, float) else str(x or "-")
         print(f"{r['model']:25} {r['system']:10} {fmt(r['p1']):>5} {fmt(r['p2']):>5} "
-              f"{fmt(r['p3_wv']):>5} {fmt(r['p3b']):>5} {fmt(r['total']):>7} "
+              f"{fmt(r['p3_tv']):>5} {fmt(r['p3b']):>5} {fmt(r['total']):>7} "
               f"{('$' + fmt(r['tv_cost_usd'])) if r['tv_cost_usd'] else '-':>7} "
               f"{fmt(r['tv_min']):>7}")
 
