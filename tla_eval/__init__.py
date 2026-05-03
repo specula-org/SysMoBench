@@ -1,13 +1,9 @@
 """
-TLA+ Evaluation Framework
-
-A comprehensive framework for evaluating Large Language Models' capabilities 
-in generating industrial-grade TLA+ specifications from real-world distributed 
-and concurrent systems.
+SysMoBench: Evaluating AI on formally modeling complex real-world systems.
 """
 
-__version__ = "0.1.0"
-__author__ = "TLA+ Benchmark Team"
+__version__ = "1.0.0"
+__author__ = "SysMoBench Authors"
 
 from .models import ModelAdapter
 from .config import get_configured_model
@@ -16,6 +12,7 @@ from .evaluation import (
     CompilationCheckEvaluator,
     RuntimeCheckEvaluator,
     ManualInvariantEvaluator,
+    TransitionValidationEvaluator,
 )
 
 __all__ = [
@@ -24,4 +21,5 @@ __all__ = [
     "CompilationCheckEvaluator",
     "RuntimeCheckEvaluator",
     "ManualInvariantEvaluator",
+    "TransitionValidationEvaluator",
 ]
