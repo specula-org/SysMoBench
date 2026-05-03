@@ -1,0 +1,42 @@
+.git
+.github
+.devcontainer
+.claude
+.codex
+
+# Local-only state — image regenerates these as needed
+artifacts/*
+!artifacts/README.md
+lib/*
+!lib/.gitkeep
+
+# Ephemeral runtime output
+experiments
+output
+logs
+batch_logs
+audit
+reports
+traces
+windows
+workspaces
+tv-workspaces
+wv-workspaces
+
+# Python build/test caches
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.coverage
+htmlcov
+*.egg-info
+build
+dist
+
+# Editor / OS noise
+.DS_Store
+.idea
+.vscode
+*.swp

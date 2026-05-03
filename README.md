@@ -20,16 +20,26 @@ Required on the host:
 - Maven and a JDK build chain (for the `zookeeper` and `redisraft` harnesses)
 - A coding-agent CLI — either [`claude-code`](https://github.com/anthropics/claude-code) or [`codex`](https://github.com/openai/codex) — used by transition validation and by the agent-driven invariant translator
 
-Then install:
+Then install (a virtual environment is recommended on Python 3.12+ hosts that enforce PEP 668):
 
 ```
 git clone https://github.com/specula-org/SysMoBench.git
 cd SysMoBench
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 sysmobench-setup
 ```
 
 Add the models you intend to evaluate to `config/models.yaml` (the file ships with example entries) and export the corresponding API keys.
+
+Alternatively, build the prebuilt environment as a container:
+
+```
+docker build -t sysmobench .
+docker run --rm -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY sysmobench
+```
+
+The image bundles Python, Java, Maven, Go, and the `claude-code` CLI. Asterinas-based tasks (`spin`, `mutex`, `rwmutex`, `ringbuffer`) launch their own containers — pass `-v /var/run/docker.sock:/var/run/docker.sock` to forward the host Docker socket when running those.
 
 ## Running
 
