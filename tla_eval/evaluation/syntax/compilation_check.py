@@ -53,6 +53,7 @@ class CompilationCheckEvaluator(BaseEvaluator):
             task=task_name,
             method=method_name,
             model=model_name,
+            language=self.language,
         )
         logger.info(f"Using output directory: {output_dir}")
 
