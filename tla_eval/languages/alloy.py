@@ -291,17 +291,19 @@ class AlloyBackend(LanguageBackend):
         config: Optional[str],
         work_dir: Path,
         timeout: int,
+        spec_filename: Optional[str] = None,
     ) -> SyntaxOutcome:
         work_dir.mkdir(parents=True, exist_ok=True)
-        spec_file = work_dir / "_validate_input.als"
+        spec_file = work_dir / (spec_filename or "_validate_input.als")
         spec_file.write_text(spec, encoding="utf-8")
         try:
             return _run_validator(spec_file, timeout)
         finally:
-            try:
-                spec_file.unlink()
-            except FileNotFoundError:
-                pass
+            if spec_filename is None:
+                try:
+                    spec_file.unlink()
+                except FileNotFoundError:
+                    pass
 
     # ---- Phase 2 --------------------------------------------------------
 
@@ -345,6 +347,7 @@ class AlloyBackend(LanguageBackend):
         spec: str,
         task_name: str,
         translator: str = "claude-code",
+        agent_timeout: Optional[int] = None,
     ) -> Tuple[Dict[str, str], Optional[str]]:
         # Legacy Alloy translator was hardcoded to GPT-5 because Alloy syntax
         # is small and GPT-5 returned the cleanest JSON. Honor that as the

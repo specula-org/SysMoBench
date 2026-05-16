@@ -130,8 +130,17 @@ class LanguageBackend(ABC):
         config: Optional[str],
         work_dir: Path,
         timeout: int,
+        spec_filename: Optional[str] = None,
     ) -> SyntaxOutcome:
-        """Parse / type-check the spec. No model checking yet."""
+        """
+        Parse / type-check the spec.
+
+        If `spec_filename` is given, the backend should write the spec to
+        `work_dir / spec_filename` before running the parser, so that any
+        filename / module-name consistency check the parser does (e.g.
+        TLA+'s SANY: MODULE name must match filename) is actually exercised.
+        Otherwise the backend picks an arbitrary filename.
+        """
 
     # ---- Phase 2: bounded model checking ----------------------------------
 
@@ -184,6 +193,7 @@ class LanguageBackend(ABC):
         spec: str,
         task_name: str,
         translator: str = "claude-code",
+        agent_timeout: Optional[int] = None,
     ) -> Tuple[Dict[str, str], Optional[str]]:
         """
         Translate each template into the spec's vocabulary.

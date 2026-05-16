@@ -341,8 +341,8 @@ Examples:
 
     parser.add_argument("--tlc-timeout", type=int,
                        help="Timeout for TLC model checking in seconds")
-    parser.add_argument("--inv-translator-type", choices=["direct", "agent"], default="direct",
-                       help="Invariant translator: 'direct' (single LLM call) or 'agent' (Claude Code agent)")
+    parser.add_argument("--inv-translator-type", choices=["direct", "agent"], default="agent",
+                       help="Invariant translator: 'agent' (Claude Code agent, default) or 'direct' (single LLM call)")
 
     # Transition validation parameters (--metric transition_validation).
     parser.add_argument("--tv-agent", help="Coding-agent CLI for transition validation (e.g. claude-code, codex)")
@@ -406,6 +406,23 @@ Examples:
         args.config_file = str(Path(args.config_file).resolve())
 
     if not validate_prerequisites():
+        sys.exit(1)
+
+    # Backend availability check — fail fast before generation/evaluator setup
+    # so missing helper jars / missing mono / etc. surface as tooling issues
+    # rather than getting wrapped as syntax errors inside the correction loop.
+    try:
+        from tla_eval.languages import get as _get_backend
+        _backend = _get_backend(args.language)
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    _backend_err = _backend.check_available()
+    if _backend_err:
+        print(
+            f"Error: backend '{_backend.name}' is not ready: {_backend_err}\n"
+            f"Fix the tooling above and rerun. (Use --language to pick a different backend.)"
+        )
         sys.exit(1)
 
     metric_params = {}

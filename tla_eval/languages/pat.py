@@ -251,9 +251,10 @@ class PATBackend(LanguageBackend):
         config: Optional[str],
         work_dir: Path,
         timeout: int,
+        spec_filename: Optional[str] = None,
     ) -> SyntaxOutcome:
         work_dir.mkdir(parents=True, exist_ok=True)
-        spec_file = work_dir / "_validate_input.csp"
+        spec_file = work_dir / (spec_filename or "_validate_input.csp")
         spec_file.write_text(spec, encoding="utf-8")
         start = time.time()
         try:
@@ -274,10 +275,11 @@ class PATBackend(LanguageBackend):
                 elapsed_seconds=time.time() - start,
             )
         finally:
-            try:
-                spec_file.unlink()
-            except FileNotFoundError:
-                pass
+            if spec_filename is None:
+                try:
+                    spec_file.unlink()
+                except FileNotFoundError:
+                    pass
 
     # ---- Phase 2 --------------------------------------------------------
 
@@ -331,6 +333,7 @@ class PATBackend(LanguageBackend):
         spec: str,
         task_name: str,
         translator: str = "claude-code",
+        agent_timeout: Optional[int] = None,
     ) -> Tuple[Dict[str, str], Optional[str]]:
         # Legacy hardcoded "claude" direct call. Other modes not implemented.
         if translator in ("claude-code", "codex"):

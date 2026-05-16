@@ -210,15 +210,37 @@ class TaskLoader:
 
         return "\n\n".join(contents)
         
-    def get_task_prompt(self, task_name: str, method_name: str) -> str:
-        """Read the prompt template at tasks/<task>/prompts/<method>.txt."""
-        prompt_file = self.tasks_dir / task_name / "prompts" / f"{method_name}.txt"
-        if not prompt_file.exists():
-            raise FileNotFoundError(
-                f"Prompt file not found for task='{task_name}', method='{method_name}': {prompt_file}"
-            )
-        with open(prompt_file, 'r', encoding='utf-8') as f:
-            return f.read()
+    def get_task_prompt(self, task_name: str, method_name: str,
+                        language: str = "TLA+") -> str:
+        """
+        Read a prompt template, with per-language overrides.
+
+        Resolution order:
+          1. tasks/<task>/prompts/<lang>/<method>.txt
+          2. tasks/<task>/prompts/<method>_<lang>.txt
+          3. tasks/<task>/prompts/<method>.txt           (TLA+ default / legacy)
+
+        `<lang>` is normalized to lowercase with '+' stripped (e.g. "TLA+"
+        -> "tla", "Alloy" -> "alloy").
+        """
+        lang_key = language.lower().replace("+", "").strip() if language else ""
+        prompts_dir = self.tasks_dir / task_name / "prompts"
+
+        candidates: List[Path] = []
+        if lang_key and lang_key not in ("tla", "tla_plus", "tlaplus"):
+            candidates.append(prompts_dir / lang_key / f"{method_name}.txt")
+            candidates.append(prompts_dir / f"{method_name}_{lang_key}.txt")
+        candidates.append(prompts_dir / f"{method_name}.txt")
+
+        for path in candidates:
+            if path.exists():
+                with open(path, 'r', encoding='utf-8') as f:
+                    return f.read()
+
+        raise FileNotFoundError(
+            f"Prompt file not found for task='{task_name}', method='{method_name}', "
+            f"language='{language}'. Tried: " + ", ".join(str(p) for p in candidates)
+        )
     
     def list_available_tasks(self) -> List[str]:
         """List all available task names."""

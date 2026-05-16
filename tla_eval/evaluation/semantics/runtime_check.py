@@ -518,6 +518,7 @@ class RuntimeCheckEvaluator(BaseEvaluator):
         if hasattr(generation_result, 'metadata') and 'latency_seconds' in generation_result.metadata:
             result.generation_time = generation_result.metadata['latency_seconds']
 
+        generated_config_text: Optional[str] = None
         try:
             # Step 1: load spec content
             if spec_file_path and Path(spec_file_path).exists():
@@ -534,7 +535,12 @@ class RuntimeCheckEvaluator(BaseEvaluator):
                     logger.error("Generation failed, cannot perform semantic evaluation")
                     result.error_message = "Generation failed"
                     return result
-                spec_content = generation_result.generated_text
+                # Extract spec (and possibly config) from the raw model output via the
+                # backend's fence convention. Without this, fenced blocks would land in
+                # the .tla/.als/.csp file as raw markdown.
+                artifacts = self.backend.extract_artifacts(generation_result.generated_text)
+                spec_content = artifacts.spec
+                generated_config_text = artifacts.config
 
             if not spec_content.strip():
                 logger.error("Empty specification content")
@@ -554,12 +560,18 @@ class RuntimeCheckEvaluator(BaseEvaluator):
             result.generated_invariants = []
             result.invariant_generation_error = None
 
-            # Step 2: resolve config
+            # Step 2: resolve config — sources in priority order:
+            #   1. explicit metadata["config_content"] (code-agent flow)
+            #   2. cfg fenced block extracted alongside the spec (direct_call flow)
+            #   3. explicit --config-file argument
+            #   4. backend fallback generator
             cfg_ext = self.backend.config_extension
             on_disk_cfg: Optional[Path] = None
             config_from_metadata = None
             if hasattr(generation_result, 'metadata') and generation_result.metadata:
                 config_from_metadata = generation_result.metadata.get("config_content")
+            if not config_from_metadata and generated_config_text:
+                config_from_metadata = generated_config_text
 
             if cfg_ext is None:
                 # Language has no separate config artifact.

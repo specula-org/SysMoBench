@@ -87,13 +87,25 @@ class TLAPlusBackend(LanguageBackend):
         config: Optional[str],
         work_dir: Path,
         timeout: int,
+        spec_filename: Optional[str] = None,
     ) -> SyntaxOutcome:
         from ..core.verification.validators import TLAValidator
 
         validator = TLAValidator(timeout=timeout, error_stats_manager=self._error_stats)
         start = time.time()
+
+        # When a filename is supplied, write to disk and use validate_file so
+        # SANY can check that the MODULE declaration matches the filename.
+        # Without this, a spec like `---- MODULE Foo ----` validates even when
+        # the evaluator wrote it to `Bar.tla`.
         try:
-            result = validator.validate_specification(spec)
+            if spec_filename:
+                work_dir.mkdir(parents=True, exist_ok=True)
+                spec_path = work_dir / spec_filename
+                spec_path.write_text(spec, encoding="utf-8")
+                result = validator.validate_file(str(spec_path))
+            else:
+                result = validator.validate_specification(spec)
         except Exception as e:
             return SyntaxOutcome(
                 success=False,
@@ -170,6 +182,7 @@ class TLAPlusBackend(LanguageBackend):
         spec: str,
         task_name: str,
         translator: str = "claude-code",
+        agent_timeout: Optional[int] = None,
     ) -> Tuple[Dict[str, str], Optional[str]]:
         from ..evaluation.semantics.manual_invariant_evaluator import (
             AgentInvariantTranslator,
@@ -189,7 +202,8 @@ class TLAPlusBackend(LanguageBackend):
         ]
 
         if translator == "claude-code":
-            agent = AgentInvariantTranslator()
+            agent_kwargs = {"timeout": agent_timeout} if agent_timeout is not None else {}
+            agent = AgentInvariantTranslator(**agent_kwargs)
             success, translated, error = agent.translate_all_invariants(
                 legacy, spec, task_name, "claude"
             )

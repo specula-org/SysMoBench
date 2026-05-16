@@ -88,12 +88,15 @@ class DirectCallMethod(TLAGenerationMethod):
                 cfg_content = artifacts.config or ""
 
                 try:
+                    spec_ext = self.backend.spec_extension or ".spec"
+                    module_basename = (task.spec_module or task.task_name) + spec_ext
                     with tempfile.TemporaryDirectory(prefix="direct_call_validate_") as td:
                         outcome = self.backend.validate_syntax(
                             spec=spec_content,
                             config=artifacts.config,
                             work_dir=Path(td),
                             timeout=self.validation_timeout,
+                            spec_filename=module_basename,
                         )
                     validate_ok = outcome.success
                     errors = list(outcome.syntax_errors) + list(outcome.semantic_errors)
@@ -202,7 +205,9 @@ class DirectCallMethod(TLAGenerationMethod):
     def _create_prompt(self, task: GenerationTask) -> str:
         from ...tasks.loader import get_task_loader
         task_loader = get_task_loader()
-        prompt_template = task_loader.get_task_prompt(task.task_name, self.name)
+        prompt_template = task_loader.get_task_prompt(
+            task.task_name, self.name, language=self.language,
+        )
 
         format_vars = {
             'language': task.language,

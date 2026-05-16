@@ -36,13 +36,21 @@ __all__ = [
 
 
 def _bootstrap():
-    """Register built-in backends. Called lazily on first registry lookup."""
-    from . import tla_plus  # noqa: F401  (registers on import)
-    try:
-        from . import alloy  # noqa: F401
-    except ImportError:
-        pass
-    try:
-        from . import pat  # noqa: F401
-    except ImportError:
-        pass
+    """
+    Auto-discover and import every backend module in this package.
+
+    Each `tla_eval/languages/<name>.py` other than the framework files
+    (base / registry / result_types / __init__) is imported, which gives
+    each backend module a chance to `register()` itself. ImportError is
+    NOT swallowed — a broken backend file should surface immediately.
+    """
+    import importlib
+    import pkgutil
+
+    framework_modules = {"base", "registry", "result_types"}
+    for mod_info in pkgutil.iter_modules(__path__):
+        if mod_info.ispkg or mod_info.name.startswith("_"):
+            continue
+        if mod_info.name in framework_modules:
+            continue
+        importlib.import_module(f"{__name__}.{mod_info.name}")

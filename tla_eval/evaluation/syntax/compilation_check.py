@@ -100,6 +100,7 @@ class CompilationCheckEvaluator(BaseEvaluator):
                 config=cfg_content,
                 work_dir=output_dir,
                 timeout=self.timeout,
+                spec_filename=spec_path.name,
             )
             logger.info(f"DEBUG: validate_syntax success={outcome.success}, "
                         f"syntax={len(outcome.syntax_errors)}, semantic={len(outcome.semantic_errors)}")

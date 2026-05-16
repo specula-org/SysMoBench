@@ -759,7 +759,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
                  language: str = "TLA+",
                  tlc_timeout: int = 60,
                  templates_dir: Optional[str] = None,
-                 translator_type: str = "direct",
+                 translator_type: str = "agent",
                  agent_timeout: int = 600):
         """
         translator_type: "direct" → single LLM call ("claude"); "agent" →
@@ -842,52 +842,35 @@ class ManualInvariantEvaluator(BaseEvaluator):
         if spec_file_path and Path(spec_file_path).exists():
             # Composite mode: Reuse existing spec file but copy to output directory
             logger.info(f"✓ Composite mode: Reusing existing spec file from runtime check: {spec_file_path}")
-            
-            # Read content from runtime check file
+            spec_ext = self.backend.spec_extension or ".spec"
             with open(spec_file_path, 'r', encoding='utf-8') as f:
                 tla_content = f.read()
-            
-            # Create copy in invariant verification output directory
-            spec_file = output_dir / f"{spec_module or task_name}.tla"
+            spec_file = output_dir / f"{spec_module or task_name}{spec_ext}"
             with open(spec_file, 'w', encoding='utf-8') as f:
                 f.write(tla_content)
             result.specification_file = str(spec_file)
             logger.info(f"✓ Copied spec file to invariant verification directory: {spec_file}")
         else:
-            # Standalone mode: Create new spec file
+            # Standalone mode: extract artifacts from model output, then write.
             logger.info("✓ Standalone mode: Creating new spec file")
-            spec_file = output_dir / f"{spec_module or task_name}.tla"
+            spec_ext = self.backend.spec_extension or ".spec"
+            artifacts = self.backend.extract_artifacts(generation_result.generated_text)
+            tla_content = artifacts.spec
+            spec_file = output_dir / f"{spec_module or task_name}{spec_ext}"
             with open(spec_file, 'w', encoding='utf-8') as f:
-                f.write(generation_result.generated_text)
+                f.write(tla_content)
             result.specification_file = str(spec_file)
-            tla_content = generation_result.generated_text
         
         try:
-            from ...languages.base import InvariantTemplate as GenericTemplate
-
-            # Step 1: load templates via backend-aware loader
+            # Step 1: load templates via backend-aware generic loader.
+            # The legacy InvariantTemplateLoader was hardcoded to the `tla_example`
+            # YAML key and would KeyError on Alloy/PAT templates that use
+            # `alloy_example` / `csp_example`. Always use the generic loader and
+            # ask the backend which YAML field holds its per-language snippet.
             logger.info("Step 1: Loading invariant templates...")
-            loader = InvariantTemplateLoader(self.templates_dir)
-            example_field = self.backend.invariant_example_field()
-            try:
-                templates_raw = loader.load_task_invariants(task_name)
-                # Legacy InvariantTemplate has `tla_example`; convert to generic.
-                generic_templates: List[GenericTemplate] = [
-                    GenericTemplate(
-                        name=t.name,
-                        type=t.type,
-                        natural_language=t.natural_language,
-                        formal_description=t.formal_description,
-                        example=getattr(t, "tla_example", "") or "",
-                    )
-                    for t in templates_raw
-                ]
-            except FileNotFoundError:
-                # Backend may want a different template root (e.g. Alloy).
-                # Build a generic loader on the spot.
-                generic_templates = _load_generic_templates(
-                    self.templates_dir, task_name, example_field
-                )
+            generic_templates = _load_generic_templates(
+                self.templates_dir, task_name, self.backend.invariant_example_field()
+            )
 
             # Step 2: backend-driven translation
             logger.info(f"Step 2: Translating invariants ({self.translator_choice})...")
@@ -897,6 +880,7 @@ class ManualInvariantEvaluator(BaseEvaluator):
                 spec=tla_content,
                 task_name=task_name,
                 translator=self.translator_choice,
+                agent_timeout=self.agent_timeout,
             )
             result.invariant_generation_time = time.time() - t0
             result.invariant_generation_successful = translate_err is None and bool(translated_invariants)
