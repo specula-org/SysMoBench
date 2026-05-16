@@ -142,7 +142,7 @@ class TLAPlusBackend(LanguageBackend):
             raw_output=output,
             elapsed_seconds=time.time() - start,
             classification=None if ok else "tlc_failure",
-            error_message=None if ok else f"TLC exit {exit_code}",
+            error_message=None if ok else f"TLC failed with exit code {exit_code}",
         )
 
     def generate_default_config(

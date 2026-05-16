@@ -272,8 +272,8 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             get_configured_model(model_name)  # validate model exists in config
             logger.info(f"Loaded model: {model_name}")
 
-            method = get_method(method_name)
-            logger.info(f"Using method: {method_name}")
+            method = get_method(method_name, language=language)
+            logger.info(f"Using method: {method_name} (language={language})")
 
             start_time = time.time()
             generation_output = method.generate(task, model_name)

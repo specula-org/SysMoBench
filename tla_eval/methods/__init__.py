@@ -11,10 +11,10 @@ _METHODS = {
 
 
 def get_method(method_name: str, **kwargs) -> TLAGenerationMethod:
-    """Get a method instance by name."""
+    """Get a method instance by name. kwargs are forwarded to the constructor."""
     if method_name not in _METHODS:
         raise ValueError(f"Unknown method '{method_name}'. Available: {list(_METHODS.keys())}")
-    return _METHODS[method_name]()
+    return _METHODS[method_name](**kwargs)
 
 
 def list_available_methods() -> list:
