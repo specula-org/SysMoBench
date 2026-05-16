@@ -205,6 +205,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
                         traces_folder: Optional[str] = None,
                         spec_file: Optional[str] = None,
                         config_file: Optional[str] = None,
+                        language: str = "TLA+",
                         **metric_params) -> dict:
     """
     Run one (task, method, model, metric) cell.
@@ -297,7 +298,7 @@ def run_single_benchmark(task_name: str, method_name: str, model_name: str,
             return {"success": False, "error": "TLA+ generation failed"}
 
         filtered_params = filter_metric_params(metric, metric_params)
-        evaluator = create_evaluator(metric, **filtered_params)
+        evaluator = create_evaluator(metric, language=language, **filtered_params)
 
         evaluation_result = _call_evaluator_with_files(
             evaluator, generation_result, task_name, method_name, model_name,
@@ -351,6 +352,8 @@ Examples:
     parser.add_argument("--yes", action="store_true",
                        help="Skip the interactive cost confirmation for transition validation")
 
+    parser.add_argument("--language", default="TLA+",
+                       help="Specification language (default: TLA+). Available backends are auto-discovered.")
     parser.add_argument("--task", help="Task name")
     parser.add_argument("--method", help="Method name")
     parser.add_argument("--model", help="Model name")
@@ -442,6 +445,7 @@ Examples:
         traces_folder=args.traces_folder,
         spec_file=args.spec_file,
         config_file=args.config_file,
+        language=args.language,
         **metric_params,
     )
 

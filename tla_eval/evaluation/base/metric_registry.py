@@ -121,7 +121,7 @@ def get_available_metrics() -> List[str]:
     return [m.name for m in get_metric_registry().list_metrics()]
 
 
-def create_evaluator(metric_name: str, **kwargs):
+def create_evaluator(metric_name: str, language: str = "TLA+", **kwargs):
     """Instantiate the evaluator for `metric_name`, merging default params with overrides."""
     metric_info = get_metric_registry().get_metric(metric_name)
 
@@ -130,4 +130,12 @@ def create_evaluator(metric_name: str, **kwargs):
         kwargs["validation_timeout"] = kwargs.pop("tlc_timeout")
 
     params = {**metric_info.default_params, **kwargs}
+
+    # Forward `language` only to evaluators whose __init__ accepts it. The
+    # legacy ones (action_decomposition, coverage, runtime_coverage) don't.
+    import inspect
+    init_params = inspect.signature(metric_info.evaluator_class.__init__).parameters
+    if "language" in init_params:
+        params["language"] = language
+
     return metric_info.evaluator_class(**params)

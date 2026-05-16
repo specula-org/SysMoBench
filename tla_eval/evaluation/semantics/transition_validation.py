@@ -31,15 +31,23 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
 class TransitionValidationEvaluator(BaseEvaluator):
-    """Score a TLA+ spec against captured system traces, action by action."""
+    """
+    Phase 3 evaluator. Dispatches through a LanguageBackend. If the backend
+    exposes a direct (pre, action, post) validator, calls it. Otherwise falls
+    back to the agent-driven `scripts/launch_tv_eval.sh` flow (TLA+'s path).
+    """
 
     def __init__(self,
+                 language: str = "TLA+",
                  tv_agent: Optional[str] = None,
                  tv_model: Optional[str] = None,
                  tv_budget: float = 5.0,
                  tv_timeout: int = 1800,
                  workspace_root: Optional[str] = None):
         super().__init__(timeout=tv_timeout)
+        from ...languages import get as _get_backend
+        self.language = language
+        self.backend = _get_backend(language)
         self.tv_agent = tv_agent
         self.tv_model = tv_model
         self.tv_budget = tv_budget
@@ -75,10 +83,20 @@ class TransitionValidationEvaluator(BaseEvaluator):
 
         spec_dir = spec_path.parent
 
+        if self.backend.supports_direct_transition_validation:
+            # Direct path: hand control to the backend. Trace loading + windowing
+            # is the backend's responsibility (it knows the language semantics).
+            result.error_message = (
+                f"Direct transition validation for {self.language} is declared "
+                "supported but the evaluator wrapper for that path is not yet implemented."
+            )
+            logger.error(result.error_message)
+            return result
+
         logger.warning(
-            "Launching transition validation for %s — this runs an agent against the real system harness. "
+            "Launching transition validation for %s (%s) — agent path. "
             "Expect 30 min to several hours and roughly $1–4 in agent API spend.",
-            task_name,
+            task_name, self.language,
         )
 
         launcher = PROJECT_ROOT / "scripts" / "launch_tv_eval.sh"

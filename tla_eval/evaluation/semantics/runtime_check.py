@@ -484,28 +484,17 @@ class TLCRunner:
 
 class RuntimeCheckEvaluator(BaseEvaluator):
     """
-    Runtime Check Evaluator: Semantic evaluation for TLA+ specifications.
-    
-    This evaluator takes TLA+ specifications and performs:
-    1. TLC configuration generation from existing specifications
-    2. Model checking with TLC using specification's own invariants
+    Phase 2 evaluator. Dispatches through a LanguageBackend selected by the
+    `language` constructor argument (default "TLA+").
     """
-    
-    def __init__(self, tlc_timeout: int = 60):
-        """
-        Initialize runtime check evaluator.
-        
-        Args:
-            tlc_timeout: Timeout for TLC execution in seconds
-        """
+
+    def __init__(self, language: str = "TLA+", tlc_timeout: int = 60):
         super().__init__(timeout=tlc_timeout)
-        self.config_generator = ConfigGenerator()
-        # Create separate error statistics manager for this evaluator
-        self.error_stats_manager = get_experiment_error_statistics_manager()
-        # Create TLC runner with custom error statistics manager
-        self.tlc_runner = TLCRunner(timeout=tlc_timeout, error_stats_manager=self.error_stats_manager)
-    
-    def evaluate(self, 
+        from ...languages import get as _get_backend
+        self.language = language
+        self.backend = _get_backend(language)
+
+    def evaluate(self,
                 generation_result: GenerationResult,
                 task_name: str,
                 method_name: str,
@@ -513,207 +502,163 @@ class RuntimeCheckEvaluator(BaseEvaluator):
                 spec_module: str = None,
                 spec_file_path: Optional[str] = None,
                 config_file_path: Optional[str] = None) -> SemanticEvaluationResult:
-        """
-        Evaluate a TLA+ specification using model checking.
-        
-        Args:
-            generation_result: GenerationResult containing the TLA+ specification
-            task_name: Name of the task
-            method_name: Name of the generation method
-            model_name: Name of the model used
-            spec_module: Optional TLA+ module name
-            spec_file_path: Optional path to existing .tla file (use instead of generation_result)
-            config_file_path: Optional path to existing .cfg file (use instead of generating new one)
-            
-        Returns:
-            SemanticEvaluationResult with model checking results
-        """
-        logger.info(f"Runtime check evaluation: {task_name}/{method_name}/{model_name}")
-        
-        # Create structured output directory
+        logger.info(f"Runtime check evaluation ({self.language}): {task_name}/{method_name}/{model_name}")
+
         output_manager = get_output_manager()
         output_dir = output_manager.create_experiment_dir(
             metric="runtime_check",
             task=task_name,
             method=method_name,
-            model=model_name
+            model=model_name,
         )
         logger.info(f"Using output directory: {output_dir}")
-        
-        # Create evaluation result
+
         result = SemanticEvaluationResult(task_name, method_name, model_name)
-        
-        # Set generation time from the generation result metadata
         if hasattr(generation_result, 'metadata') and 'latency_seconds' in generation_result.metadata:
             result.generation_time = generation_result.metadata['latency_seconds']
-        
+
         try:
-            # Step 1: Determine input source and get TLA+ content
+            # Step 1: load spec content
             if spec_file_path and Path(spec_file_path).exists():
-                # Use existing spec file
                 logger.info(f"Using existing spec file: {spec_file_path}")
                 try:
                     with open(spec_file_path, 'r', encoding='utf-8') as f:
-                        tla_content = f.read()
+                        spec_content = f.read()
                 except Exception as e:
                     logger.error(f"Failed to read spec file: {e}")
                     result.error_message = f"Cannot read spec file: {e}"
                     return result
             else:
-                # Use generated content
                 if not generation_result.success:
                     logger.error("Generation failed, cannot perform semantic evaluation")
                     result.error_message = "Generation failed"
                     return result
-                
-                tla_content = generation_result.generated_text
-                if not tla_content.strip():
-                    logger.error("Empty TLA+ specification from generation result")
-                    result.error_message = "Empty specification"
-                    return result
-                
-                logger.info("✓ Specification content loaded from generation result")
-            
-            if not tla_content.strip():
-                logger.error("Empty TLA+ specification content")
+                spec_content = generation_result.generated_text
+
+            if not spec_content.strip():
+                logger.error("Empty specification content")
                 result.error_message = "Empty specification"
                 return result
-            
-            # Save specification to output directory for reference
+
             module_name = spec_module or task_name
-            spec_file_path = output_dir / f"{module_name}.tla"
-            with open(spec_file_path, 'w', encoding='utf-8') as f:
-                f.write(tla_content)
-            result.specification_file = str(spec_file_path)
-            
-            # Step 2: Skip invariant generation - use existing TLA+ specification directly
+            spec_ext = self.backend.spec_extension or ".spec"
+            on_disk_spec = output_dir / f"{module_name}{spec_ext}"
+            with open(on_disk_spec, 'w', encoding='utf-8') as f:
+                f.write(spec_content)
+            result.specification_file = str(on_disk_spec)
+
             logger.info("⏭️  Skipping invariant generation - using original specification without additional invariants")
-            
-            # The specification is already saved above in spec_file_path
-            logger.info(f"Original specification saved to: {spec_file_path}")
             result.invariant_generation_time = 0.0
             result.invariant_generation_successful = True
-            result.generated_invariants = []  # No generated invariants
+            result.generated_invariants = []
             result.invariant_generation_error = None
-            
-            # Step 3: Handle TLC configuration (use existing or generate new)
-            # First check if config_content is in metadata (from code_agent methods)
+
+            # Step 2: resolve config
+            cfg_ext = self.backend.config_extension
+            on_disk_cfg: Optional[Path] = None
             config_from_metadata = None
             if hasattr(generation_result, 'metadata') and generation_result.metadata:
                 config_from_metadata = generation_result.metadata.get("config_content")
 
-            if config_from_metadata:
-                # Use config from generation result metadata
-                logger.info("Using config from generation result metadata")
-                config = config_from_metadata
-
-                # Save config file to structured output directory
-                config_file_path = output_dir / f"{module_name}.cfg"
-                with open(config_file_path, 'w', encoding='utf-8') as f:
-                    f.write(config)
-
-                result.config_file_path = str(config_file_path)
+            if cfg_ext is None:
+                # Language has no separate config artifact.
                 result.config_generation_time = 0.0
                 result.config_generation_successful = True
                 result.config_generation_error = None
-                logger.info("✓ Using config from code agent output")
-
+            elif config_from_metadata:
+                logger.info("Using config from generation result metadata")
+                on_disk_cfg = output_dir / f"{module_name}{cfg_ext}"
+                with open(on_disk_cfg, 'w', encoding='utf-8') as f:
+                    f.write(config_from_metadata)
+                result.config_file_path = str(on_disk_cfg)
+                result.config_generation_time = 0.0
+                result.config_generation_successful = True
+                result.config_generation_error = None
             elif config_file_path and Path(config_file_path).exists():
-                # Use existing config file
                 logger.info(f"Using existing config file: {config_file_path}")
                 try:
                     with open(config_file_path, 'r', encoding='utf-8') as f:
-                        config = f.read()
-                    
-                    # Copy to output directory for consistency
-                    output_config_path = output_dir / f"{module_name}.cfg"
-                    with open(output_config_path, 'w', encoding='utf-8') as f:
-                        f.write(config)
-
-                    # Ensure downstream TLC runner uses the copied config in the output directory
-                    config_file_path = output_config_path
-                    result.config_file_path = str(output_config_path)
+                        cfg_text = f.read()
+                    on_disk_cfg = output_dir / f"{module_name}{cfg_ext}"
+                    with open(on_disk_cfg, 'w', encoding='utf-8') as f:
+                        f.write(cfg_text)
+                    result.config_file_path = str(on_disk_cfg)
                     result.config_generation_time = 0.0
                     result.config_generation_successful = True
                     result.config_generation_error = None
                     logger.info("✓ Using existing config file")
-                    
                 except Exception as e:
                     logger.error(f"Failed to read config file: {e}")
                     result.config_generation_error = f"Cannot read config file: {e}"
                     result.config_generation_successful = False
                     result.config_file_path = str(config_file_path)
-                    logger.warning(f"Preserving original config path despite read failure: {config_file_path}")
                     return result
             else:
-                # Generate new TLC configuration
-                logger.info("Generating TLC configuration...")
-                start_time = time.time()
-                
-                # Use empty invariants string since we're not generating new invariants
-                cfg_success, config, cfg_error = self.config_generator.generate_config(
-                    tla_content, "", task_name, model_name  # Empty invariants
+                logger.info(f"Generating fallback config via {self.language} backend...")
+                t0 = time.time()
+                cfg_ok, cfg_text, cfg_err = self.backend.generate_default_config(
+                    spec_content, task_name, model_name
                 )
-                
-                result.config_generation_time = time.time() - start_time
-                result.config_generation_successful = cfg_success
-                result.config_generation_error = cfg_error
-                
-                if not cfg_success:
-                    logger.error(f"✗ Config generation failed: {cfg_error}")
+                result.config_generation_time = time.time() - t0
+                result.config_generation_successful = cfg_ok
+                result.config_generation_error = cfg_err
+                if not cfg_ok:
+                    logger.error(f"✗ Config generation failed: {cfg_err}")
                     return result
-                
-                # Save config file to structured output directory
-                config_file_path = output_dir / f"{module_name}.cfg"
-                
-                logger.debug(f"Writing config to {config_file_path}, length: {len(config)} chars")
-                logger.debug(f"Config content preview: {config[:200]}...")
-                with open(config_file_path, 'w', encoding='utf-8') as f:
-                    f.write(config)
-                
-                result.config_file_path = str(config_file_path)
-                logger.info(f"✓ TLC config generated in {result.config_generation_time:.2f}s")
-            
-            # Step 4: Run TLC model checking
-            logger.info("Running TLC model checking...")
-            start_time = time.time()
-            
-            tlc_success, tlc_output, tlc_exit_code = self.tlc_runner.run_model_checking(
-                str(spec_file_path), str(config_file_path)
+                on_disk_cfg = output_dir / f"{module_name}{cfg_ext}"
+                with open(on_disk_cfg, 'w', encoding='utf-8') as f:
+                    f.write(cfg_text)
+                result.config_file_path = str(on_disk_cfg)
+                logger.info(f"✓ Config generated in {result.config_generation_time:.2f}s")
+
+            # Step 3: model check via backend
+            logger.info(f"Running {self.language} model checker...")
+            t0 = time.time()
+            mc_outcome = self.backend.run_model_checker(
+                spec_path=on_disk_spec,
+                config_path=on_disk_cfg,
+                work_dir=output_dir,
+                timeout=self.timeout,
             )
-            
-            result.model_checking_time = time.time() - start_time
-            result.model_checking_successful = tlc_success
-            result.model_checking_error = f"TLC failed with exit code {tlc_exit_code}" if not tlc_success else None
-            
-            if not tlc_success:
-                logger.error(f"✗ TLC model checking failed: {result.model_checking_error}")
+            result.model_checking_time = mc_outcome.elapsed_seconds or (time.time() - t0)
+            result.model_checking_successful = mc_outcome.success
+            result.model_checking_error = mc_outcome.error_message if not mc_outcome.success else None
+
+            if mc_outcome.success:
+                logger.info(f"✓ Model check completed in {result.model_checking_time:.2f}s")
             else:
-                logger.info(f"✓ TLC completed in {result.model_checking_time:.2f}s")
-            
-            # Step 5: Parse TLC results
-            violations, deadlock, states = self.tlc_runner.parse_tlc_output(tlc_output)
+                logger.error(f"✗ Model check failed: {result.model_checking_error}")
+
+            # Step 4: language-specific output parsing — TLA+ wants violations + deadlock + states.
+            # Other backends may not provide these; default to safe values.
+            violations: List[str] = []
+            deadlock = False
+            states = 0
+            if self.language.lower() in ("tla+", "tla", "tlaplus", "tla_plus"):
+                try:
+                    runner = TLCRunner(timeout=self.timeout)
+                    violations, deadlock, states = runner.parse_tlc_output(mc_outcome.raw_output)
+                except Exception as parse_err:
+                    logger.warning(f"TLC output parsing failed: {parse_err}")
             result.invariant_violations = violations
             result.deadlock_found = deadlock
             result.states_explored = states
-            
-            # Update overall success
+
             result.overall_success = (
                 result.invariant_generation_successful and
                 result.config_generation_successful and
                 result.model_checking_successful and
-                len(result.invariant_violations) == 0 and
-                not result.deadlock_found
+                not violations and
+                not deadlock
             )
-            
+
             if result.overall_success:
                 logger.info("✓ Semantic evaluation: PASS")
             else:
-                violations_msg = f"{len(violations)} violations" if violations else "no violations"
-                deadlock_msg = "deadlock found" if deadlock else "no deadlock"
-                logger.info(f"✗ Semantic evaluation: FAIL ({violations_msg}, {deadlock_msg})")
-            
-            # Save results and metadata to structured output directory
+                v_msg = f"{len(violations)} violations" if violations else "no violations"
+                d_msg = "deadlock found" if deadlock else "no deadlock"
+                logger.info(f"✗ Semantic evaluation: FAIL ({v_msg}, {d_msg})")
+
             result_data = {
                 "overall_success": result.overall_success,
                 "invariant_generation_successful": result.invariant_generation_successful,
@@ -729,37 +674,34 @@ class RuntimeCheckEvaluator(BaseEvaluator):
                 "errors": {
                     "invariant_generation_error": result.invariant_generation_error,
                     "config_generation_error": result.config_generation_error,
-                    "model_checking_error": result.model_checking_error
-                }
+                    "model_checking_error": result.model_checking_error,
+                },
             }
-            
             metadata = {
                 "task_name": task_name,
                 "method_name": method_name,
                 "model_name": model_name,
                 "metric": "runtime_check",
+                "language": self.language,
                 "specification_file": result.specification_file,
                 "config_file_path": result.config_file_path,
                 "tlc_timeout": self.timeout,
-                "evaluation_timestamp": time.time()
+                "evaluation_timestamp": time.time(),
             }
-            
             output_manager.save_result(output_dir, result_data, metadata)
-            
-            # Save error statistics for this runtime_check run
+
             try:
-                stats_file_path = self.error_stats_manager.save_experiment_statistics(
-                    output_dir=output_dir,
+                self.backend.finalize_run(
+                    work_dir=output_dir,
                     task_name=task_name,
                     method_name=method_name,
-                    model_name=model_name
+                    model_name=model_name,
                 )
-                logger.info(f"Error statistics saved to: {stats_file_path}")
-            except Exception as stats_error:
-                logger.error(f"Failed to save error statistics: {stats_error}")
-            
+            except Exception as e:
+                logger.error(f"backend.finalize_run failed: {e}")
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Semantic evaluation failed: {e}")
             result.model_checking_error = str(e)
@@ -806,14 +748,8 @@ class RuntimeCheckEvaluator(BaseEvaluator):
 
 
 # Convenience function for backward compatibility
-def create_runtime_check_evaluator(tlc_timeout: int = 60) -> RuntimeCheckEvaluator:
-    """
-    Factory function to create a runtime check evaluator.
-    
-    Args:
-        tlc_timeout: Timeout for TLC execution in seconds
-        
-    Returns:
-        RuntimeCheckEvaluator instance
-    """
-    return RuntimeCheckEvaluator(tlc_timeout=tlc_timeout)
+def create_runtime_check_evaluator(
+    tlc_timeout: int = 60,
+    language: str = "TLA+",
+) -> RuntimeCheckEvaluator:
+    return RuntimeCheckEvaluator(language=language, tlc_timeout=tlc_timeout)

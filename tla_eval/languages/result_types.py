@@ -43,6 +43,8 @@ class InvariantCaseResult:
     raw_output: str = ""
     elapsed_seconds: float = 0.0
     error_message: Optional[str] = None
+    metadata: Dict[str, object] = field(default_factory=dict)
+    """Backend-specific extras (e.g. TLA+ puts `states_explored` here)."""
 
 
 @dataclass

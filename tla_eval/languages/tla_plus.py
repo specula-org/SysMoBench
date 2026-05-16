@@ -34,6 +34,16 @@ class TLAPlusBackend(LanguageBackend):
     spec_extension = ".tla"
     config_extension = ".cfg"
 
+    def __init__(self):
+        # Per-instance TLC error-classification stats. A backend is a singleton
+        # under the registry, so this accumulates across phases within one run.
+        # Evaluators call finalize_run() to persist and then implicitly reset
+        # on next evaluate() via the manager's lifecycle.
+        from ..core.verification.error_statistics_manager import (
+            get_experiment_error_statistics_manager,
+        )
+        self._error_stats = get_experiment_error_statistics_manager()
+
     def check_available(self) -> Optional[str]:
         try:
             from ..utils.setup_utils import get_tla_tools_path, check_java_available
@@ -47,6 +57,28 @@ class TLAPlusBackend(LanguageBackend):
             return "Java not found in PATH; TLA+ tools require Java."
         return None
 
+    def finalize_run(
+        self,
+        work_dir: Path,
+        task_name: str,
+        method_name: str,
+        model_name: str,
+    ) -> None:
+        try:
+            self._error_stats.save_experiment_statistics(
+                output_dir=work_dir,
+                task_name=task_name,
+                method_name=method_name,
+                model_name=model_name,
+            )
+        except Exception as e:
+            logger.warning("TLA+ backend failed to save error_statistics.yaml: %s", e)
+        # Reset so the next evaluate() starts clean.
+        try:
+            self._error_stats.reset_experiment_statistics()
+        except Exception:
+            pass
+
     # -- Phase 1 -----------------------------------------------------------
 
     def validate_syntax(
@@ -58,7 +90,7 @@ class TLAPlusBackend(LanguageBackend):
     ) -> SyntaxOutcome:
         from ..core.verification.validators import TLAValidator
 
-        validator = TLAValidator(timeout=timeout)
+        validator = TLAValidator(timeout=timeout, error_stats_manager=self._error_stats)
         start = time.time()
         try:
             result = validator.validate_specification(spec)
@@ -93,7 +125,7 @@ class TLAPlusBackend(LanguageBackend):
                 error_message="TLA+ runtime check requires a .cfg config; none was provided.",
             )
 
-        runner = TLCRunner(timeout=timeout)
+        runner = TLCRunner(timeout=timeout, error_stats_manager=self._error_stats)
         start = time.time()
         try:
             ok, output, exit_code = runner.run_model_checking(
@@ -112,6 +144,17 @@ class TLAPlusBackend(LanguageBackend):
             classification=None if ok else "tlc_failure",
             error_message=None if ok else f"TLC exit {exit_code}",
         )
+
+    def generate_default_config(
+        self,
+        spec: str,
+        task_name: str,
+        model_name: Optional[str],
+    ) -> Tuple[bool, str, Optional[str]]:
+        from ..evaluation.semantics.runtime_check import ConfigGenerator
+
+        generator = ConfigGenerator()
+        return generator.generate_config(spec, "", task_name, model_name or "claude")
 
     # -- Phase 4 -----------------------------------------------------------
 
@@ -234,7 +277,7 @@ class TLAPlusBackend(LanguageBackend):
                 tlc_ok, tlc_output, _exit = evaluator.tlc_runner.run_model_checking(
                     str(spec_file), str(cfg_file), record_stats=False, use_deadlock_flag=True
                 )
-                violations, deadlock, _states = evaluator.tlc_runner.parse_tlc_output(tlc_output)
+                violations, deadlock, states = evaluator.tlc_runner.parse_tlc_output(tlc_output)
                 success = tlc_ok and not violations and not deadlock
                 outcome.cases.append(
                     InvariantCaseResult(
@@ -246,6 +289,7 @@ class TLAPlusBackend(LanguageBackend):
                         error_message=None
                         if success
                         else f"TLC: {len(violations)} violations, deadlock={deadlock}",
+                        metadata={"states_explored": states, "violations": list(violations), "deadlock": deadlock},
                     )
                 )
             except Exception as e:

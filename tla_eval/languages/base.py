@@ -145,6 +145,21 @@ class LanguageBackend(ABC):
     ) -> ModelCheckOutcome:
         """Run the language's model checker on a spec already on disk."""
 
+    def generate_default_config(
+        self,
+        spec: str,
+        task_name: str,
+        model_name: Optional[str],
+    ) -> Tuple[bool, str, Optional[str]]:
+        """
+        Produce a fallback config when the model didn't emit one.
+
+        Returns (success, config_text, error_message). Default: success with
+        empty config — for languages where Phase 2 doesn't need a separate
+        config file (Alloy, PAT). TLA+ overrides to drive ConfigGenerator.
+        """
+        return True, "", None
+
     # ---- Phase 4: expert-invariant verification ---------------------------
 
     def invariant_template_dirname(self) -> str:
@@ -206,6 +221,22 @@ class LanguageBackend(ABC):
         are aligned by name; an entry in `templates` without a matching
         `translated` entry should be reported as a translation failure.
         """
+
+    # ---- per-run lifecycle (optional) -------------------------------------
+
+    def finalize_run(
+        self,
+        work_dir: Path,
+        task_name: str,
+        method_name: str,
+        model_name: str,
+    ) -> None:
+        """
+        Called once per evaluator.evaluate() invocation, after all phases.
+        Backends may persist per-run reports here (e.g. TLA+ writes
+        error_statistics.yaml). Default: no-op.
+        """
+        return None
 
     # ---- Phase 3: transition validation (optional) ------------------------
 

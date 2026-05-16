@@ -751,41 +751,38 @@ class StaticConfigGenerator:
 
 class ManualInvariantEvaluator(BaseEvaluator):
     """
-    Manual Invariant Evaluator: Phase 3 evaluation for TLA+ specifications.
-    
-    This evaluator implements the third phase of evaluation:
-    1. Load expert-written invariant templates
-    2. Translate templates to specific TLA+ specification (using Claude)
-    3. Run TLC model checking for each invariant (using static .cfg generation)
-    4. Report detailed results
+    Phase 4 evaluator. Dispatches translation and per-invariant checking
+    through a LanguageBackend selected by `language` (default "TLA+").
     """
-    
-    def __init__(self, tlc_timeout: int = 60, templates_dir: str = "data/invariant_templates",
-                 translator_type: str = "direct", agent_timeout: int = 600):
-        """
-        Initialize manual invariant evaluator.
 
-        Args:
-            tlc_timeout: Timeout for TLC execution in seconds
-            templates_dir: Directory containing invariant templates
-            translator_type: Type of translator to use:
-                - "direct": Single LLM call (default, faster)
-                - "agent": Claude Code agent (higher quality, slower)
-            agent_timeout: Timeout for agent execution in seconds (only used if translator_type="agent")
+    def __init__(self,
+                 language: str = "TLA+",
+                 tlc_timeout: int = 60,
+                 templates_dir: Optional[str] = None,
+                 translator_type: str = "direct",
+                 agent_timeout: int = 600):
+        """
+        translator_type: "direct" → single LLM call ("claude"); "agent" →
+        Claude Code agent ("claude-code"). Maps to the backend's translator
+        argument.
         """
         super().__init__(timeout=tlc_timeout)
-        self.template_loader = InvariantTemplateLoader(templates_dir)
+        from ...languages import get as _get_backend
+        self.language = language
+        self.backend = _get_backend(language)
 
-        # Choose translator based on type
-        if translator_type == "agent":
-            logger.info("Using AgentInvariantTranslator for invariant translation")
-            self.translator = AgentInvariantTranslator(timeout=agent_timeout)
-        else:
-            logger.info("Using InvariantTranslator (direct LLM call) for invariant translation")
-            self.translator = InvariantTranslator()
+        # Resolve templates dir from backend default if caller didn't override.
+        if templates_dir is None:
+            templates_dir = f"data/{self.backend.invariant_template_dirname()}"
+        self.templates_dir = templates_dir
 
+        # Keep these for callers (test_single_invariant uses them).
         self.static_config_generator = StaticConfigGenerator()
         self.tlc_runner = TLCRunner(timeout=tlc_timeout)
+
+        # "direct" / "agent" → backend translator selector
+        self.translator_choice = "claude-code" if translator_type == "agent" else "claude"
+        self.agent_timeout = agent_timeout
     
     def evaluate(self, 
                 generation_result: GenerationResult,
@@ -865,148 +862,148 @@ class ManualInvariantEvaluator(BaseEvaluator):
             tla_content = generation_result.generated_text
         
         try:
-            # Step 1: Load invariant templates
+            from ...languages.base import InvariantTemplate as GenericTemplate
+
+            # Step 1: load templates via backend-aware loader
             logger.info("Step 1: Loading invariant templates...")
-            templates = self.template_loader.load_task_invariants(task_name)
-            
-            # Step 2: Translate all invariants in one LLM call
-            logger.info("Step 2: Translating invariants to specification...")
-            translation_start = time.time()
-            success, translated_invariants, error = self.translator.translate_all_invariants(
-                templates, tla_content, task_name, model_name
+            loader = InvariantTemplateLoader(self.templates_dir)
+            example_field = self.backend.invariant_example_field()
+            try:
+                templates_raw = loader.load_task_invariants(task_name)
+                # Legacy InvariantTemplate has `tla_example`; convert to generic.
+                generic_templates: List[GenericTemplate] = [
+                    GenericTemplate(
+                        name=t.name,
+                        type=t.type,
+                        natural_language=t.natural_language,
+                        formal_description=t.formal_description,
+                        example=getattr(t, "tla_example", "") or "",
+                    )
+                    for t in templates_raw
+                ]
+            except FileNotFoundError:
+                # Backend may want a different template root (e.g. Alloy).
+                # Build a generic loader on the spot.
+                generic_templates = _load_generic_templates(
+                    self.templates_dir, task_name, example_field
+                )
+
+            # Step 2: backend-driven translation
+            logger.info(f"Step 2: Translating invariants ({self.translator_choice})...")
+            t0 = time.time()
+            translated_invariants, translate_err = self.backend.translate_invariants(
+                templates=generic_templates,
+                spec=tla_content,
+                task_name=task_name,
+                translator=self.translator_choice,
             )
-            
-            result.invariant_generation_time = time.time() - translation_start
-            result.invariant_generation_successful = success
-            
-            if not success:
-                result.invariant_generation_error = error
+            result.invariant_generation_time = time.time() - t0
+            result.invariant_generation_successful = translate_err is None and bool(translated_invariants)
+
+            if not result.invariant_generation_successful:
+                result.invariant_generation_error = translate_err or "No invariants translated"
                 result.overall_success = False
                 return result
-            
             logger.info(f"Successfully translated {len(translated_invariants)} invariants")
-            
-            # Step 2.5: Get or generate clean base config
-            if config_file_path and Path(config_file_path).exists():
-                # Composite mode: Reuse existing config file and copy base config
-                logger.info(f"Step 2.5: Using existing config file from runtime check: {config_file_path}")
-                with open(config_file_path, 'r', encoding='utf-8') as f:
-                    base_config = f.read()
-                
-                # Also save a copy of the base config to the invariant verification output directory
-                base_config_file = output_dir / f"{spec_module or task_name}.cfg"
-                with open(base_config_file, 'w', encoding='utf-8') as f:
-                    f.write(base_config)
-                logger.info(f"✓ Reusing config file from runtime check and copied to: {base_config_file}")
-            elif base_config_content:
-                # Use provided base config content
-                logger.info("Step 2.5: Using provided base configuration content...")
-                base_config = base_config_content
-                logger.info("✓ Reusing base configuration content")
+
+            # Step 2.5: resolve base config (TLA+-shaped; other backends may produce empty)
+            base_config: Optional[str] = None
+            cfg_ext = self.backend.config_extension
+            if cfg_ext is not None:
+                if config_file_path and Path(config_file_path).exists():
+                    logger.info(f"Step 2.5: Reusing config from runtime check: {config_file_path}")
+                    with open(config_file_path, 'r', encoding='utf-8') as f:
+                        base_config = f.read()
+                    base_config_file = output_dir / f"{spec_module or task_name}{cfg_ext}"
+                    with open(base_config_file, 'w', encoding='utf-8') as f:
+                        f.write(base_config)
+                elif base_config_content:
+                    logger.info("Step 2.5: Using provided base config content")
+                    base_config = base_config_content
+                else:
+                    logger.info("Step 2.5: Generating clean base config...")
+                    base_config = self.static_config_generator._get_base_config(
+                        tla_content, task_name, model_name
+                    )
+                    if not base_config:
+                        logger.error("Failed to generate base configuration")
+                        result.config_generation_error = "Failed to generate base configuration"
+                        result.overall_success = False
+                        return result
+
+                base_config_path = output_dir / f"{spec_module or task_name}{cfg_ext}"
+                if not base_config_path.exists():
+                    with open(base_config_path, 'w', encoding='utf-8') as f:
+                        f.write(base_config)
             else:
-                # Standalone mode: Generate clean base config
-                logger.info("Step 2.5: Generating clean base configuration...")
-                base_config = self.static_config_generator._get_base_config(
-                    tla_content,  # Use the appropriate TLA content
-                    task_name, 
-                    model_name
-                )
-                
-                if not base_config:
-                    logger.error("Failed to generate base configuration")
-                    result.config_generation_error = "Failed to generate base configuration"
-                    result.overall_success = False
-                    return result
-                
-                logger.info("✓ Clean base configuration generated successfully")
-            
-            # Step 3: Test each invariant individually  
-            logger.info("Step 3: Testing invariants with TLC...")
-            invariant_results = []
-            
-            for i, template in enumerate(templates, 1):
-                if template.name not in translated_invariants:
-                    logger.warning(f"Invariant {template.name} was not translated, skipping")
-                    continue
-                
-                logger.info(f"=== TESTING INVARIANT {i}/{len(templates)}: {template.name} ===")
-                invariant_test_result = self._test_single_invariant(
-                    template, translated_invariants[template.name],
-                    tla_content, output_dir, spec_module or task_name,
-                    task_name, model_name, base_config
-                )
-                
-                # Print detailed results for each invariant test
-                logger.info(f"INVARIANT {i} RESULT: {template.name}")
-                logger.info(f"  Success: {invariant_test_result.success}")
-                logger.info(f"  States explored: {invariant_test_result.states_explored}")
-                logger.info(f"  Verification time: {invariant_test_result.verification_time:.2f}s")
-                if invariant_test_result.error_message:
-                    logger.info(f"  Error: {invariant_test_result.error_message}")
-                logger.info(f"  Translated invariant: {invariant_test_result.translated_invariant}")
-                logger.info(f"  TLC OUTPUT START ===")
-                logger.info(invariant_test_result.tlc_output)
-                logger.info(f"  TLC OUTPUT END ===")
-                logger.info("")
-                
-                invariant_results.append(invariant_test_result)
-            
-            # Step 4: Aggregate results
-            result.model_checking_successful = any(r.success for r in invariant_results)
-            result.model_checking_time = sum(r.verification_time for r in invariant_results)
-            
-            # Set overall success - all invariants must pass
-            passed_count = sum(1 for r in invariant_results if r.success)
+                base_config_path = None
+
+            # Step 3: backend checks each invariant
+            logger.info(f"Step 3: Checking invariants via {self.language} backend...")
+            outcome = self.backend.check_invariants(
+                spec_path=Path(result.specification_file),
+                config_path=base_config_path,
+                templates=generic_templates,
+                translated=translated_invariants,
+                work_dir=output_dir,
+                timeout=self.timeout,
+            )
+
+            invariant_results = outcome.cases
+            result.model_checking_successful = any(c.success for c in invariant_results)
+            result.model_checking_time = sum(c.elapsed_seconds for c in invariant_results)
+
+            passed_count = sum(1 for c in invariant_results if c.success)
             total_count = len(invariant_results)
-            
             result.overall_success = (
                 result.invariant_generation_successful and
                 result.model_checking_successful and
                 total_count > 0 and
-                passed_count == total_count  # All invariants must pass
+                passed_count == total_count
             )
-            
-            # Store detailed results
+
             result.custom_data = {
                 "invariant_results": [
                     {
-                        "name": r.name,
-                        "success": r.success,
-                        "states_explored": r.states_explored,
-                        "verification_time": r.verification_time,
-                        "error_message": r.error_message
+                        "name": c.name,
+                        "success": c.success,
+                        "states_explored": c.metadata.get("states_explored", 0),
+                        "verification_time": c.elapsed_seconds,
+                        "error_message": c.error_message,
                     }
-                    for r in invariant_results
+                    for c in invariant_results
                 ],
-                "total_invariants": len(templates),
+                "total_invariants": len(generic_templates),
                 "translated_invariants": len(translated_invariants),
-                "passed_invariants": sum(1 for r in invariant_results if r.success),
-                "failed_invariants": sum(1 for r in invariant_results if not r.success)
+                "passed_invariants": passed_count,
+                "failed_invariants": total_count - passed_count,
             }
-            
-            # Log detailed summary
-            passed = result.custom_data["passed_invariants"] 
-            total = len(invariant_results)
-            
+
             logger.info("=== MANUAL INVARIANT VERIFICATION FINAL SUMMARY ===")
-            logger.info(f"Total invariants tested: {total}")
-            logger.info(f"Passed invariants: {passed}")
-            logger.info(f"Failed invariants: {total - passed}")
-            
-            # List all results by name
-            for i, inv_result in enumerate(invariant_results, 1):
-                status = "✓ PASS" if inv_result.success else "✗ FAIL"
-                logger.info(f"  {i}. {inv_result.name}: {status}")
-            
-            # Show final judgment logic
+            logger.info(f"Total invariants tested: {total_count}")
+            logger.info(f"Passed invariants: {passed_count}")
+            logger.info(f"Failed invariants: {total_count - passed_count}")
+            for i, c in enumerate(invariant_results, 1):
+                status = "✓ PASS" if c.success else "✗ FAIL"
+                logger.info(f"  {i}. {c.name}: {status}")
             logger.info(f"Invariant generation successful: {result.invariant_generation_successful}")
             logger.info(f"Model checking successful: {result.model_checking_successful}")
-            logger.info(f"All invariants passed: {passed == total}")
+            logger.info(f"All invariants passed: {passed_count == total_count}")
             logger.info(f"Overall success: {result.overall_success}")
-            logger.info(f"Manual invariant testing: {passed}/{total} invariants passed")
-            
+            logger.info(f"Manual invariant testing: {passed_count}/{total_count} invariants passed")
+
+            try:
+                self.backend.finalize_run(
+                    work_dir=output_dir,
+                    task_name=task_name,
+                    method_name=method_name,
+                    model_name=model_name,
+                )
+            except Exception as e:
+                logger.error(f"backend.finalize_run failed: {e}")
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Manual invariant evaluation failed: {e}")
             result.invariant_generation_error = str(e)
@@ -1131,17 +1128,36 @@ class ManualInvariantEvaluator(BaseEvaluator):
         return "semantic_invariant_verification"
 
 
-# Convenience function for backward compatibility
-def create_manual_invariant_evaluator(tlc_timeout: int = 60, 
-                                     templates_dir: str = "data/invariant_templates") -> ManualInvariantEvaluator:
-    """
-    Factory function to create a manual invariant evaluator.
-    
-    Args:
-        tlc_timeout: Timeout for TLC execution in seconds
-        templates_dir: Directory containing invariant templates
-        
-    Returns:
-        ManualInvariantEvaluator instance
-    """
-    return ManualInvariantEvaluator(tlc_timeout=tlc_timeout, templates_dir=templates_dir)
+def _load_generic_templates(templates_dir: str, task_name: str, example_field: str):
+    """Generic loader for `data/<lang>_invariant_templates/<task>/invariants.yaml`."""
+    from ...languages.base import InvariantTemplate as GenericTemplate
+
+    path = Path(templates_dir) / task_name / "invariants.yaml"
+    if not path.exists():
+        raise FileNotFoundError(f"Invariants file not found: {path}")
+    with open(path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+    out: List = []
+    for entry in data.get('invariants', []):
+        out.append(
+            GenericTemplate(
+                name=entry['name'],
+                type=entry['type'],
+                natural_language=entry['natural_language'],
+                formal_description=entry['formal_description'],
+                example=entry.get(example_field, ""),
+            )
+        )
+    return out
+
+
+def create_manual_invariant_evaluator(
+    tlc_timeout: int = 60,
+    templates_dir: Optional[str] = None,
+    language: str = "TLA+",
+) -> ManualInvariantEvaluator:
+    return ManualInvariantEvaluator(
+        language=language,
+        tlc_timeout=tlc_timeout,
+        templates_dir=templates_dir,
+    )
