@@ -218,19 +218,26 @@ class TaskLoader:
         Resolution order:
           1. tasks/<task>/prompts/<lang>/<method>.txt
           2. tasks/<task>/prompts/<method>_<lang>.txt
-          3. tasks/<task>/prompts/<method>.txt           (TLA+ default / legacy)
+          3. tasks/<task>/prompts/<method>.txt
+             — only consulted when `language` is TLA+ (or unspecified). For
+             non-TLA+ languages, missing prompts are a hard error; we never
+             silently fall back to a TLA+ prompt because that would send the
+             model the wrong instructions and silently generate TLA+ output
+             under a `--language SAM` (etc.) banner.
 
         `<lang>` is normalized to lowercase with '+' stripped (e.g. "TLA+"
         -> "tla", "Alloy" -> "alloy").
         """
         lang_key = language.lower().replace("+", "").strip() if language else ""
         prompts_dir = self.tasks_dir / task_name / "prompts"
+        is_tla = (not lang_key) or lang_key in ("tla", "tla_plus", "tlaplus")
 
         candidates: List[Path] = []
-        if lang_key and lang_key not in ("tla", "tla_plus", "tlaplus"):
+        if not is_tla:
             candidates.append(prompts_dir / lang_key / f"{method_name}.txt")
             candidates.append(prompts_dir / f"{method_name}_{lang_key}.txt")
-        candidates.append(prompts_dir / f"{method_name}.txt")
+        else:
+            candidates.append(prompts_dir / f"{method_name}.txt")
 
         for path in candidates:
             if path.exists():
@@ -239,7 +246,9 @@ class TaskLoader:
 
         raise FileNotFoundError(
             f"Prompt file not found for task='{task_name}', method='{method_name}', "
-            f"language='{language}'. Tried: " + ", ".join(str(p) for p in candidates)
+            f"language='{language}'. Tried: " + ", ".join(str(p) for p in candidates) +
+            (". Non-TLA+ languages do not fall back to the TLA+ prompt; add a "
+             f"per-language prompt under prompts/{lang_key}/ to fix." if not is_tla else "")
         )
     
     def list_available_tasks(self) -> List[str]:
