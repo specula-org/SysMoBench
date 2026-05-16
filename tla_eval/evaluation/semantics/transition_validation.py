@@ -145,10 +145,20 @@ class TransitionValidationEvaluator(BaseEvaluator):
 
         workspace = Path(candidates[0])
         result.workspace_dir = str(workspace)
-        results_path = workspace / "reports" / "tv_results.json"
 
-        if not results_path.exists():
-            result.error_message = f"Workspace exists but {results_path} is missing"
+        # The tv-eval skill historically wrote `tv_results.json` but now emits
+        # `tlc_results.json` with a flatter schema. Accept either filename.
+        reports_dir = workspace / "reports"
+        results_path = next(
+            (reports_dir / name for name in ("tv_results.json", "tlc_results.json")
+             if (reports_dir / name).exists()),
+            None,
+        )
+        if results_path is None:
+            result.error_message = (
+                f"Workspace exists but neither {reports_dir}/tv_results.json nor "
+                f"{reports_dir}/tlc_results.json is present"
+            )
             logger.error(result.error_message)
             return result
 
@@ -160,11 +170,22 @@ class TransitionValidationEvaluator(BaseEvaluator):
             logger.error(result.error_message)
             return result
 
+        # Two schemas are accepted:
+        #   legacy: {action: {stats: {passed, total, pass_rate}, ...}}
+        #   current: {action: {passes, total, rate, ...}}
         for action, info in tv_data.items():
-            stats = info.get("stats", {})
-            result.total_passed += stats.get("passed", 0)
-            result.total_windows += stats.get("total", 0)
-            result.per_action_pass_rates[action] = stats.get("pass_rate", 0.0)
+            stats = info.get("stats") if isinstance(info, dict) else None
+            if stats:
+                passed = stats.get("passed", 0)
+                total = stats.get("total", 0)
+                pass_rate = stats.get("pass_rate", 0.0)
+            else:
+                passed = info.get("passes", info.get("passed", 0))
+                total = info.get("total", 0)
+                pass_rate = info.get("rate", info.get("pass_rate", 0.0))
+            result.total_passed += passed
+            result.total_windows += total
+            result.per_action_pass_rates[action] = pass_rate
 
         if result.total_windows > 0:
             result.score = result.total_passed / result.total_windows
