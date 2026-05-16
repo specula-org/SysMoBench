@@ -6,8 +6,7 @@ language-neutral; everything specific to TLA+, Alloy, PAT, or any future
 language lives behind a single `LanguageBackend` strategy class.
 
 Adding a new language means writing one `LanguageBackend` subclass and
-registering it. No evaluator code, no CLI plumbing, no per-task duplication
-is required.
+registering it. No evaluator code or CLI plumbing is required.
 
 > **Package-name note.** The Python package is still called `tla_eval/` for
 > historical reasons. It is now language-agnostic and will be renamed in a
@@ -60,8 +59,9 @@ register(MyLangBackend())
 ```
 
 Drop the file as `tla_eval/languages/<mylang>.py`. The package's lazy
-bootstrap in `tla_eval/languages/__init__.py` auto-imports it on first
-registry lookup; add one line there if you want it picked up unconditionally.
+bootstrap in `tla_eval/languages/__init__.py` auto-discovers and imports
+backend modules on first registry lookup. No `__init__.py` edit is required.
+Import errors are not swallowed; a broken backend module fails fast.
 
 The runtime resolves backends from `--language` (case-insensitive, `+`
 stripped). After registration `--language MyLang` selects yours; no other
@@ -90,8 +90,9 @@ def check_available(self) -> Optional[str]:
     """Return None when tools are ready, or a one-line explanation of what's missing."""
 ```
 
-The CLI doesn't call this automatically yet, but it's a clean place to
-front-load "is alloy.jar present?" / "is mono installed?" probes. Both
+`scripts/run_benchmark.py` calls this for the selected backend before
+generation/evaluator setup, so missing tools are reported as environment
+problems instead of being fed into a correction loop as spec errors. Both
 `AlloyBackend.check_available` and `PATBackend.check_available` are good
 references — they surface tool-install gaps with actionable messages.
 
@@ -115,12 +116,17 @@ def validate_syntax(
     config: Optional[str],
     work_dir: Path,
     timeout: int,
+    spec_filename: Optional[str] = None,
 ) -> SyntaxOutcome: ...
 ```
 
 Run your parser / static checker. Populate `success`, `syntax_errors`,
 `semantic_errors`, `raw_output`, `elapsed_seconds`. `work_dir` is an
 output directory the evaluator owns — feel free to drop temp files there.
+If `spec_filename` is provided, write/check the spec at
+`work_dir / spec_filename` so filename-sensitive parsers see the same name
+the evaluator will persist. TLA+ uses this to preserve SANY's module-name vs
+filename check.
 
 References: `tla_plus.py:validate_syntax` (delegates to `TLAValidator`),
 `alloy.py:validate_syntax` (shells out to `AlloyCliValidator` Java helper),
@@ -203,6 +209,7 @@ def translate_invariants(
     spec: str,
     task_name: str,
     translator: str = "claude-code",
+    agent_timeout: Optional[int] = None,
 ) -> Tuple[Dict[str, str], Optional[str]]: ...
 
 def check_invariants(
@@ -230,8 +237,13 @@ your language using whichever translator backend the caller asked for:
 
 You don't have to support all four; return `({}, "translator '<x>' not
 supported by <Lang> backend")` for modes you skip. TLA+ supports
-`claude-code` and `claude`; Alloy historically used GPT-5 direct call;
-PAT used Claude direct call.
+`claude-code`, `codex`, `claude`, and explicit direct-model names. Alloy
+maps the generic agent defaults to its historical GPT-5 direct call; PAT maps
+them to its historical Claude direct call.
+
+`agent_timeout` is passed through by Phase 4 for agent-based translators.
+Ignore it for direct API translators unless your backend has an equivalent
+timeout knob.
 
 **`check_invariants`** runs each translated invariant through the model
 checker and returns one `InvariantCaseResult` per template. The `templates`
@@ -306,9 +318,16 @@ system under test and are language-agnostic — your backend ignores them.
 
 Per-language prompts go under `tla_eval/tasks/<system>/prompts/<lang>/`
 (see `tla_eval/tasks/spin/prompts/alloy/` for the layout). The task
-loader looks up the prompt file by method name; if you add a `<lang>/`
-subdirectory the loader resolution may need a small tweak — file an issue
-or PR if you find it doesn't pick up your language's variant.
+loader normalizes `<lang>` to lowercase and strips `+`, then resolves prompts
+in this order:
+
+1. `tla_eval/tasks/<system>/prompts/<lang>/<method>.txt`
+2. `tla_eval/tasks/<system>/prompts/<method>_<lang>.txt`
+
+For TLA+ only, the legacy prompt
+`tla_eval/tasks/<system>/prompts/<method>.txt` is also accepted. Non-TLA+
+languages do not fall back to that legacy TLA+ prompt; a missing
+per-language prompt is a hard error.
 
 Tell the model in your prompt:
 
