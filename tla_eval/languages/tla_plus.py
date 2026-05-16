@@ -202,13 +202,21 @@ class TLAPlusBackend(LanguageBackend):
         ]
 
         if translator == "claude-code":
+            # AgentInvariantTranslator routes via the claude-code CLI;
+            # `_select_agent_cli` keys on the model_name string. Pass "sonnet"
+            # (a valid claude-code model alias) so it picks the claude CLI
+            # AND invokes a model alias the CLI actually accepts.
             agent_kwargs = {"timeout": agent_timeout} if agent_timeout is not None else {}
             agent = AgentInvariantTranslator(**agent_kwargs)
             success, translated, error = agent.translate_all_invariants(
-                legacy, spec, task_name, "claude"
+                legacy, spec, task_name, "sonnet"
             )
         elif translator == "codex":
-            return {}, "translator 'codex' not yet supported by TLA+ backend (AgentInvariantTranslator is claude-code only)"
+            agent_kwargs = {"timeout": agent_timeout} if agent_timeout is not None else {}
+            agent = AgentInvariantTranslator(**agent_kwargs)
+            success, translated, error = agent.translate_all_invariants(
+                legacy, spec, task_name, "codex"
+            )
         else:
             # "claude" or an explicit model name → direct API call
             direct = InvariantTranslator()
