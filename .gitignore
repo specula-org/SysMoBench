@@ -99,8 +99,8 @@ audit/
 logs/
 reports/
 
-# WV evaluation workspaces (one dir per sub-agent run)
-wv-workspaces/
+# TV (transition validation) evaluation workspaces (one dir per sub-agent run)
+tv-workspaces/
 
 # Internal spec archive (re-buildable from scripts/collect_specs.py)
 specs_collection/
