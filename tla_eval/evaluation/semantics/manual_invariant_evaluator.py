@@ -501,8 +501,16 @@ Write a JSON file to `./output/invariants.json` with this exact format:
                 cmd.extend(["-m", model])
             cmd.append("Read CODEX.md and complete the invariant translation task.")
         else:
-            # Determine model to use for Claude Code
-            model = model_name if model_name and model_name != "default" else "sonnet"
+            # The `claude` CLI accepts model codes (sonnet/opus/haiku) or
+            # full model IDs — not SysMoBench aliases like "claude", which
+            # produce a "400 Unknown Model". Map anything else to "sonnet".
+            cli_model_codes = {"sonnet", "opus", "haiku"}
+            if model_name in cli_model_codes or (
+                model_name and model_name.startswith("claude-")
+            ):
+                model = model_name
+            else:
+                model = "sonnet"
             cmd = [
                 "claude",
                 "--print",
@@ -530,12 +538,18 @@ Write a JSON file to `./output/invariants.json` with this exact format:
                 await process.wait()
                 return {"success": False, "error": f"Timeout after {self.timeout} seconds"}
 
+            out = stdout.decode("utf-8", errors="replace")
+            err = stderr.decode("utf-8", errors="replace")
+
             return {
                 "success": process.returncode == 0,
-                "stdout": stdout.decode("utf-8", errors="replace"),
-                "stderr": stderr.decode("utf-8", errors="replace"),
+                "stdout": out,
+                "stderr": err,
                 "exit_code": process.returncode,
-                "error": stderr.decode("utf-8", errors="replace") if process.returncode != 0 else None,
+                # `claude --output-format json` writes its error payload to
+                # stdout and leaves stderr empty; fall back to stdout so the
+                # failure reason is not lost.
+                "error": (err or out) if process.returncode != 0 else None,
             }
 
         except FileNotFoundError:
