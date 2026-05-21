@@ -94,9 +94,16 @@ class TransitionValidationEvaluator(BaseEvaluator):
         if self.tv_model:
             cmd.append(f"--model={self.tv_model}")
 
+        # Snapshot existing workspaces BEFORE the harness runs, so we can
+        # identify the one this run creates. Picking "most recent by mtime"
+        # is wrong: if the harness fails before creating a workspace, it
+        # selects a stale workspace from a previous task and reports a
+        # spurious result.
+        workspaces_before = set(glob.glob(str(self.workspace_root / "*")))
+
         start = time.time()
         try:
-            subprocess.run(
+            proc = subprocess.run(
                 cmd,
                 capture_output=True, text=True,
                 timeout=self.tv_timeout,
@@ -114,18 +121,24 @@ class TransitionValidationEvaluator(BaseEvaluator):
             return result
         result.elapsed_seconds = time.time() - start
 
-        # Pick the most recently modified workspace dir.
-        candidates = sorted(
-            glob.glob(str(self.workspace_root / "*")),
+        # Pick the workspace this run created (not in the before-snapshot).
+        new_workspaces = sorted(
+            (set(glob.glob(str(self.workspace_root / "*"))) - workspaces_before),
             key=os.path.getmtime,
             reverse=True,
         )
-        if not candidates:
-            result.error_message = "No transition-validation workspace was created"
+        if not new_workspaces:
+            # No new workspace — the harness failed before creating one.
+            # Surface the launcher's own output so the real cause is visible.
+            tail = ((proc.stderr or "") + (proc.stdout or ""))[-1500:]
+            result.error_message = (
+                "launch_tv_eval.sh created no workspace "
+                f"(exit {proc.returncode}). Launcher output tail:\n{tail}"
+            )
             logger.error(result.error_message)
             return result
 
-        workspace = Path(candidates[0])
+        workspace = Path(new_workspaces[0])
         result.workspace_dir = str(workspace)
         results_path = workspace / "reports" / "tv_results.json"
 
