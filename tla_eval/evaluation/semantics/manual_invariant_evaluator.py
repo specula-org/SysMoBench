@@ -502,15 +502,25 @@ Write a JSON file to `./output/invariants.json` with this exact format:
             cmd.append("Read CODEX.md and complete the invariant translation task.")
         else:
             # The `claude` CLI accepts model codes (sonnet/opus/haiku) or
-            # full model IDs — not SysMoBench aliases like "claude", which
-            # produce a "400 Unknown Model". Map anything else to "sonnet".
+            # full model IDs (claude-*) — not SysMoBench aliases like
+            # "claude_opus_proxy", which would yield "400 Unknown Model".
+            # Refuse anything else so callers don't silently run against a
+            # different model than they configured.
             cli_model_codes = {"sonnet", "opus", "haiku"}
             if model_name in cli_model_codes or (
                 model_name and model_name.startswith("claude-")
             ):
                 model = model_name
             else:
-                model = "sonnet"
+                return {
+                    "success": False,
+                    "error": (
+                        f"Agent translator (claude CLI) needs a "
+                        f"sonnet/opus/haiku code or a claude-* model ID; "
+                        f"got {model_name!r}. Pass a valid code at the call "
+                        f"site instead of relying on a fallback."
+                    ),
+                }
             cmd = [
                 "claude",
                 "--print",
