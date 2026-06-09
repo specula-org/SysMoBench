@@ -405,7 +405,10 @@ Examples:
             sys.exit(1)
         args.config_file = str(Path(args.config_file).resolve())
 
-    if not validate_prerequisites():
+    # TLA+ tooling (java + tla2tools.jar) is only a prerequisite for the TLA+
+    # backend; every other language validates its own tools through
+    # backend.check_available() just below.
+    if args.language.lower().replace("+", "").strip() == "tla" and not validate_prerequisites():
         sys.exit(1)
 
     # Backend availability check — fail fast before generation/evaluator setup

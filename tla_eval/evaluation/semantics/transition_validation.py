@@ -84,14 +84,10 @@ class TransitionValidationEvaluator(BaseEvaluator):
         spec_dir = spec_path.parent
 
         if self.backend.supports_direct_transition_validation:
-            # Direct path: hand control to the backend. Trace loading + windowing
-            # is the backend's responsibility (it knows the language semantics).
-            result.error_message = (
-                f"Direct transition validation for {self.language} is declared "
-                "supported but the evaluator wrapper for that path is not yet implemented."
-            )
-            logger.error(result.error_message)
-            return result
+            # Direct path: the evaluator loads and windows the traces
+            # (language-neutral, see trace_loader.py); the backend validates
+            # each (pre, action, post) window against the spec.
+            return self._evaluate_direct(result, task_name, spec_path)
 
         logger.warning(
             "Launching transition validation for %s (%s) — agent path. "
@@ -208,6 +204,64 @@ class TransitionValidationEvaluator(BaseEvaluator):
         result.overall_success = result.total_windows > 0 and result.score > 0
         logger.info(
             f"Transition validation: {result.total_passed}/{result.total_windows} "
+            f"({result.score:.1%}) across {len(result.per_action_pass_rates)} actions"
+        )
+        return result
+
+    def _evaluate_direct(self,
+                         result: TransitionValidationResult,
+                         task_name: str,
+                         spec_path: Path) -> TransitionValidationResult:
+        """
+        Direct Phase 3: load NDJSON trace windows and hand them to the
+        backend's validate_transitions. Runs in seconds and needs no agent.
+        """
+        from .trace_loader import load_trace_windows
+
+        workspace = self.workspace_root / f"direct_{task_name}_{self.language.lower().replace('+', '')}"
+        workspace.mkdir(parents=True, exist_ok=True)
+        result.workspace_dir = str(workspace)
+
+        start = time.time()
+        try:
+            windows = load_trace_windows(task_name)
+        except FileNotFoundError as e:
+            result.elapsed_seconds = time.time() - start
+            result.error_message = str(e)
+            logger.error(result.error_message)
+            return result
+        except Exception as e:
+            result.elapsed_seconds = time.time() - start
+            result.error_message = f"Trace loading failed for {task_name}: {e}"
+            logger.error(result.error_message)
+            return result
+
+        try:
+            outcome = self.backend.validate_transitions(
+                spec_path, windows, workspace, self.tv_timeout,
+            )
+        except Exception as e:
+            result.elapsed_seconds = time.time() - start
+            result.error_message = f"Direct transition validation failed: {e}"
+            logger.error(result.error_message)
+            return result
+        result.elapsed_seconds = time.time() - start
+
+        if outcome.error_message:
+            result.error_message = outcome.error_message
+            logger.error(result.error_message)
+            return result
+
+        result.total_passed = outcome.total_passed
+        result.total_windows = outcome.total_windows
+        result.per_action_pass_rates = dict(outcome.per_action_pass_rates)
+        if result.total_windows > 0:
+            result.score = result.total_passed / result.total_windows
+
+        # Same success policy as the agent path (see above).
+        result.overall_success = result.total_windows > 0 and result.score > 0
+        logger.info(
+            f"Transition validation (direct): {result.total_passed}/{result.total_windows} "
             f"({result.score:.1%}) across {len(result.per_action_pass_rates)} actions"
         )
         return result

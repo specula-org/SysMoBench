@@ -115,3 +115,6 @@ docs/leaderboard/specs_repaired/
 # inside docs/leaderboard/. The top-level `states/` rule above handles the
 # common case; this one covers nested writes during repair/rescore runs.
 docs/leaderboard/**/states/
+
+# Node (JS-SAM helper)
+node_modules/

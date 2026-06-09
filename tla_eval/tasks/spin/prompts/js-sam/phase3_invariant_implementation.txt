@@ -1,0 +1,60 @@
+You are a JavaScript and SAM-pattern expert specializing in concurrent systems and synchronization primitives. Your task is to implement a set of expert-written invariants for the given spinlock JS-SAM specification.
+
+## Target Specification
+
+```javascript
+$javascript_specification
+```
+
+## Invariants to Implement
+
+$invariant_templates
+
+## Implementation Requirements
+
+1. **Deep Analysis**: First, thoroughly understand both the invariant template's semantic intent and the specification's modeling approach:
+   - What safety property does each template aim to verify?
+   - What is the EXACT state shape this specification's getState() produces (field names, value types, thread-id key types)?
+   - What are the semantic equivalents between template concepts and the specification's state fields?
+
+2. **Semantic Mapping**: For each invariant, map template concepts onto the specification's actual state shape:
+   - Template "locked" / "trying" / "idle" statuses → the specification's thread status representation
+   - Template lock ownership → the specification's holder field(s)
+   - **CRITICAL**: Use ONLY fields that actually exist in the specification's state. Do not assume the recommended shape; read the acceptors to confirm what is mutated.
+
+3. **Predicate form**: Each invariant is ONE JavaScript function expression:
+   - Signature: `(state) => boolean`
+   - It receives the plain JSON snapshot produced by getState() — never SAM internals
+   - It MUST return `true` when the invariant HOLDS and `false` when it is VIOLATED
+   - It must be pure: no mutation, no I/O, no exceptions on any reachable state
+   - Defensive access: prefer `Object.values(state.threadStatus || {})` style guards so the predicate never throws
+
+4. **Bounded checking note**: The SAM behavior explorer performs bounded exploration of all intent permutations. Liveness properties cannot be verified; if a template is a liveness property, convert it to a bounded safety property where possible, or omit it.
+
+5. **Output format**: Return a JSON object with an `invariants` array of objects, each carrying the EXACT template name and the predicate source as a string.
+
+## Example Output Format
+
+```json
+{
+  "invariants": [
+    {
+      "name": "MutualExclusion",
+      "predicate": "(state) => Object.values(state.threadStatus || {}).filter((s) => s === 'locked').length <= 1"
+    },
+    {
+      "name": "LockStatusConsistency",
+      "predicate": "(state) => state.lockHolder === null || state.lockHolder === undefined || (state.threadStatus || {})[String(state.lockHolder)] === 'locked'"
+    }
+  ]
+}
+```
+
+**CRITICAL REQUIREMENTS**:
+- Use EXACTLY the invariant names from the templates above — do not invent names
+- `predicate` is a single arrow-function expression in a JSON string — use proper JSON escaping
+- `true` = invariant holds; `false` = violation (the explorer reports a counterexample behavior on `false`)
+- Use ONLY state fields that exist in the provided specification
+- Do NOT use JavaScript template literals (backticks) inside predicates
+- Return ONLY valid JSON, no explanatory text before or after
+- Start your response immediately with the opening brace

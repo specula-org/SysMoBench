@@ -1,0 +1,149 @@
+You are an expert in the SAM pattern (State-Action-Model, https://sam.js.org) — a JavaScript software engineering pattern grounded in TLA+ semantics: actions compute proposals, the model accepts or rejects them in a synchronized step, and state is a pure function of the model.
+
+Convert the following Asterinas OS spinlock source code into an executable JavaScript SAM specification using the @cognitive-fab/sam-pattern library.
+
+System: Asterinas OS spinlock synchronization primitive
+
+Source Code from {file_path}:
+```rust
+{source_code}
+```
+
+Spinlock modeling requirements:
+
+MANDATORY CORE CONCEPTS:
+1. 【Lock/Unlock Operations】Distinguish between lock() and try_lock() with different semantics:
+   - lock(): blocking call that spins until acquisition
+   - try_lock(): non-blocking call that returns immediately
+2. 【Atomic CAS】Model the compare_exchange on the AtomicBool as a single synchronized SAM step
+3. 【Thread States】Model thread states: idle, trying, locked
+4. 【Lock Status】The lock is held by at most one thread
+5. 【Two Threads】Model exactly two threads, with ids 0 and 1
+
+CRITICAL SEMANTIC DISTINCTION:
+- **lock()**: blocking — on CAS failure the thread stays in 'trying' (spinning) and may retry
+- **try_lock()**: non-blocking — on CAS failure the thread returns to 'idle' immediately; it must NEVER remain in 'trying'
+
+## Mandatory module contract (hard requirements)
+
+Your specification is a CommonJS module evaluated by an automated harness. It MUST export exactly this shape:
+
+module.exports = { instance, init, actions, getState, setState, checkerIntents };
+
+- `instance` — the SAM instance, created with:
+  `const instance = createInstance({ instanceName: 'spin', hasAsyncActions: false });`
+  (`hasAsyncActions: false` is REQUIRED — all steps must be synchronous)
+- `init()` — resets the model to its initial state (and clears any error):
+  call `instance({}).state().clearError()` then `setState(INITIAL_STATE)`
+- `actions` — an object with EXACTLY these mandatory action names (hard contract used by trace validation):
+  - `actions.AcquireLock(data)` where data is `{ thread: 0|1, callType: 'lock'|'tryLock' }`
+  - `actions.ReleaseLock(data)` where data is `{ thread: 0|1 }`
+  Each is a function that fires the corresponding SAM intent synchronously.
+- `getState()` — returns a plain JSON-serializable snapshot of the model (no functions, no SAM internals). Use a JSON.stringify replacer that drops keys starting with '__' and function values.
+- `setState(snapshot)` — forces the model to a given snapshot via `instance({ initialState: deepClone(snapshot) })`
+- `checkerIntents` — descriptors for the bundled behavior explorer: an array of `{ name, intent, values }` where `name` is the action name, `intent` is the function from `actions`, and `values` is a non-empty array of argument arrays covering the action's input domain (every thread id and call type combination).
+
+DETERMINISM RULES (violations are detected and fail the evaluation):
+- No I/O, no timers, no Date/clock access, no Math.random, no async actions
+- Acceptors must guard against invalid proposals (e.g. release by a non-holder must be a no-op, NOT a throw)
+- Do NOT include component `safety` conditions or a `render` function — invariants are verified in a separate phase
+
+## In-context example: Rocket Launcher (the SAM community's canonical small system)
+
+```javascript
+'use strict';
+
+const { createInstance } = require('@cognitive-fab/sam-pattern');
+
+const instance = createInstance({ instanceName: 'rocket', hasAsyncActions: false });
+
+// status: 'ready' | 'counting' | 'aborted' | 'launched'
+const INITIAL_STATE = { counter: 10, status: 'ready' };
+
+const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const { intents } = instance({
+  initialState: clone(INITIAL_STATE),
+  component: {
+    actions: [
+      () => ({ __name: 'Start', start: true }),
+      () => ({ __name: 'Decrement', decrement: true }),
+      () => ({ __name: 'Abort', abort: true }),
+    ],
+    acceptors: [
+      (model) => ({ start }) => {
+        if (start && model.status === 'ready') model.status = 'counting';
+      },
+      (model) => ({ decrement }) => {
+        if (decrement && model.status === 'counting' && model.counter > 0) model.counter -= 1;
+      },
+      (model) => ({ abort }) => {
+        if (abort && model.status === 'counting') model.status = 'aborted';
+      },
+    ],
+    reactors: [
+      (model) => () => {
+        if (model.status === 'counting' && model.counter === 0) model.status = 'launched';
+      },
+    ],
+  },
+});
+
+const [startIntent, decrementIntent, abortIntent] = intents;
+
+const sanitizeReplacer = (key, value) => {
+  if (typeof key === 'string' && key.startsWith('__')) return undefined;
+  if (typeof value === 'function') return undefined;
+  return value;
+};
+
+const getState = () => JSON.parse(JSON.stringify(instance({}).state(), sanitizeReplacer));
+
+const setState = (snapshot) => { instance({ initialState: clone(snapshot) }); };
+
+const init = () => {
+  instance({}).state().clearError();
+  setState(INITIAL_STATE);
+};
+
+const actions = {
+  Start: (data = {}) => startIntent(data),
+  Decrement: (data = {}) => decrementIntent(data),
+  Abort: (data = {}) => abortIntent(data),
+};
+
+const checkerIntents = [
+  { name: 'Start', intent: actions.Start, values: [[{}]] },
+  { name: 'Decrement', intent: actions.Decrement, values: [[{}]] },
+  { name: 'Abort', intent: actions.Abort, values: [[{}]] },
+];
+
+module.exports = { instance, init, actions, getState, setState, checkerIntents };
+```
+
+## Recommended state shape for the spinlock
+
+To keep trace validation straightforward, prefer this snapshot shape (you may add fields, but these names are strongly recommended):
+
+```javascript
+{
+  lockHeld: false,            // boolean
+  lockHolder: null,           // 0 | 1 | null
+  threadStatus: { 0: 'idle', 1: 'idle' },   // 'idle' | 'trying' | 'locked'
+  callType: { 0: null, 1: null }            // 'lock' | null (pending blocking call)
+}
+```
+
+EXPLICITLY EXCLUDED (do not model):
+- PreemptDisabled vs LocalIrqDisabled guard behaviors
+- Arc-based locking, UnsafeCell implementation details
+- Debug formatting and trait implementations
+- Memory-ordering details beyond the atomicity of the CAS step
+
+CRITICAL OUTPUT REQUIREMENTS:
+1. Output EXACTLY ONE fenced code block: ```javascript ... ```. Nothing outside the fence.
+2. The block must be a complete, self-contained CommonJS module following the contract above.
+3. Set `__name` on every proposal ('AcquireLock' / 'ReleaseLock') so explorer behaviors are readable.
+4. Do not include safety conditions, render functions, assertions, or console output.
+
+Generate the complete JS-SAM specification that accurately models the spinlock's concurrent behavior.

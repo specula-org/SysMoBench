@@ -1,0 +1,47 @@
+# JS-SAM Invariants for Asterinas Spinlock Systems
+#
+# First-cut starter set: three generic spinlock invariants reused from the
+# Alloy library (data/alloy_invariant_templates/spin/invariants.yaml).
+# The javascript_example snippets are written against the RECOMMENDED state
+# shape from the JS-SAM prompt; the translator adapts them to the state shape
+# the generated specification actually produces.
+#
+# Predicate convention: (state) => boolean, receiving the plain getState()
+# snapshot; true = invariant HOLDS, false = VIOLATED.
+
+invariants:
+  - name: "MutualExclusion"
+    type: "safety"
+    natural_language: "At most one thread can hold any lock at any given time"
+    formal_description: "The fundamental safety property: no two threads can hold the same lock simultaneously"
+    javascript_example: |
+      (state) => Object.values(state.threadStatus || {}).filter((s) => s === 'locked').length <= 1
+
+  - name: "LockStatusConsistency"
+    type: "safety"
+    natural_language: "If a thread holds a lock, it must be in Locked status"
+    formal_description: "Lock state consistency: the thread status must accurately reflect lock ownership"
+    javascript_example: |
+      (state) => state.lockHolder === null || state.lockHolder === undefined
+        || (state.threadStatus || {})[String(state.lockHolder)] === 'locked'
+
+  - name: "NoDeadlock"
+    type: "safety"
+    natural_language: "Not all threads can be in Trying state simultaneously - prevents global deadlock"
+    formal_description: "Deadlock freedom: prevents the situation where all threads are stuck trying to acquire locks simultaneously"
+    javascript_example: |
+      (state) => Object.values(state.threadStatus || {}).some((s) => s !== 'trying')
+
+metadata:
+  total_invariants: 3
+  safety_invariants: 3
+  liveness_invariants: 0
+  note: >
+    Liveness properties are not included: the sam-pattern behavior explorer
+    performs bounded exploration and cannot verify unbounded temporal
+    properties (same limitation as the Alloy and PAT libraries).
+  parity_note: >
+    Alloy ships 6 invariants for spin (4 generic + 2 Asterinas-specific:
+    TryLockNonBlocking, BlockingVsNonBlockingSemantics). Extending JS-SAM
+    from 3 to 6 is a follow-up item, not first-cut scope — see
+    docs/js_sam_backend_spec.md US-7.
