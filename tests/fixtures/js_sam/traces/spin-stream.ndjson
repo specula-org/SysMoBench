@@ -1,0 +1,7 @@
+{"state": {"lockHeld": false, "lockHolder": null, "threadStatus": {"0": "idle", "1": "idle"}, "callType": {"0": null, "1": null}}}
+{"action": "AcquireLock", "data": {"thread": 0, "callType": "lock"}, "state": {"lockHeld": true, "lockHolder": 0, "threadStatus": {"0": "locked", "1": "idle"}, "callType": {"0": null, "1": null}}}
+{"action": "AcquireLock", "data": {"thread": 1, "callType": "lock"}, "state": {"lockHeld": true, "lockHolder": 0, "threadStatus": {"0": "locked", "1": "trying"}, "callType": {"0": null, "1": "lock"}}}
+{"action": "ReleaseLock", "data": {"thread": 0}, "state": {"lockHeld": false, "lockHolder": null, "threadStatus": {"0": "idle", "1": "trying"}, "callType": {"0": null, "1": "lock"}}}
+{"action": "AcquireLock", "data": {"thread": 1, "callType": "lock"}, "state": {"lockHeld": true, "lockHolder": 1, "threadStatus": {"0": "idle", "1": "locked"}, "callType": {"0": null, "1": null}}}
+{"action": "AcquireLock", "data": {"thread": 0, "callType": "tryLock"}, "state": {"lockHeld": true, "lockHolder": 1, "threadStatus": {"0": "idle", "1": "locked"}, "callType": {"0": null, "1": null}}}
+{"action": "ReleaseLock", "data": {"thread": 1}, "state": {"lockHeld": false, "lockHolder": null, "threadStatus": {"0": "idle", "1": "idle"}, "callType": {"0": null, "1": null}}}

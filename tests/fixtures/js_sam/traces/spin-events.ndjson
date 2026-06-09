@@ -1,0 +1,3 @@
+{"action": "AcquireLock", "data": {"thread": 0, "callType": "lock"}, "pre_state": {"lockHeld": false, "lockHolder": null, "threadStatus": {"0": "idle", "1": "idle"}, "callType": {"0": null, "1": null}}, "post_state": {"lockHeld": true, "lockHolder": 0, "threadStatus": {"0": "locked", "1": "idle"}, "callType": {"0": null, "1": null}}}
+{"action": "ReleaseLock", "data": {"thread": 0}, "pre_state": {"lockHeld": true, "lockHolder": 0, "threadStatus": {"0": "locked", "1": "idle"}, "callType": {"0": null, "1": null}}, "post_state": {"lockHeld": false, "lockHolder": null, "threadStatus": {"0": "idle", "1": "idle"}, "callType": {"0": null, "1": null}}}
+{"action": "Noise", "pre_state": {"lockHeld": false}, "post_state": {"lockHeld": false}}

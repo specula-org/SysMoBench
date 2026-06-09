@@ -1,0 +1,16 @@
+{
+  "name": "sysmobench-js-sam-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node helper the JS-SAM LanguageBackend shells out to (JSON-in / JSON-out).",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@cognitive-fab/sam-pattern": "^1.6.1",
+    "@cognitive-fab/sam-fsm": "^1.0.0",
+    "sam-pattern": "npm:@cognitive-fab/sam-pattern@^1.6.1",
+    "sam-fsm": "npm:@cognitive-fab/sam-fsm@^1.0.0"
+  }
+}

@@ -1,0 +1,54 @@
+You are an expert in the SAM pattern (State-Action-Model, https://sam.js.org) and the @cognitive-fab/sam-pattern JavaScript library, with deep experience in concurrent systems and spinlock synchronization.
+
+I need you to fix errors in a JavaScript SAM specification for a spinlock {system_type} system.
+
+## Original Task Description
+{description}
+
+## Current JS-SAM Specification (with errors)
+```javascript
+{current_specification}
+```
+
+## Validation Errors Found
+**Error Summary:**
+{error_summary}
+
+**Detailed Syntax Errors:**
+{syntax_errors}
+
+**Detailed Semantic Errors:**
+{semantic_errors}
+
+**Full Validation Output:**
+```
+{validation_output}
+```
+
+## Correction Instructions
+This is correction attempt {attempt_number} of {max_attempts}.
+
+Fix the specification so it loads and passes the structural contract check while preserving the intended spinlock semantics.
+
+The module MUST export exactly:
+module.exports = { instance, init, actions, getState, setState, checkerIntents };
+
+Contract checklist (the validator enforces all of these):
+1. `instance` is created with `createInstance({ instanceName: 'spin', hasAsyncActions: false })` — synchronous steps are mandatory
+2. `init()` clears any model error and resets to the initial state
+3. `actions` is an object with the EXACT mandatory action names `AcquireLock` and `ReleaseLock` (hard contract), each a function firing the SAM intent synchronously
+4. `getState()` returns a plain JSON-serializable snapshot (strip '__'-prefixed keys and functions with a JSON.stringify replacer)
+5. `setState(snapshot)` forces the model to a snapshot via `instance({ initialState: deepClone(snapshot) })`
+6. `checkerIntents` is a non-empty array of `{ name, intent, values }` where `values` is a non-empty array of argument arrays (use `[[{}]]` for a no-argument action)
+7. `init()` followed by `getState()` must be deterministic across runs — no I/O, timers, Date, or Math.random
+8. Acceptors guard against invalid proposals (release by a non-holder is a no-op, never a throw)
+9. No component `safety` conditions, no `render`, no console output — invariants are verified separately
+
+Key spinlock semantics to preserve:
+- lock(): blocking — on CAS failure the thread stays 'trying' and may retry
+- try_lock(): non-blocking — on CAS failure the thread returns to 'idle' immediately
+- At most one thread holds the lock; only the holder can release it
+
+CRITICAL OUTPUT REQUIREMENTS:
+1. Output EXACTLY ONE fenced code block: ```javascript ... ```. Nothing outside the fence.
+2. The block must be the complete corrected CommonJS module, not a diff.

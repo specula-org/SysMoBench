@@ -178,7 +178,7 @@ Codex) that knows how to read the spec, slice traces into
 language means extending the skill, which is a larger project than writing
 a backend. Plan accordingly.
 
-**Direct path.** If your language's model checker has a CLI that answers
+**Direct path.** If your language's tooling can answer
 "is `pre ∧ action ⇒ post'` valid?" directly without orchestration, set
 `supports_direct_transition_validation = True` and implement:
 
@@ -193,12 +193,20 @@ def validate_transitions(
 ```
 
 Populate `per_action_pass_rates`, `total_passed`, `total_windows`. The
-evaluator-side wrapper for this path is stubbed in
-`transition_validation.py` — you'll need to thread the trace loader through
-on the first language that uses it; flag it on the integration thread.
+contract split: the **evaluator** owns trace loading and windowing
+(language-neutral, `tla_eval/evaluation/semantics/trace_loader.py` — it
+resolves `task.yaml > traces_folder`, parses the NDJSON trace files, slices
+them into windows, and filters to `tv.target_actions`); the **backend** owns
+validating each window against the spec. Each window's `action` is either a
+plain action-name string or `{"name": ..., "data": ...}` when the trace
+record carries an argument payload. See the trace_loader module docstring
+for the two accepted NDJSON record shapes (self-contained event records vs
+consecutive state-stream records).
 
-Today neither TLA+, Alloy, nor PAT exposes a direct API, so all three
-inherit the agent path.
+TLA+, Alloy, and PAT expose no direct API, so all three inherit the agent
+path. JS-SAM is the direct path's reference implementation
+(`js_sam.py:validate_transitions` — SAM trace replay is
+`setState(pre); actions[name](data); diff(getState(), post)`).
 
 ### 3.4 Phase 4 — Invariant verification
 
@@ -305,8 +313,8 @@ Each entry:
 ```
 
 You only need to populate entries for the systems you intend to evaluate.
-TLA+ templates exist for all 11 systems; Alloy and PAT historically
-covered only `spin`.
+TLA+ templates exist for all 11 systems; Alloy, PAT, and JS-SAM cover
+only `spin`.
 
 ---
 
@@ -375,6 +383,7 @@ Phase 2 / Phase 4 follow the same pattern, swap `--metric`.
 | TLA+     | `tla_eval/languages/tla_plus.py`    | Wraps existing TLAValidator/TLCRunner/InvariantTranslator. |
 | Alloy    | `tla_eval/languages/alloy.py`       | Java helper (`AlloyCliValidator`, `AlloyRuntime`) over `lib/alloy.jar`. |
 | PAT      | `tla_eval/languages/pat.py`         | `mono lib/PAT3.Console.exe`; PAT always returns exit 0 so failures are text-detected. |
+| JS-SAM   | `tla_eval/languages/js_sam.py`      | Node helper (`tools/js-sam/cli.mjs`, JSON-in/JSON-out) over `@cognitive-fab/sam-pattern`. First (and reference) direct-path Phase 3 backend. |
 
 Other files of interest:
 
@@ -386,6 +395,7 @@ Other files of interest:
 | Phase 1 evaluator | `tla_eval/evaluation/syntax/compilation_check.py` |
 | Phase 2 evaluator | `tla_eval/evaluation/semantics/runtime_check.py` |
 | Phase 3 evaluator | `tla_eval/evaluation/semantics/transition_validation.py` |
+| Phase 3 trace loader (direct path) | `tla_eval/evaluation/semantics/trace_loader.py` |
 | Phase 4 evaluator | `tla_eval/evaluation/semantics/manual_invariant_evaluator.py` |
 | Generation method | `tla_eval/methods/direct_call/method.py` |
 | Metric registry | `tla_eval/evaluation/base/metric_registry.py` |
