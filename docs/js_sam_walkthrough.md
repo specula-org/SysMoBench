@@ -231,6 +231,39 @@ The full pre-existing suite was run with and without our changes: the same
 (model-provider config tests, unrelated to this work). Nothing we touched
 regressed.
 
+### A live benchmark run with Claude (2026-06-09)
+
+After the fixture-based validation above, the pipeline was exercised with a
+real model: **claude-sonnet-4-20250514** generated a JS-SAM spec for the
+`spin` task from the actual Asterinas Rust source
+(`run_benchmark.py --language JS-SAM`, real generation, no `--spec-file`).
+
+| Stage | Result | Detail |
+|---|---|---|
+| Generation | valid on attempt 1 of 3 | 15.0 s, 3,922 prompt + 1,293 completion tokens, no correction loop |
+| Phase 1 — syntax/contract | PASS | 0 syntax errors, 0 semantic errors, 0.09 s |
+| Phase 2 — exploration | PASS | depth 6, ~4 s, no runtime errors, no nondeterminism |
+| Phase 4 — invariants | PASS 3/3 | live translation by Claude (3.3 s) + explorer checks (5.5 s): MutualExclusion, LockStatusConsistency, NoDeadlock |
+| Phase 3 — traces | not run | captured `spin` traces not in the repository (open question on the PR) |
+
+The generated spec was the model's own modeling, not a copy of the prompt's
+Rocket Launcher example. Its most interesting decision: a **reactor** that
+grants the freed lock to a spinning thread the instant `ReleaseLock` fires —
+a defensible reading of "the thread spins until acquisition," but it makes
+lock hand-off atomic with the release step. In the real system's traces a
+release leaves the waiting thread `trying` until its *own* next CAS attempt
+wins. Phases 1, 2, and 4 cannot see that divergence; trace validation exists
+precisely to catch it — concrete evidence for why the trace-availability
+question matters most for the JS-SAM leaderboard number.
+
+The run also surfaced one fix now included in this branch:
+`config/models.yaml` requested `max_tokens: 200000` for the `claude` entry,
+which the Anthropic API rejects for claude-sonnet-4 (output cap 64,000).
+Lowered to 64,000 with a dated probe note, matching the style of the
+existing `deepseek_tencent` comment. The same `claude` entry is the
+translator Alloy's and PAT's Phase 4 remaps rely on, so the fix is not
+JS-SAM-specific.
+
 ## 6. What is demonstrated — and what is not yet
 
 **Demonstrated:**
@@ -247,18 +280,21 @@ regressed.
 - The whole thing runs on a machine with only Node and Python (no Java, no
   mono).
 
+**Also demonstrated (live run, see §5):** one real model (claude-sonnet-4)
+generating a spec that passes Phases 1, 2, and 4 first-try, including the
+live invariant-translation API path.
+
 **Not yet demonstrated (the honest gaps):**
 
-- **No LLM has actually been benchmarked yet.** Everything above validates
-  the *measurement instrument* with hand-written specs. The hypothesis test
-  itself — generate specs with real models and compare JS-SAM scores to
-  TLA+/Alloy/PAT — needs API keys and is the natural next step.
+- **The hypothesis itself is untested.** One model passing one task is an
+  existence proof that the pipeline works end to end with real generation —
+  not the comparison. The actual experiment is multiple models, multiple
+  runs, JS-SAM scores side by side with TLA+/Alloy/PAT on the same task.
 - **Phase 3 leaderboard numbers are blocked on real traces.** The captured
   `spin` traces aren't in the repository; our tests use synthetic ones.
-  Raised with the maintainers as an open question on the PR.
-- **Invariant translation** (LLM rewrites the expert invariants against a
-  generated spec's state shape) is implemented and its parsing is tested,
-  but the live API call path hasn't been exercised.
+  Raised with the maintainers as an open question on the PR. The live run
+  makes this concrete: the generated spec's instant-handoff reactor would
+  plausibly diverge from real traces, and only Phase 3 can adjudicate that.
 - Three invariants vs Alloy's six for spin; the depth bound (6) is a single
   bench-wide constant. Both flagged as deliberate first-cut choices.
 

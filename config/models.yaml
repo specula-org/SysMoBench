@@ -25,7 +25,9 @@ models:
     model_name: "claude-sonnet-4-20250514"
     api_key_env: "ANTHROPIC_API_KEY"
     temperature: 0.1
-    max_tokens: 200000
+    # claude-sonnet-4 rejects max_tokens > 64000 (API: "maximum allowed
+    # number of output tokens for claude-sonnet-4-20250514"); probed 2026-06-09.
+    max_tokens: 64000
     top_p: 0.9
 
   deepseek_tencent:
