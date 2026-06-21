@@ -26,6 +26,168 @@ from .result_types import (
 logger = logging.getLogger(__name__)
 
 
+# TLC config keywords that start a new section. Used to detect when a
+# continuation line in a dropped section gives way to a section we keep.
+# Source of truth: the keyword constants in TLC's `tlc2.tool.impl.ModelConfig`
+# (the full set, including the singular/plural pairs and the experimental
+# RL-guided directives). Every variant must be listed or an unrecognized
+# header is misread as a continuation line of the preceding section.
+_TLC_CFG_SECTION_KEYWORDS = frozenset(
+    {
+        "SPECIFICATION",
+        "INIT",
+        "NEXT",
+        "CONSTANT",
+        "CONSTANTS",
+        "INVARIANT",
+        "INVARIANTS",
+        "PROPERTY",
+        "PROPERTIES",
+        "CONSTRAINT",
+        "CONSTRAINTS",
+        "ACTION_CONSTRAINT",
+        "ACTION_CONSTRAINTS",
+        "SYMMETRY",
+        "VIEW",
+        "ALIAS",
+        "POSTCONDITION",
+        "POSTCONDITIONS",
+        "CHECK_DEADLOCK",
+        # Experimental RL-guided model-checking directives. Not assertions, so
+        # they are kept (absent from _TLC_USER_ASSERTION_KEYWORDS); listed here
+        # only so they are recognized as section boundaries.
+        "_PERIODIC",
+        "_POSSIBLE",
+        "_RL_REWARD",
+    }
+)
+
+# Sections whose contents are model-supplied assertions or state-space
+# constraints. Stripped from the base .cfg before composing the per-expert-
+# invariant cfg passed to TLC (see `_strip_user_supplied_assertions`).
+_TLC_USER_ASSERTION_KEYWORDS = frozenset(
+    {
+        "INVARIANT",
+        "INVARIANTS",
+        "PROPERTY",
+        "PROPERTIES",
+        "CONSTRAINT",
+        "CONSTRAINTS",
+        "ACTION_CONSTRAINT",
+        "ACTION_CONSTRAINTS",
+        "POSTCONDITION",
+        "POSTCONDITIONS",
+    }
+)
+
+
+def _decomment_cfg_line(line: str, block_depth: int) -> Tuple[str, int]:
+    """Return ``(code, new_block_depth)`` for one .cfg line.
+
+    ``code`` is ``line`` with TLC comments removed: ``\\*`` line comments (to
+    end of line) and ``(* ... *)`` block comments, the latter possibly spanning
+    multiple lines and nesting. ``block_depth`` carries how many ``(*`` are open
+    from previous lines. Used only to classify a line (header vs continuation),
+    never to build the output, so comments on kept lines are preserved verbatim.
+
+    TLC tokenizes the whole .cfg with the TLA+ lexer, so a keyword inside a
+    comment is not a section header; classifying on de-commented text matches
+    that. (Comment handling is approximate, not a full TLA+ lexer: it does not
+    track string literals, but .cfg files have none in practice.)
+    """
+    out_chars: List[str] = []
+    i, n = 0, len(line)
+    while i < n:
+        pair = line[i : i + 2]
+        if block_depth > 0:
+            if pair == "*)":
+                block_depth -= 1
+                i += 2
+            elif pair == "(*":
+                block_depth += 1
+                i += 2
+            else:
+                i += 1
+            continue
+        if pair == "(*":
+            block_depth += 1
+            i += 2
+        elif pair == "\\*":
+            break  # line comment runs to end of line
+        else:
+            out_chars.append(line[i])
+            i += 1
+    return "".join(out_chars), block_depth
+
+
+def _strip_user_supplied_assertions(cfg: str) -> str:
+    """Remove model-supplied assertion/constraint sections from a TLC .cfg.
+
+    Phase-4 invariant_verification composes a per-invariant cfg by appending
+    the (translated) expert invariant to a base cfg. If the base cfg already
+    carries the model's own INVARIANT / PROPERTY / CONSTRAINT /
+    ACTION_CONSTRAINT / POSTCONDITION sections, two things go wrong:
+
+    - TLC can halt on the model's assertion before the expert invariant gets
+      a clean verdict, leaving the expert one effectively unmeasured.
+    - A model-supplied CONSTRAINT or ACTION_CONSTRAINT can shrink the
+      reachable state space enough to silently mask paths that would
+      otherwise violate the expert invariant.
+
+    This applies to every method whose phase-2 cfg flows into phase-3 via
+    --config-file, not just BYO methods that emit their own cfg.
+
+    Drops the header and continuation lines of those sections (including any
+    comments inside them). Keeps SPECIFICATION, INIT, NEXT, CONSTANT(S),
+    SYMMETRY, VIEW, ALIAS, CHECK_DEADLOCK and the experimental RL directives,
+    plus comments and blank lines outside dropped sections.
+
+    Classification is line-based but comment-aware (see _decomment_cfg_line)
+    and treats a keyword line as a section header only when it is not an
+    assignment, so a constant whose name collides with an assertion keyword
+    (e.g. ``PROPERTY = TRUE`` under CONSTANT) is not mistaken for a section.
+    Known limitation: TLC's .cfg grammar is fully whitespace-insensitive, so a
+    pathological layout that this line scanner cannot disambiguate may still be
+    mis-stripped; the cases above cover every form seen in generated specs.
+    """
+    cfg = cfg.replace("\r\n", "\n").replace("\r", "\n")
+    out: List[str] = []
+    in_dropped_section = False
+    block_depth = 0
+
+    for line in cfg.split("\n"):
+        code, block_depth = _decomment_cfg_line(line, block_depth)
+        stripped = code.strip()
+
+        # Blank or comment-only line: keep it only outside a dropped section so
+        # a comment that annotated a stripped section does not dangle.
+        if not stripped:
+            if not in_dropped_section:
+                out.append(line)
+            continue
+
+        first = stripped.split()[0]
+        # A section header is `KEYWORD` or `KEYWORD names...`. An assertion
+        # keyword followed by an assignment is a constant binding whose name
+        # collides with the keyword, not a real section, so don't treat it as
+        # a header. CONSTANT(S) legitimately use `=`, so they are exempt.
+        looks_like_binding = "=" in stripped or "<-" in stripped
+        is_header = first in _TLC_CFG_SECTION_KEYWORDS and not (
+            first in _TLC_USER_ASSERTION_KEYWORDS and looks_like_binding
+        )
+        if is_header:
+            in_dropped_section = first in _TLC_USER_ASSERTION_KEYWORDS
+            if not in_dropped_section:
+                out.append(line)
+            continue
+
+        # Continuation / binding line of the current section.
+        if not in_dropped_section:
+            out.append(line)
+
+    return "\n".join(out).rstrip() + "\n"
+
+
 class TLAPlusBackend(LanguageBackend):
     name = "TLA+"
     aliases = ("tla+", "tla", "tlaplus", "tla_plus")
@@ -249,6 +411,12 @@ class TLAPlusBackend(LanguageBackend):
 
         spec_text = spec_path.read_text(encoding="utf-8")
         base_config = config_path.read_text(encoding="utf-8")
+        # The base cfg may carry the model's own INVARIANT / PROPERTY /
+        # CONSTRAINT / ACTION_CONSTRAINT / POSTCONDITION sections (the
+        # phase-2 cfg is forwarded into phase-3 via --config-file). Those
+        # contaminate the per-expert-invariant check, so strip them before
+        # composing the cfg sent to TLC.
+        base_config = _strip_user_supplied_assertions(base_config)
 
         evaluator = ManualInvariantEvaluator(tlc_timeout=timeout)
         evaluator.tlc_runner = TLCRunner(timeout=timeout)
