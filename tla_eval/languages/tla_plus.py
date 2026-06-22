@@ -152,6 +152,7 @@ def _strip_user_supplied_assertions(cfg: str) -> str:
     """
     cfg = cfg.replace("\r\n", "\n").replace("\r", "\n")
     out: List[str] = []
+    dropped: List[str] = []
     in_dropped_section = False
     block_depth = 0
 
@@ -177,13 +178,25 @@ def _strip_user_supplied_assertions(cfg: str) -> str:
         )
         if is_header:
             in_dropped_section = first in _TLC_USER_ASSERTION_KEYWORDS
-            if not in_dropped_section:
+            if in_dropped_section:
+                dropped.append(first)
+            else:
                 out.append(line)
             continue
 
         # Continuation / binding line of the current section.
         if not in_dropped_section:
             out.append(line)
+
+    # Log when the base cfg actually carried model-supplied sections, so a
+    # later shift in phase-4 invariant_verification numbers is traceable to
+    # exactly which sections were stripped from which spec's base cfg.
+    if dropped:
+        logger.info(
+            "Stripped %d model-supplied assertion/constraint section(s) from base cfg: %s",
+            len(dropped),
+            ", ".join(dropped),
+        )
 
     return "\n".join(out).rstrip() + "\n"
 
