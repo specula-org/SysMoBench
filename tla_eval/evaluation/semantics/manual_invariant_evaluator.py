@@ -39,18 +39,6 @@ class InvariantTemplate:
     tla_example: str
 
 
-@dataclass  
-class InvariantTestResult:
-    """Result of testing a single invariant"""
-    name: str
-    success: bool
-    translated_invariant: str
-    error_message: Optional[str] = None
-    states_explored: int = 0
-    verification_time: float = 0.0
-    tlc_output: str = ""
-
-
 class InvariantTemplateLoader:
     """Loads invariant templates from YAML files"""
     
@@ -1018,83 +1006,6 @@ class ManualInvariantEvaluator(BaseEvaluator):
             result.invariant_generation_error = str(e)
             result.overall_success = False
             return result
-    
-    def _test_single_invariant(self, 
-                              template: InvariantTemplate,
-                              translated_invariant: str, 
-                              tla_content: str,
-                              output_dir: Path,
-                              spec_module: str,
-                              task_name: str,
-                              model_name: str,
-                              base_config: str) -> InvariantTestResult:
-        """Test a single invariant using TLC"""
-        
-        logger.debug(f"Testing invariant: {template.name}")
-        
-        try:
-            # Create directory for this invariant
-            invariant_dir = output_dir / template.name
-            invariant_dir.mkdir(exist_ok=True)
-            
-            # Create modified TLA+ spec with the invariant
-            modified_spec = self._add_invariant_to_spec(
-                tla_content, translated_invariant, template.name
-            )
-            
-            # Save modified spec with correct module name
-            modified_spec_file = invariant_dir / f"{spec_module}.tla"
-            with open(modified_spec_file, 'w', encoding='utf-8') as f:
-                f.write(modified_spec)
-            
-            # Generate config file for this invariant using pre-generated clean base config
-            # This prevents cache pollution from using modified_spec
-            config_success, config_content, config_error = self.static_config_generator.generate_config_for_invariant_from_base(
-                base_config, template.name, template.type
-            )
-            
-            if not config_success:
-                return InvariantTestResult(
-                    name=template.name,
-                    success=False,
-                    translated_invariant=translated_invariant,
-                    error_message=f"Config generation failed: {config_error}"
-                )
-            
-            # Save config file with correct module name
-            config_file = invariant_dir / f"{spec_module}.cfg"
-            with open(config_file, 'w', encoding='utf-8') as f:
-                f.write(config_content)
-            
-            # Run TLC (skip statistics recording for invariant checking, add -deadlock flag)
-            start_time = time.time()
-            tlc_success, tlc_output, tlc_exit_code = self.tlc_runner.run_model_checking(
-                str(modified_spec_file), str(config_file), record_stats=False, use_deadlock_flag=True
-            )
-            verification_time = time.time() - start_time
-            
-            # Parse TLC results
-            violations, deadlock_found, states_explored = self.tlc_runner.parse_tlc_output(tlc_output)
-            
-            success = tlc_success and len(violations) == 0 and not deadlock_found
-            
-            return InvariantTestResult(
-                name=template.name,
-                success=success,
-                translated_invariant=translated_invariant,
-                states_explored=states_explored,
-                verification_time=verification_time,
-                tlc_output=tlc_output,
-                error_message=None if success else f"TLC failed: {len(violations)} violations, deadlock: {deadlock_found}"
-            )
-            
-        except Exception as e:
-            return InvariantTestResult(
-                name=template.name,
-                success=False,
-                translated_invariant=translated_invariant,
-                error_message=f"Testing failed: {str(e)}"
-            )
     
     def _add_invariant_to_spec(self, tla_content: str, invariant_definition: str, invariant_name: str) -> str:
         """Add a single invariant definition to the TLA+ specification"""
