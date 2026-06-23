@@ -36,7 +36,7 @@ def test_resolve_model_name_for_custom_openai_compatible_api():
             "deepseek-reasoner",
             api_base="https://api.deepseek.com",
         )
-        == "openai/deepseek-reasoner"
+        == "deepseek/deepseek-reasoner"
     )
     assert (
         LiteLLMAdapter.resolve_model_name(
@@ -103,5 +103,5 @@ def test_model_factory_reports_litellm_as_recommended_provider():
     info = ModelFactory.list_available_models()
 
     assert info["recommended_provider"] == "litellm"
-    assert "deepseek" in info["legacy_providers"]
-    assert "yunwu" in info["legacy_providers"]
+    assert "deepseek" in info["providers"]
+    assert "yunwu" in info["providers"]
