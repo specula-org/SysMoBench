@@ -446,15 +446,22 @@ Per project convention, tests precede implementation:
   outcomes (modulo timing fields). The helper sets no ambient state; the spec
   contract (§4 rule 4) bans nondeterminism sources, and Phase 2 actively
   classifies violations.
-- **Isolation:** generated specs are untrusted code. The helper executes them
-  in a child Node process with no network access expected and a hard
-  wall-clock kill at the evaluator's `timeout`. (Full sandboxing — `--frozen-
-  intrinsics`, OS-level isolation — is noted as a hardening follow-up; the
-  bench already executes model-generated TLA+/Alloy/PAT through their
-  checkers under the same trust model.)
-- **Portability:** Node ≥ 20 LTS, pinned in `tools/js-sam/package.json`
-  `engines`. No mono/Java dependency — JS-SAM is the bench's easiest backend
-  to install, which `check_available()` should make visible.
+- **Isolation:** generated specs are untrusted **native code** — the helper
+  `require()`s the spec module and `eval()`s its invariant predicates, unlike
+  the restricted modelling languages the TLA+/Alloy/PAT checkers consume. Every
+  helper invocation therefore runs inside a throwaway Docker container
+  (`tla_eval/languages/js_sam.py:_run_helper`): `--network none` (no egress),
+  `--read-only` rootfs with only the spec file bind-mounted read-only, a
+  non-root `--user`, `--memory`/`--cpus`/`--pids-limit` caps, and the
+  evaluator's hard wall-clock `timeout`. The container is the trust boundary;
+  the host is never exposed to model code. A hostile spec that tries to write
+  the filesystem or open a socket fails inside the container and surfaces as an
+  ordinary spec error.
+- **Portability:** no mono/Java dependency. The helper runs in Docker (already
+  a bench-wide dependency for the trace harnesses) using the `node:20-slim`
+  image, with `tools/js-sam` dependencies installed via `npm ci`. Node ≥ 20 is
+  pinned in `package.json` `engines` and supplied by the image. `check_available()`
+  reports a missing daemon, image, helper, or `node_modules`.
 - **Cost:** Phases 1–3 are LLM-free at evaluation time (generation aside).
   Phase 4 makes one direct API call per run for translation, mirroring
   Alloy/PAT cost shape.
