@@ -9,17 +9,34 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR) so CI
+# minutes aren't spent on commits that are already outdated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    strategy:
+      # Don't let one version's failure cancel the others; we want the full
+      # picture across the supported range on every run.
+      fail-fast: false
+      matrix:
+        # Covers the project's declared `requires-python = ">=3.8"` range.
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
+          # Key the pip cache on the file that actually drives the install
+          # (`pip install -e ".[dev]"` reads pyproject.toml), not the default
+          # requirements.txt glob, so the cache busts when deps change.
+          cache-dependency-path: pyproject.toml
 
       - name: Set up Java
         uses: actions/setup-java@v4
