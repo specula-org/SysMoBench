@@ -7,9 +7,18 @@ the SAM pattern (https://sam.js.org), built on @cognitive-fab/sam-pattern and
 proposals, the model accepts them, state is a pure function of the model —
 but the artifact is a runnable .js module rather than formal-spec source.
 
-The Python side shells out to a small Node helper
-(tools/js-sam/cli.mjs) with JSON-in / JSON-out — the same shape as the Alloy
-(Java helper) and PAT (mono console) backends.
+The Python side runs a small Node helper (tools/js-sam/cli.mjs) with
+JSON-in / JSON-out — the same shape as the Alloy (Java helper) and PAT (mono
+console) backends.
+
+SECURITY: unlike TLA+/Alloy/PAT, whose artifacts are restricted modelling
+languages, a SAM spec is executable JavaScript that this helper loads via
+require() and whose invariant predicates it eval()s. Model-generated code is
+therefore untrusted native code. Every helper invocation runs inside a
+throwaway Docker container (see _run_helper): no network (--network none),
+read-only rootfs with the spec mounted read-only, a non-root user, and
+CPU / memory / PID limits. The container is the trust boundary; the host is
+never exposed to model-generated code.
 
 This is the first backend to set `supports_direct_transition_validation`:
 SAM is literally `model.present(action(data))`, so Phase 3 trace replay
@@ -48,30 +57,108 @@ HELPER_NODE_MODULES = HELPER_DIR / "node_modules"
 
 MIN_NODE_MAJOR = 20
 
+# Model-generated SAM specs are executable JavaScript, so the helper runs
+# inside a locked-down Docker container rather than directly on the host.
+# Docker is already a bench-wide dependency (the trace harnesses use it).
+DOCKER_IMAGE = "node:20-slim"
+_SANDBOX_MEMORY = "4g"
+_SANDBOX_CPUS = "2"
+_SANDBOX_PIDS = "256"
+
 # Bench-wide exploration depth for the sam-pattern behavior explorer
 # (Phases 2 and 4). Deliberately a single constant rather than per-task
 # config: revisit when a second task lands (spec Open Question 3).
 DEFAULT_DEPTH_MAX = 6
 
 
-def _helper_env() -> Dict[str, str]:
-    """Make the helper's node_modules resolvable from specs in any work dir."""
-    env = dict(os.environ)
-    node_path = str(HELPER_NODE_MODULES)
-    existing = env.get("NODE_PATH")
-    env["NODE_PATH"] = f"{node_path}{os.pathsep}{existing}" if existing else node_path
-    return env
+def _docker_available() -> Optional[str]:
+    """Return an error string if the Docker daemon can't be reached, else None."""
+    try:
+        r = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except FileNotFoundError:
+        return (
+            "Docker not found in PATH. JS-SAM runs model-generated JavaScript "
+            "inside a sandboxed container and requires Docker."
+        )
+    except subprocess.TimeoutExpired:
+        return "Docker daemon did not respond within 20s."
+    if r.returncode != 0:
+        return f"Docker daemon not reachable: {(r.stderr or r.stdout).strip()[:200]}"
+    return None
+
+
+def _image_present() -> bool:
+    try:
+        r = subprocess.run(
+            ["docker", "image", "inspect", DOCKER_IMAGE],
+            capture_output=True, text=True, timeout=20,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _force_remove_container(name: str) -> None:
+    try:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=20)
+    except Exception:
+        pass
+
+
+# Monotonic-ish suffix so concurrent/sequential helper calls get distinct
+# container names (used for forced cleanup on timeout).
+_helper_call_counter = 0
 
 
 def _run_helper(
     subcommand: str, request: Dict[str, Any], timeout: int
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
-    Invoke one helper subcommand. Returns (response, error_message); exactly
-    one of the two is None. Helper-level failures (crash, bad JSON, ok=False)
-    are tooling errors, not spec failures.
+    Invoke one helper subcommand inside a locked-down Docker container.
+    Returns (response, error_message); exactly one of the two is None.
+    Helper-level failures (crash, bad JSON, ok=False) are tooling errors,
+    not spec failures.
+
+    The container is the trust boundary for model-generated JavaScript:
+      --network none      no egress
+      --read-only         immutable rootfs; only --tmpfs /tmp is writable
+      --user <uid:gid>    non-root, no privileges
+      ro bind mounts      the helper and the single spec file, read-only
+      memory/cpu/pid caps bound a runaway or malicious spec
     """
-    cmd = ["node", str(HELPER_CLI), subcommand]
+    global _helper_call_counter
+    _helper_call_counter += 1
+    container_name = f"sysmobench-jssam-{os.getpid()}-{_helper_call_counter}"
+
+    # The helper (cli.mjs + node_modules) and, for spec-bound subcommands, the
+    # single generated spec file. The helper only reads these; all output is
+    # JSON on stdout. cli.mjs resolves node_modules from its own location, so
+    # mounting HELPER_DIR at the same path keeps that working in-container.
+    mounts = ["-v", f"{HELPER_DIR}:{HELPER_DIR}:ro"]
+    spec_path = request.get("specPath")
+    if spec_path:
+        sp = Path(spec_path).resolve()
+        mounts += ["-v", f"{sp}:{sp}:ro"]
+
+    cmd = [
+        "docker", "run", "--rm", "-i",
+        "--name", container_name,
+        "--network", "none",
+        "--user", f"{os.getuid()}:{os.getgid()}",
+        "--read-only",
+        "--tmpfs", "/tmp",
+        "-e", "HOME=/tmp",
+        "--memory", _SANDBOX_MEMORY,
+        "--cpus", _SANDBOX_CPUS,
+        "--pids-limit", _SANDBOX_PIDS,
+        *mounts,
+        "-w", str(HELPER_DIR),
+        DOCKER_IMAGE,
+        "node", str(HELPER_CLI), subcommand,
+    ]
     try:
         proc = subprocess.run(
             cmd,
@@ -79,13 +166,13 @@ def _run_helper(
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=_helper_env(),
-            cwd=str(PROJECT_ROOT),
         )
     except subprocess.TimeoutExpired:
+        # The docker client was killed, but --rm may not fire — remove explicitly.
+        _force_remove_container(container_name)
         return None, f"JS-SAM helper timed out after {timeout}s ({subcommand})"
     except FileNotFoundError as e:
-        return None, f"Cannot run node: {e}"
+        return None, f"Cannot run docker: {e}"
 
     try:
         response = json.loads(proc.stdout)
@@ -166,29 +253,35 @@ class JsSamBackend(LanguageBackend):
     config_extension = None
 
     def check_available(self) -> Optional[str]:
-        try:
-            r = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10)
-        except Exception as e:
-            return f"Node.js not available ({e}). Install Node >= {MIN_NODE_MAJOR} LTS."
-        if r.returncode != 0:
-            return "Node.js not available; `node --version` failed."
-        version = r.stdout.strip()
-        match = re.match(r"v(\d+)\.", version)
-        if not match or int(match.group(1)) < MIN_NODE_MAJOR:
-            return f"Node {version} found but JS-SAM requires Node >= {MIN_NODE_MAJOR}."
+        docker_error = _docker_available()
+        if docker_error:
+            return docker_error
+        if not _image_present():
+            return (
+                f"JS-SAM sandbox image '{DOCKER_IMAGE}' not found. "
+                f"Run: docker pull {DOCKER_IMAGE}"
+            )
         if not HELPER_CLI.exists():
             return f"JS-SAM helper not found at {HELPER_CLI}."
         if not HELPER_NODE_MODULES.exists():
             return (
                 f"JS-SAM helper dependencies missing. "
-                f"Run: npm install --prefix {HELPER_DIR}"
+                f"Run: npm ci --prefix {HELPER_DIR}"
             )
-        response, error = _run_helper("ping", {}, timeout=30)
+        # Exercise the full sandboxed path end to end.
+        response, error = _run_helper("ping", {}, timeout=60)
         if error:
             return error
+        version = str(response.get("node", ""))
+        match = re.match(r"v(\d+)\.", version)
+        if not match or int(match.group(1)) < MIN_NODE_MAJOR:
+            return (
+                f"JS-SAM sandbox node {version or '?'} < required v{MIN_NODE_MAJOR} "
+                f"(image {DOCKER_IMAGE})."
+            )
         logger.debug(
-            "JS-SAM helper ready (node %s, sam-pattern %s)",
-            response.get("node"), response.get("samPattern"),
+            "JS-SAM sandbox ready (node %s, sam-pattern %s, image %s)",
+            response.get("node"), response.get("samPattern"), DOCKER_IMAGE,
         )
         return None
 
