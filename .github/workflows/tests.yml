@@ -23,8 +23,9 @@ jobs:
       # picture across the supported range on every run.
       fail-fast: false
       matrix:
-        # Covers the project's declared `requires-python = ">=3.8"` range.
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        # Covers the project's declared `requires-python = ">=3.10"` range.
+        # 3.8/3.9 are excluded because the `mcp` dependency requires >=3.10.
+        python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v4
 
