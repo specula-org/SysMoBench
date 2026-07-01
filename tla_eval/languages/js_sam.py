@@ -65,6 +65,13 @@ _SANDBOX_MEMORY = "4g"
 _SANDBOX_CPUS = "2"
 _SANDBOX_PIDS = "256"
 
+# Fixed in-container mount points, kept independent of the host paths so the
+# sandbox works regardless of host path shape (POSIX paths and Windows C:\
+# paths alike). cli.mjs resolves node_modules from its own location, so the
+# whole helper dir is mounted and the spec is mounted under a separate dir.
+_CONTAINER_HELPER_DIR = "/opt/js-sam"
+_CONTAINER_WORK_DIR = "/work"
+
 # Bench-wide exploration depth for the sam-pattern behavior explorer
 # (Phases 2 and 4). Deliberately a single constant rather than per-task
 # config: revisit when a second task lands (spec Open Question 3).
@@ -113,6 +120,29 @@ def _force_remove_container(name: str) -> None:
 _helper_call_counter = 0
 
 
+def _docker_mount_source(path: Path) -> str:
+    """Host path for a ``docker -v`` source, normalized to forward slashes.
+
+    Docker accepts forward-slash paths on every platform; on Windows this
+    avoids backslash ambiguity in the ``-v src:dst`` argument (the drive-letter
+    colon, e.g. ``C:``, is handled by Docker Desktop's volume parser).
+    """
+    return str(path).replace("\\", "/")
+
+
+def _sandbox_user_args() -> List[str]:
+    """``--user`` args that run the sandbox as a non-root user.
+
+    On POSIX hosts, match the host uid:gid so the read-only bind mounts are
+    guaranteed readable. Windows has no ``os.getuid``/``getgid`` and Docker
+    Desktop maps bind mounts readable to any container user, so fall back to a
+    fixed non-root uid there.
+    """
+    if hasattr(os, "getuid"):
+        return ["--user", f"{os.getuid()}:{os.getgid()}"]
+    return ["--user", "1000:1000"]
+
+
 def _run_helper(
     subcommand: str, request: Dict[str, Any], timeout: int
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -133,21 +163,28 @@ def _run_helper(
     _helper_call_counter += 1
     container_name = f"sysmobench-jssam-{os.getpid()}-{_helper_call_counter}"
 
-    # The helper (cli.mjs + node_modules) and, for spec-bound subcommands, the
-    # single generated spec file. The helper only reads these; all output is
-    # JSON on stdout. cli.mjs resolves node_modules from its own location, so
-    # mounting HELPER_DIR at the same path keeps that working in-container.
-    mounts = ["-v", f"{HELPER_DIR}:{HELPER_DIR}:ro"]
+    # Mount the helper (cli.mjs + node_modules) at a fixed container path; the
+    # in-container layout is then independent of the host path shape, and the
+    # spec is mounted under a separate dir below. The helper only reads these;
+    # all output is JSON on stdout. cli.mjs resolves node_modules from its own
+    # location (its NODE_PATH setup), so any consistent mount point works.
+    mounts = ["-v", f"{_docker_mount_source(HELPER_DIR)}:{_CONTAINER_HELPER_DIR}:ro"]
+
+    # Rewrite specPath to where the spec is mounted *inside* the container.
+    # Copy the request so the caller's dict is not mutated.
+    request = dict(request)
     spec_path = request.get("specPath")
     if spec_path:
         sp = Path(spec_path).resolve()
-        mounts += ["-v", f"{sp}:{sp}:ro"]
+        container_spec = f"{_CONTAINER_WORK_DIR}/{sp.name}"
+        mounts += ["-v", f"{_docker_mount_source(sp)}:{container_spec}:ro"]
+        request["specPath"] = container_spec
 
     cmd = [
         "docker", "run", "--rm", "-i",
         "--name", container_name,
         "--network", "none",
-        "--user", f"{os.getuid()}:{os.getgid()}",
+        *_sandbox_user_args(),
         "--read-only",
         "--tmpfs", "/tmp",
         "-e", "HOME=/tmp",
@@ -155,9 +192,9 @@ def _run_helper(
         "--cpus", _SANDBOX_CPUS,
         "--pids-limit", _SANDBOX_PIDS,
         *mounts,
-        "-w", str(HELPER_DIR),
+        "-w", _CONTAINER_HELPER_DIR,
         DOCKER_IMAGE,
-        "node", str(HELPER_CLI), subcommand,
+        "node", f"{_CONTAINER_HELPER_DIR}/cli.mjs", subcommand,
     ]
     try:
         proc = subprocess.run(
