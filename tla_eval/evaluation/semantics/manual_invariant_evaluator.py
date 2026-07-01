@@ -949,6 +949,9 @@ class ManualInvariantEvaluator(BaseEvaluator):
             invariant_results = outcome.cases
             result.model_checking_successful = any(c.success for c in invariant_results)
             result.model_checking_time = sum(c.elapsed_seconds for c in invariant_results)
+            result.states_explored = sum(
+                c.metadata.get("states_explored", 0) for c in invariant_results
+            )
 
             passed_count = sum(1 for c in invariant_results if c.success)
             total_count = len(invariant_results)

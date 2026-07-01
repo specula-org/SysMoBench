@@ -408,6 +408,7 @@ class JsSamBackend(LanguageBackend):
             elapsed_seconds=elapsed,
             error_message="; ".join(errors) if errors else None,
             classification=response.get("classification"),
+            states_explored=response.get("stepsExplored"),
         )
 
     # ---- Phase 3 (direct path) ------------------------------------------
@@ -584,7 +585,7 @@ class JsSamBackend(LanguageBackend):
             if r.get("counterexample"):
                 metadata["counterexample"] = r["counterexample"]
             if r.get("stepsExplored") is not None:
-                metadata["steps_explored"] = r["stepsExplored"]
+                metadata["states_explored"] = r["stepsExplored"]
 
             outcome.cases.append(
                 InvariantCaseResult(

@@ -646,7 +646,7 @@ class RuntimeCheckEvaluator(BaseEvaluator):
             # Other backends may not provide these; default to safe values.
             violations: List[str] = []
             deadlock = False
-            states = 0
+            states = mc_outcome.states_explored or 0
             if self.language.lower() in ("tla+", "tla", "tlaplus", "tla_plus"):
                 try:
                     runner = TLCRunner(timeout=self.timeout)
