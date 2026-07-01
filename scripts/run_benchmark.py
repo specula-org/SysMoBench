@@ -43,6 +43,15 @@ import logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
+# The result summaries print status glyphs (✓ / ✗ / ⏭) that crash on consoles
+# whose default encoding can't represent them (e.g. Windows cp1252). Force the
+# std streams to UTF-8; a no-op where they already speak it.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 
 def _display_evaluation_results(eval_result):
     """Print a unified summary across SyntaxEvaluationResult / SemanticEvaluationResult / TransitionValidationResult."""
