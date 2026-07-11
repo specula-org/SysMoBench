@@ -31,8 +31,12 @@ ADD_PATCH="$PROJECT_ROOT/data/patches/spin_2thread_ktest.patch"
 TRACES_OUT="${TRACES_OUT:-$PROJECT_ROOT/data/sys_traces/spin/spin_2thread.ndjson}"
 LOG="${LOG:-$PROJECT_ROOT/artifacts/spin_capture.log}"
 
-# 1-2. Clone + patch (idempotent: skip if already instrumented).
-if [ ! -e "$SRC/ostd/src/sync/spin_trace.rs" ]; then
+# 1-2. Clone + patch (idempotent: skip if already instrumented). The guard is
+# a sentinel written only after BOTH patches apply — checking for a file the
+# first patch creates would leave a half-patched checkout unrecoverable if the
+# second apply fails (set -e aborts, the next run would skip the whole block).
+SENTINEL="$SRC/.sysmobench_instrumented"
+if [ ! -e "$SENTINEL" ]; then
   echo "[run.sh] cloning asterinas v0.16.0 (LF) into $SRC" >&2
   rm -rf "$SRC"
   git -c core.autocrlf=false clone --depth 1 --branch v0.16.0 \
@@ -43,6 +47,7 @@ if [ ! -e "$SRC/ostd/src/sync/spin_trace.rs" ]; then
   echo "[run.sh] applying reference + 2-thread patches" >&2
   tr -d '\r' < "$REF_PATCH" | git -C "$SRC" apply --whitespace=nowarn
   tr -d '\r' < "$ADD_PATCH" | git -C "$SRC" apply --whitespace=nowarn
+  touch "$SENTINEL"
 fi
 
 # 3. Build + run under QEMU, capturing serial output. Source is read-only; the

@@ -28,6 +28,13 @@ echo "===== make initramfs ====="
 make initramfs
 echo "===== cargo osdk test (test_spin_2thread) ====="
 cd ostd
+# Capture the test's real exit code: under set -e a bare $? after a failing
+# command is unreachable (the script would have aborted), so the DONE line
+# would always print rc=0. Disable -e around the call, record rc, re-exit.
+set +e
 timeout 1200 cargo osdk test --features tla-trace --target-arch x86_64 \
   --qemu-args='-accel tcg' test_spin_2thread 2>&1
-echo "===== DONE rc=$? ====="
+rc=$?
+set -e
+echo "===== DONE rc=$rc ====="
+exit "$rc"
