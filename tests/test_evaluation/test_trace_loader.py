@@ -113,17 +113,20 @@ class TestDirectPathEvaluator:
         assert result.per_action_pass_rates == {"AcquireLock": 1.0}
 
     def test_missing_traces_reported_cleanly(self, tmp_path, monkeypatch):
+        from tla_eval.evaluation.semantics import trace_loader
         from tla_eval.evaluation.semantics.transition_validation import (
             TransitionValidationEvaluator,
         )
+
+        def raise_missing_traces(task_name):
+            raise FileNotFoundError(f"Trace folder not found for task '{task_name}'")
+
+        monkeypatch.setattr(trace_loader, "load_trace_windows", raise_missing_traces)
 
         spec = PROJECT_ROOT / "tests" / "fixtures" / "js_sam" / "specs" / "spin-good.js"
         evaluator = TransitionValidationEvaluator(
             language="JS-SAM", workspace_root=str(tmp_path)
         )
-        # No monkeypatch: the real spin traces_folder (data/sys_traces/spin)
-        # is not checked into the repository, so the loader must fail with an
-        # actionable message rather than a crash.
         result = evaluator.evaluate(
             generation_result=SimpleNamespace(metadata={}),
             task_name="spin",
