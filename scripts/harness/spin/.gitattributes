@@ -1,0 +1,4 @@
+# These scripts run inside a Linux container (build_and_test.sh) or drive it
+# (run.sh); they must keep LF endings even when checked out on Windows, or bash
+# fails on the CR (`$'\r': command not found`).
+*.sh text eol=lf

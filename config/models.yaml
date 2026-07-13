@@ -26,13 +26,14 @@ models:
   # Anthropic Claude
   claude:
     provider: "anthropic"
-    model_name: "claude-sonnet-4-20250514"
+    # Sonnet 4 (claude-sonnet-4-20250514) retired 2026-06-15; switched to the
+    # current Opus tier on 2026-06-30. Opus 4.8 removes the sampling params:
+    # temperature/top_p/top_k now return a 400, so they are intentionally absent.
+    model_name: "claude-opus-4-8"
     api_key_env: "ANTHROPIC_API_KEY"
-    temperature: 0.1
-    # claude-sonnet-4 rejects max_tokens > 64000 (API: "maximum allowed
-    # number of output tokens for claude-sonnet-4-20250514"); probed 2026-06-09.
+    # Opus 4.8 supports up to 128000 output tokens; kept at 64000 to match the
+    # prior run's cap and stay within non-streaming timeout limits.
     max_tokens: 64000
-    top_p: 0.9
 
   deepseek_tencent:
     provider: "deepseek"

@@ -1,0 +1,8 @@
+{"action": "AcquireLock", "data": {"thread": 0, "callType": "lock"}, "pre_state": {"lockHeld": false, "lockHolder": null}, "post_state": {"lockHeld": true, "lockHolder": 0}}
+{"action": "AcquireLock", "data": {"thread": 1, "callType": "try"}, "pre_state": {"lockHeld": true, "lockHolder": 0}, "post_state": {"lockHeld": true, "lockHolder": 0}}
+{"action": "ReleaseLock", "data": {"thread": 0}, "pre_state": {"lockHeld": true, "lockHolder": 0}, "post_state": {"lockHeld": false, "lockHolder": null}}
+{"action": "AcquireLock", "data": {"thread": 1, "callType": "lock"}, "pre_state": {"lockHeld": false, "lockHolder": null}, "post_state": {"lockHeld": true, "lockHolder": 1}}
+{"action": "AcquireLock", "data": {"thread": 0, "callType": "try"}, "pre_state": {"lockHeld": true, "lockHolder": 1}, "post_state": {"lockHeld": true, "lockHolder": 1}}
+{"action": "ReleaseLock", "data": {"thread": 1}, "pre_state": {"lockHeld": true, "lockHolder": 1}, "post_state": {"lockHeld": false, "lockHolder": null}}
+{"action": "AcquireLock", "data": {"thread": 0, "callType": "try"}, "pre_state": {"lockHeld": false, "lockHolder": null}, "post_state": {"lockHeld": true, "lockHolder": 0}}
+{"action": "ReleaseLock", "data": {"thread": 0}, "pre_state": {"lockHeld": true, "lockHolder": 0}, "post_state": {"lockHeld": false, "lockHolder": null}}

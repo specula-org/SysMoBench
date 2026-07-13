@@ -31,6 +31,7 @@ class ModelCheckOutcome:
     elapsed_seconds: float = 0.0
     error_message: Optional[str] = None
     classification: Optional[str] = None  # e.g. "violation", "deadlock", "timeout", "parse_error"
+    states_explored: Optional[int] = None  # steps/states the checker explored, when the backend reports it
 
 
 @dataclass

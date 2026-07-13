@@ -281,6 +281,25 @@ class LiteLLMAdapter(ModelAdapter):
     def _should_omit_top_p(self) -> bool:
         return self.litellm_model.startswith("openai/gpt-5")
 
+    def _should_omit_sampling_params(self) -> bool:
+        """Whether to drop temperature/top_p/top_k for this model.
+
+        Claude Opus 4.7+, Fable 5, and Mythos 5 removed the sampling
+        parameters and return a 400 ("`temperature` is deprecated for this
+        model") if any are sent. litellm's drop_params does not yet cover
+        these newer models, so the request must omit them here.
+        """
+        model = self.litellm_model.lower()
+        return any(
+            tag in model
+            for tag in (
+                "claude-opus-4-8",
+                "claude-opus-4-7",
+                "claude-fable-5",
+                "claude-mythos-5",
+            )
+        )
+
     def _build_completion_params(
         self,
         prompt: str,
@@ -312,15 +331,17 @@ class LiteLLMAdapter(ModelAdapter):
         if model_max_tokens is not None:
             params["max_tokens"] = model_max_tokens
 
+        omit_sampling = self._should_omit_sampling_params()
+
         model_temperature = self.config.get(
             "temperature",
             generation_config.temperature,
         )
-        if model_temperature is not None:
+        if model_temperature is not None and not omit_sampling:
             params["temperature"] = model_temperature
 
         model_top_p = self.config.get("top_p", generation_config.top_p)
-        if model_top_p is not None and not self._should_omit_top_p():
+        if model_top_p is not None and not self._should_omit_top_p() and not omit_sampling:
             params["top_p"] = model_top_p
 
         if generation_config.stop_sequences:

@@ -1,0 +1,46 @@
+--- a/ostd/src/sync/spin_trace_tests.rs
++++ b/ostd/src/sync/spin_trace_tests.rs
+@@ -98,7 +98,35 @@
+         crate::early_println!("Expected trace count: 18 events");
+         crate::early_println!("- 6 tests × 3 events each (TryAcquire + Success + Release) = 18 total");
+     }
+-    
++
++    /// Two-actor contention scenario matching the JS-SAM 2-thread spin model.
++    /// A single-CPU ktest can't spawn a real 2nd thread that blocks (a blocking
++    /// lock() from actor 1 while actor 0 holds would spin forever), so the 2nd
++    /// actor's contention is expressed via try_lock, which fails without blocking.
++    #[ktest]
++    fn test_spin_2thread() {
++        crate::early_println!("=== 2-Thread SpinLock Trace Start ===");
++        let lock = Arc::new(SpinTrace::<u32, PreemptDisabled>::new(0));
++
++        // actor 0 acquires (blocking): TryAcquireBlocking(0) + AcquireSuccess(0)
++        let g0 = lock.lock_with_thread_id(0);
++        // actor 1 attempts while 0 holds -> AcquireFail(1) (contention, no deadlock)
++        assert!(lock.try_lock_with_thread_id(1).is_none());
++        // actor 0 releases: Release(0)
++        drop(g0);
++        // actor 1 acquires (blocking): TryAcquireBlocking(1) + AcquireSuccess(1)
++        let g1 = lock.lock_with_thread_id(1);
++        // actor 0 attempts while 1 holds -> AcquireFail(0)
++        assert!(lock.try_lock_with_thread_id(0).is_none());
++        // actor 1 releases: Release(1)
++        drop(g1);
++        // actor 0 non-blocking acquire when free -> AcquireSuccess(0)
++        let g0b = lock.try_lock_with_thread_id(0).expect("lock is free");
++        drop(g0b); // Release(0)
++
++        crate::early_println!("=== 2-Thread SpinLock Trace Complete ===");
++    }
++
+     #[ktest]
+     fn test_tla_trace_simple() {
+         crate::early_println!("=== TLA+ SpinLock Randomized Trace Test Start ===");
+@@ -212,4 +240,4 @@
+             _ => unreachable!(),
+         }
+     }
+-}
++}
+\ No newline at end of file
