@@ -39,6 +39,13 @@ jobs:
           # requirements.txt glob, so the cache busts when deps change.
           cache-dependency-path: pyproject.toml
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tools/js-sam/package-lock.json
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -50,6 +57,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Install JS-SAM tools
+        run: |
+          npm ci --prefix tools/js-sam
+          docker pull node:20-slim
+
       - name: Fetch TLC tools
         # tla2tools.jar, pinned to the same version as scripts/setup_tools.py,
         # so the TLC-gated behavioral tests run in CI instead of skipping.
@@ -59,8 +71,6 @@ jobs:
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
 
       - name: Run tests
-        # Scope note: tests/test_languages is deterministic and exercises real
-        # TLC. tests/test_models is excluded for now -- test_model_connection.py
-        # makes live provider API calls that need secrets, and
-        # test_litellm_adapter.py has pre-existing failures tracked separately.
-        run: pytest tests/test_languages
+        # test_model_connection.py is an interactive live-provider check that
+        # requires API credentials; all deterministic tests run here.
+        run: pytest tests --ignore=tests/test_models/test_model_connection.py
