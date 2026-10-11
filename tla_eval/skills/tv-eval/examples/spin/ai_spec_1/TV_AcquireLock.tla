@@ -23,7 +23,7 @@ Init ==
 
 Next ==
     /\ step = 0
-    /\ \E t \in Threads : S!AcquireLock(t)
+    /\ S!AcquireLock(w.actor)
     /\ step' = 1
 
 PostReached ==

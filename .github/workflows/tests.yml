@@ -69,6 +69,8 @@ jobs:
           mkdir -p lib
           curl -fL --retry 3 -o lib/tla2tools.jar \
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          curl -fL --retry 3 -o lib/CommunityModules-deps.jar \
+            https://github.com/tlaplus/CommunityModules/releases/download/202505152026/CommunityModules-deps.jar
 
       - name: Run tests
         # test_model_connection.py is an interactive live-provider check that

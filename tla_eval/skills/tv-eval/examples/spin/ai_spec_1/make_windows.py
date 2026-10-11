@@ -7,6 +7,7 @@ Mappings (this spec):
   - pc value: trace 'acquiring' → spec 'trying' (same for idle/locked)
 """
 
+import argparse
 import json
 from pathlib import Path
 
@@ -26,24 +27,30 @@ def convert_state(s):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=SRC)
+    parser.add_argument("--output", type=Path, default=DST)
+    args = parser.parse_args()
     out = []
-    with open(SRC) as f:
+    with open(args.source) as f:
         for line in f:
             w = json.loads(line)
             if w["action"] != TARGET_ACTION:
                 continue
-            out.append({
-                "id": len(out) + 1,      # 1-indexed for TLA+
-                "trace_id": w["trace_id"],
-                "actor": int(w["actor"]) + 1,  # trace 0/1/2 → spec 1/2/3
-                "pre": convert_state(w["pre_state"]),
-                "post": convert_state(w["post_state"]),
-            })
+            out.append(
+                {
+                    "id": len(out) + 1,  # 1-indexed for TLA+
+                    "trace_id": w["trace_id"],
+                    "actor": int(w["actor"]) + 1,  # trace 0/1/2 → spec 1/2/3
+                    "pre": convert_state(w["pre_state"]),
+                    "post": convert_state(w["post_state"]),
+                }
+            )
 
-    with open(DST, "w") as f:
+    with open(args.output, "w") as f:
         for w in out:
             f.write(json.dumps(w) + "\n")
-    print(f"Wrote {len(out)} {TARGET_ACTION} windows to {DST}")
+    print(f"Wrote {len(out)} {TARGET_ACTION} windows to {args.output}")
 
 
 if __name__ == "__main__":

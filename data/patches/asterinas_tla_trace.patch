@@ -1843,10 +1843,10 @@ index 0000000..c902814
 \ No newline at end of file
 diff --git a/ostd/src/sync/spin_trace.rs b/ostd/src/sync/spin_trace.rs
 new file mode 100644
-index 0000000..8ca98ee
+index 0000000..0106a41
 --- /dev/null
 +++ b/ostd/src/sync/spin_trace.rs
-@@ -0,0 +1,525 @@
+@@ -0,0 +1,550 @@
 +// SPDX-License-Identifier: MPL-2.0
 +
 +use alloc::sync::Arc;
@@ -2038,6 +2038,7 @@ index 0000000..8ca98ee
 +        // Record RequestTryLock (after setting state to trying_nonblocking)
 +        let lock_addr = self as *const Self as *const () as usize;
 +        let current_state = self.inner.lock.load(Ordering::Relaxed);
++        trace_event("TryAcquireNonBlocking", lock_addr, thread_id, current_state);
 +        
 +        if self.try_acquire_lock_with_id(thread_id) {
 +            let lock_guard = SpinTraceGuard_ {
@@ -2047,8 +2048,8 @@ index 0000000..8ca98ee
 +            };
 +            return Some(lock_guard);
 +        } else {
-+            // Explicitly record failure
-+            trace_event("AcquireFail", lock_addr, thread_id, false);
++            // A failed compare_exchange(false, true) observed a held lock.
++            trace_event("AcquireFail", lock_addr, thread_id, true);
 +            None
 +        }
 +    }
@@ -2206,6 +2207,30 @@ index 0000000..8ca98ee
 +    fn simple_rand(seed: &mut u32) -> u32 {
 +        *seed = (*seed).wrapping_mul(1103515245).wrapping_add(12345);
 +        *seed
++    }
++
++    // A deterministic, single-CPU scenario with overlapping lock lifetimes.
++    // Every event comes from an executed operation; no synthetic contention.
++    #[ktest]
++    fn test_spin_tv_contract() {
++        TRACE_SEQUENCE.store(0, Ordering::Relaxed);
++        crate::early_println!("=== SPIN_TV_BEGIN ===");
++        let lock = SpinTrace::<u32, PreemptDisabled>::new(0);
++
++        let mut holder = lock.lock_with_thread_id(0);
++        *holder = 1;
++        assert!(lock.try_lock_with_thread_id(1).is_none());
++        drop(holder);
++
++        let mut next = lock.try_lock_with_thread_id(1).unwrap();
++        assert_eq!(*next, 1);
++        *next = 2;
++        drop(next);
++
++        let final_guard = lock.lock_with_thread_id(2);
++        assert_eq!(*final_guard, 2);
++        drop(final_guard);
++        crate::early_println!("=== SPIN_TV_END ===");
 +    }
 +
 +    #[ktest]
