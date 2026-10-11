@@ -66,7 +66,7 @@ Diagnostic procedure:
 
 **Known pattern from spin prototype**: 123/210 pass on AcquireLock. All 123 pass had `pc[actor] = "trying"` in pre. All 87 fail had `pc[actor] = "idle"`. Reason: trace skipped the intermediate `trying` state in no-contention paths. Trace non-compliant in some windows.
 
-Fix: filter out the non-compliant windows at Step 0 (per-window contract check), OR report the split clearly.
+Fix: classify this as an instrumentation defect at Step 0, repair the missing request event, and recapture the traces. Do not filter the failing windows or score the incomplete trace set. The spin example preserves the old windows under `legacy/` for diagnosis; its default data comes from a separate, documented kernel capture.
 
 ### Random failures (no pattern)
 

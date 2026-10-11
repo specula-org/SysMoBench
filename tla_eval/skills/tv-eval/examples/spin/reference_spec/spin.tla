@@ -15,26 +15,33 @@ Init ==
     /\ lockState = "unlocked"
     /\ pc = [t \in Threads |-> "idle"]
 
-\* Thread starts a blocking acquire attempt (lock is held, will spin)
+\* A request starts before CAS, whether the lock is free or held.
 TryAcquire(t) ==
     /\ pc[t] = "idle"
-    /\ lockState = "locked"
     /\ pc' = [pc EXCEPT ![t] = "acquiring"]
     /\ UNCHANGED lockState
 
-\* Thread acquires lock after spinning (lock just became free)
+\* A pending request successfully executes CAS.
 AcquireLock(t) ==
     /\ pc[t] = "acquiring"
     /\ lockState = "unlocked"
     /\ lockState' = "locked"
     /\ pc' = [pc EXCEPT ![t] = "locked"]
 
-\* Thread acquires lock immediately (no contention, lock is free)
+\* Coarse legacy traces omitted the nonblocking request event.
+\* Retained for that abstraction; not the task's full modeling contract.
 AcquireLockDirect(t) ==
     /\ pc[t] = "idle"
     /\ lockState = "unlocked"
     /\ lockState' = "locked"
     /\ pc' = [pc EXCEPT ![t] = "locked"]
+
+\* A nonblocking request fails while another thread holds the lock.
+AcquireFail(t) ==
+    /\ pc[t] = "acquiring"
+    /\ lockState = "locked"
+    /\ pc' = [pc EXCEPT ![t] = "idle"]
+    /\ UNCHANGED lockState
 
 \* Thread releases lock
 ReleaseLock(t) ==
@@ -47,6 +54,7 @@ Next ==
         \/ TryAcquire(t)
         \/ AcquireLock(t)
         \/ AcquireLockDirect(t)
+        \/ AcquireFail(t)
         \/ ReleaseLock(t)
 
 Spec == Init /\ [][Next]_vars

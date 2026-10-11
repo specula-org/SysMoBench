@@ -1,0 +1,11 @@
+{"seq": 0, "thread": 0, "lock": 0, "state": "unlocked", "action": "TryAcquireBlocking", "actor": 0}
+{"seq": 1, "thread": 0, "lock": 0, "state": "locked", "action": "AcquireSuccess", "actor": 0}
+{"seq": 2, "thread": 1, "lock": 0, "state": "locked", "action": "TryAcquireNonBlocking", "actor": 1}
+{"seq": 3, "thread": 1, "lock": 0, "state": "locked", "action": "AcquireFail", "actor": 1}
+{"seq": 4, "thread": 0, "lock": 0, "state": "unlocked", "action": "Release", "actor": 0}
+{"seq": 5, "thread": 1, "lock": 0, "state": "unlocked", "action": "TryAcquireNonBlocking", "actor": 1}
+{"seq": 6, "thread": 1, "lock": 0, "state": "locked", "action": "AcquireSuccess", "actor": 1}
+{"seq": 7, "thread": 1, "lock": 0, "state": "unlocked", "action": "Release", "actor": 1}
+{"seq": 8, "thread": 2, "lock": 0, "state": "unlocked", "action": "TryAcquireBlocking", "actor": 2}
+{"seq": 9, "thread": 2, "lock": 0, "state": "locked", "action": "AcquireSuccess", "actor": 2}
+{"seq": 10, "thread": 2, "lock": 0, "state": "unlocked", "action": "Release", "actor": 2}

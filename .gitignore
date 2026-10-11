@@ -45,6 +45,7 @@ systems/asterinas/asterinas/
 *.fp
 states/
 traces/
+!tla_eval/skills/tv-eval/examples/spin/traces/
 **/output/
 generation_summary.json
 specula
