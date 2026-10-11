@@ -2076,13 +2076,13 @@ index 0000000..0106a41
 +            core::hint::spin_loop();
 +        }
 +
-+        if spinning {
-+            // Record end of spinning (if we did spin)
-+            trace_event("StopSpinning", lock_addr, thread_id, true);
-+        }
-+
 +        // Record successful lock acquisition (after execution)
 +        trace_event("AcquireSuccess", lock_addr, thread_id, true);
++
++        if spinning {
++            // The lock is already held; this event does not change its state.
++            trace_event("StopSpinning", lock_addr, thread_id, true);
++        }
 +    }
 +
 +    fn try_acquire_lock_internal(&self) -> bool {

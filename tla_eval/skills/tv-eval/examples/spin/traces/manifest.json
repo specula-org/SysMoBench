@@ -3,7 +3,7 @@
   "source_commit": "d73f1016a1d0cfb7b1f2ea72d2e9dd67ced0e0fa",
   "docker_image": "asterinas/asterinas:0.16.0-20250822@sha256:10d52ce84f72116ca2e41d6170f8882893592ccfc166d6b7d2262ccfeedacab2",
   "patch": "data/patches/asterinas_tla_trace.patch",
-  "patch_sha256": "2b8527c65dbd851769877e4d5032cf72d48e0dc61e97ebaf1961dc8639e85d23",
+  "patch_sha256": "8dd4ca8885d1d04670e9fe81bd73a694e80e42184d1ea77e7099a85ae5ce1542",
   "trace_sha256": "f07b9a8c826c4739aa9a33867d3a1895e060ada67adb430caf1540e87dde7ff3",
   "test": "test_spin_tv_contract",
   "capture_command": "bash scripts/harness/spin_tv/run.sh",

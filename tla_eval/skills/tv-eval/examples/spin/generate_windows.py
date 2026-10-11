@@ -40,6 +40,7 @@ def generate_windows_from_trace(trace_id, events, *, allow_legacy_direct_acquire
 
     The legacy switch only reproduces the archived coarse example; it does not
     make missing request events compliant with the task's single-step contract.
+    It also permits gaps and the old pre-acquisition StopSpinning marker.
     """
     windows = []
     state = initial_state()
@@ -54,6 +55,8 @@ def generate_windows_from_trace(trace_id, events, *, allow_legacy_direct_acquire
                 raise ValueError(f"unknown actor {actor}")
             if type(seq) is not int or seq <= previous_seq:
                 raise ValueError("sequence numbers must increase within a trace")
+            if not allow_legacy_direct_acquire and seq != previous_seq + 1:
+                raise ValueError("sequence numbers must start at 0 and be contiguous")
             previous_seq = seq
             if observed not in ("locked", "unlocked"):
                 raise ValueError("state must be locked or unlocked")
@@ -80,7 +83,7 @@ def generate_windows_from_trace(trace_id, events, *, allow_legacy_direct_acquire
                     )
                 post["lockState"] = "locked"
                 post["pc"][actor] = "locked"
-                requests.pop(actor, None)
+                # Keep the request kind until release to check StopSpinning.
             elif action == "AcquireFail":
                 if (
                     pc != "acquiring"
@@ -97,9 +100,16 @@ def generate_windows_from_trace(trace_id, events, *, allow_legacy_direct_acquire
                     raise ValueError("release requires the owning actor")
                 post["lockState"] = "unlocked"
                 post["pc"][actor] = "idle"
+                requests.pop(actor, None)
             elif action == "StopSpinning":
-                if pc != "acquiring" or requests.get(actor) != "TryAcquireBlocking":
-                    raise ValueError("StopSpinning requires a pending blocking request")
+                # CAS and AcquireSuccess precede this diagnostic event.
+                valid_pc = pc == "locked" or (
+                    allow_legacy_direct_acquire and pc == "acquiring"
+                )
+                if not valid_pc or requests.get(actor) != "TryAcquireBlocking":
+                    raise ValueError(
+                        "StopSpinning requires a held blocking acquisition"
+                    )
             else:
                 raise ValueError(f"unknown action {action!r}")
             # Check even no-op events, before deciding whether to emit a window.
@@ -132,7 +142,7 @@ def main():
     parser.add_argument(
         "--allow-legacy-direct-acquire",
         action="store_true",
-        help="Reproduce historical coarse windows; not valid benchmark input",
+        help="Allow legacy direct acquisitions, sequence gaps and spin markers; not valid benchmark input",
     )
     args = parser.parse_args()
     files = sorted(args.traces_dir.glob("trace_*.jsonl"))

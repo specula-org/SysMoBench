@@ -68,6 +68,140 @@ def test_failed_try_lock_preserves_holder_and_allows_retry():
     assert result[-1]["post_state"]["pc"]["1"] == "locked"
 
 
+def blocking_contention_events():
+    return [
+        event(0, "TryAcquireBlocking"),
+        event(1, "AcquireSuccess", state="locked"),
+        event(2, "TryAcquireBlocking", actor=1, state="locked"),
+        event(3, "Release"),
+        event(4, "AcquireSuccess", actor=1, state="locked"),
+        event(5, "StopSpinning", actor=1, state="locked"),
+        event(6, "Release", actor=1),
+    ]
+
+
+def test_blocking_contention_records_one_acquisition_after_release():
+    result = windows.generate_windows_from_trace(
+        "contention", blocking_contention_events()
+    )
+    assert len(result) == 6
+    acquisition = result[4]
+    assert acquisition["action"] == "AcquireSuccess"
+    assert acquisition["pre_state"] == {
+        "lockState": "unlocked",
+        "pc": {"0": "idle", "1": "acquiring", "2": "idle"},
+    }
+    assert acquisition["post_state"] == {
+        "lockState": "locked",
+        "pc": {"0": "idle", "1": "locked", "2": "idle"},
+    }
+    assert result[-1]["post_state"] == windows.initial_state()
+
+
+@pytest.fixture(scope="module")
+def executed_contention_events(tmp_path_factory):
+    if not shutil.which("rustc"):
+        pytest.skip("rustc is required to execute the patched spin methods")
+    patch = (ROOT / "data/patches/asterinas_tla_trace.patch").read_text()
+    section = patch.split(
+        "diff --git a/ostd/src/sync/spin_trace.rs b/ostd/src/sync/spin_trace.rs\n", 1
+    )[1].split("\ndiff --git ", 1)[0]
+    source = "\n".join(
+        line[1:]
+        for line in section.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+    methods = []
+    for name in ("acquire_lock_with_id", "try_acquire_lock_internal", "release_lock"):
+        start = source.index(f"    fn {name}(")
+        end = source.index("\n    }", start) + len("\n    }")
+        methods.append(source[start:end])
+    template = Path(__file__).with_name("spin_contention.rs").read_text()
+    work = tmp_path_factory.mktemp("spin-contention")
+    native_source = work / "main.rs"
+    native_source.write_text(
+        template.replace("// SPIN_TRACE_METHODS", "\n".join(methods))
+    )
+    binary = work / "spin-contention"
+    subprocess.run(
+        ["rustc", "--edition=2021", str(native_source), "-o", str(binary)],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    result = subprocess.run(
+        [str(binary)], check=True, capture_output=True, text=True, timeout=10
+    )
+    return [json.loads(line) for line in result.stdout.splitlines()]
+
+
+def test_executed_contention_matches_windows(executed_contention_events):
+    generated = windows.generate_windows_from_trace(
+        "native", executed_contention_events
+    )
+    expected = windows.generate_windows_from_trace(
+        "native", blocking_contention_events()
+    )
+    assert generated == expected
+
+
+@pytest.mark.parametrize("mutation", ["unlocked", "nonblocking", "wrong_actor"])
+def test_invalid_stop_spinning_is_rejected(mutation):
+    events = blocking_contention_events()
+    if mutation == "unlocked":
+        events[5]["state"] = "unlocked"
+    elif mutation == "nonblocking":
+        events[2]["action"] = "TryAcquireNonBlocking"
+    else:
+        events[5]["actor"] = 2
+    with pytest.raises(ValueError):
+        windows.generate_windows_from_trace("invalid-contention", events)
+
+
+@pytest.mark.parametrize("missing", [{5, 6, 7}, set(range(5))])
+def test_incomplete_sequence_is_rejected_before_overwriting_output(tmp_path, missing):
+    events = read_windows(EXAMPLE / "traces/trace_01.jsonl")
+    events = [e for e in events if e["seq"] not in missing]
+    (tmp_path / "trace_01.jsonl").write_text(
+        "".join(json.dumps(e) + "\n" for e in events)
+    )
+    output = tmp_path / "windows.jsonl"
+    output.write_text("keep existing results\n")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "generate_windows.py"),
+            "--traces-dir",
+            str(tmp_path),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "sequence numbers" in result.stderr
+    assert output.read_text() == "keep existing results\n"
+
+
+def test_legacy_mode_preserves_coarse_spin_markers_and_sequence_gaps():
+    events = [
+        event(0, "AcquireSuccess", state="locked"),
+        event(2, "TryAcquireBlocking", actor=1, state="locked"),
+        event(3, "StopSpinning", actor=1, state="locked"),
+        event(4, "Release"),
+        event(5, "AcquireSuccess", actor=1, state="locked"),
+        event(6, "Release", actor=1),
+    ]
+    result = windows.generate_windows_from_trace(
+        "legacy", events, allow_legacy_direct_acquire=True
+    )
+    assert len(result) == 5
+    assert result[-1]["post_state"] == windows.initial_state()
+
+
 @pytest.mark.parametrize(
     "events, message",
     [
@@ -77,7 +211,7 @@ def test_failed_try_lock_preserves_holder_and_allows_retry():
         ([event(0, "Release")], "owning actor"),
         (
             [event(0, "TryAcquireBlocking"), event(1, "StopSpinning", state="locked")],
-            "state mismatch",
+            "held blocking acquisition",
         ),
         (
             [
@@ -182,6 +316,38 @@ def run_validator(tmp_path, spec, source):
     )
     assert report.exists(), result.stdout + result.stderr
     return result.returncode, json.loads(report.read_text())
+
+
+@requires_tlc
+@pytest.mark.parametrize("spec, count", [("reference_spec", 6), ("ai_spec_1", 2)])
+def test_tlc_executed_blocking_contention(
+    tmp_path, executed_contention_events, spec, count
+):
+    generated = windows.generate_windows_from_trace(
+        "native", executed_contention_events
+    )
+    source = tmp_path / "windows.jsonl"
+    source.write_text("".join(json.dumps(w) + "\n" for w in generated))
+    if spec == "ai_spec_1":
+        converted = tmp_path / "acquire.ndjson"
+        subprocess.run(
+            [
+                sys.executable,
+                str(EXAMPLE / "ai_spec_1/make_windows.py"),
+                "--source",
+                str(source),
+                "--output",
+                str(converted),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        source = converted
+    code, report = run_validator(tmp_path, spec, source)
+    assert code == 0
+    assert report["summary"]["total"] == report["summary"]["passed"] == count
 
 
 @requires_tlc
