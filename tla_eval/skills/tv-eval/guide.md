@@ -268,7 +268,7 @@ The audit section of `audit.md` should contain the full reasoning and TLC transc
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | 0% on an action | Trace granularity coarser than spec's | Re-check Step 0; trace is likely non-compliant |
-| Middle score with clear pre-state pattern | Subset of traces non-compliant | Classify at Step 0; repair and recapture instrumentation defects |
+| Middle score with clear pre-state pattern | Subset of traces non-compliant | Exclude non-compliant windows, re-score |
 | Random-looking failures | Real spec quality issue | Dump TLC counterexample, examine actual vs expected |
 | TLC timeouts | Aux variable defaults wrong / domain explosion | Tighten aux defaults per action precondition |
 | Parse/compile errors | TV module syntax | Check INSTANCE usage, imports, cfg constants |
