@@ -169,10 +169,15 @@ def run_validator(tmp_path, spec, source):
             str(source),
             "--report",
             str(report),
+            "--workers",
+            "2",
         ],
         capture_output=True,
         text=True,
-        timeout=180,
+        # The historical reference fixture starts 543 JVMs. Allow the whole
+        # batch to finish on hosted runners; each window still has its own
+        # 30-second TLC timeout. Limit concurrency to avoid CPU oversubscription.
+        timeout=600,
         env={**os.environ, "JAVA_TOOL_OPTIONS": "-XX:ActiveProcessorCount=2 -Xmx256m"},
     )
     assert report.exists(), result.stdout + result.stderr
